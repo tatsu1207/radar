@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+.venv/
+venv/
+
+# Node
+node_modules/
+.next/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Data
+/data/
+*.fastq
+*.fastq.gz
+*.fasta
+*.fa
+*.fna
+
+# Runtime artifacts
+dump.rdb
+test.db
+*.tsbuildinfo
+
+# Scratch / notes
+data_product.sh
+
+# OS
+.DS_Store
+Thumbs.db
