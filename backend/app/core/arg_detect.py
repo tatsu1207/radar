@@ -9,7 +9,7 @@ from app.models.models import ARGResult, VirulenceResult
 
 logger = logging.getLogger(__name__)
 
-CONDA_AMR = "radar-amr"
+CONDA_AMRFINDER = "radar-amrfinder"
 
 
 def run_amrfinderplus(sample_id: str, assembly_path: str, db, threads: int = 4) -> List[ARGResult]:
@@ -25,12 +25,22 @@ def run_amrfinderplus(sample_id: str, assembly_path: str, db, threads: int = 4) 
     """
     logger.info(f"Running AMRFinderPlus for sample {sample_id}")
 
+    # Delete existing results to allow re-runs (cascade deletes promoter/rbs)
+    old_args = db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
+    for a in old_args:
+        from app.models.models import PromoterResult, RBSResult
+        db.query(PromoterResult).filter(PromoterResult.arg_result_id == a.id).delete()
+        db.query(RBSResult).filter(RBSResult.arg_result_id == a.id).delete()
+    db.query(ARGResult).filter(ARGResult.sample_id == sample_id).delete()
+    db.query(VirulenceResult).filter(VirulenceResult.sample_id == sample_id).delete()
+    db.commit()
+
     results_dir = os.path.join(settings.RESULTS_DIR, str(sample_id), "amr")
     os.makedirs(results_dir, exist_ok=True)
     output_path = os.path.join(results_dir, "amrfinderplus.tsv")
 
     cmd = [
-        "conda", "run", "-n", CONDA_AMR,
+        "conda", "run", "-n", CONDA_AMRFINDER,
         "amrfinder",
         "-n", assembly_path,
         "-o", output_path,
@@ -50,14 +60,14 @@ def run_amrfinderplus(sample_id: str, assembly_path: str, db, threads: int = 4) 
         with open(output_path) as f:
             reader = csv.DictReader(f, delimiter="\t")
             for row in reader:
-                element_type = row.get("Element type", "")
-                element_subtype = row.get("Element subtype", "")
+                element_type = row.get("Element type", row.get("Type", ""))
+                element_subtype = row.get("Element subtype", row.get("Subtype", ""))
 
                 # Skip stress/biocide unless relevant
                 if element_type not in ("AMR", "STRESS", "VIRULENCE", ""):
                     continue
 
-                gene_name = row.get("Gene symbol", row.get("Sequence name", "unknown"))
+                gene_name = row.get("Gene symbol", row.get("Element symbol", row.get("Sequence name", "unknown")))
                 drug_class = row.get("Class", "")
                 subclass = row.get("Subclass", "")
                 if subclass and subclass != drug_class:
@@ -66,8 +76,8 @@ def run_amrfinderplus(sample_id: str, assembly_path: str, db, threads: int = 4) 
                 contig = row.get("Contig id", "")
                 start = _safe_int(row.get("Start", ""))
                 end = _safe_int(row.get("Stop", ""))
-                identity = _safe_float(row.get("% Identity to reference sequence", ""))
-                coverage = _safe_float(row.get("% Coverage of reference sequence", ""))
+                identity = _safe_float(row.get("% Identity to reference sequence", row.get("% Identity to reference", "")))
+                coverage = _safe_float(row.get("% Coverage of reference sequence", row.get("% Coverage of reference", "")))
                 method = row.get("Method", "")
 
                 if element_type == "VIRULENCE":
@@ -78,6 +88,8 @@ def run_amrfinderplus(sample_id: str, assembly_path: str, db, threads: int = 4) 
                         identity=identity,
                         coverage=coverage,
                         contig=contig,
+                        start=start,
+                        end=end,
                         database="amrfinderplus",
                     )
                     db.add(vf)

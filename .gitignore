@@ -25,13 +25,19 @@ out/
 .env.local
 .env.production
 
-# Data
+# Data & results
 /data/
+/databases/
+/localDB/
+/busco_downloads/
+/backend/busco_downloads/
+vault
 *.fastq
 *.fastq.gz
 *.fasta
 *.fa
 *.fna
+*.log
 
 # Runtime artifacts
 dump.rdb
@@ -40,6 +46,7 @@ test.db
 
 # Scratch / notes
 data_product.sh
+resume.txt
 
 # OS
 .DS_Store

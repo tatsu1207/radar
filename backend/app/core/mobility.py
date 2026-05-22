@@ -56,7 +56,7 @@ def run_mefinder(sample_id: str, assembly_path: str, db) -> List[MobilityResult]
     os.makedirs(temp_dir, exist_ok=True)
 
     cmd = [
-        "conda", "run", "-n", "radar",
+        "conda", "run", "-n", "radar-mefinder",
         "mefinder", "find",
         "--contig", assembly_path,
         "--temp-dir", temp_dir,

@@ -3,8 +3,45 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --color-bg-primary: #e8e8ee;
+    --color-bg-secondary: #dddde4;
+    --color-bg-tertiary: #d2d2da;
+    --color-bg-input: #d2d2da;
+    --color-text-primary: #1a1a2e;
+    --color-text-secondary: #2d2d44;
+    --color-text-tertiary: #44445e;
+    --color-text-muted: #6b6b82;
+    --color-text-faint: #8888a0;
+    --color-border: #c8c8d4;
+    --color-border-light: #b8b8c8;
+    --color-scrollbar-track: #d8d8e2;
+    --color-scrollbar-thumb: #b0b0c0;
+    --color-scrollbar-thumb-hover: #9090a4;
+  }
+
+  .dark {
+    --color-bg-primary: #030712;
+    --color-bg-secondary: #111827;
+    --color-bg-tertiary: #1f2937;
+    --color-bg-input: #1f2937;
+    --color-text-primary: #f3f4f6;
+    --color-text-secondary: #e5e7eb;
+    --color-text-tertiary: #d1d5db;
+    --color-text-muted: #9ca3af;
+    --color-text-faint: #6b7280;
+    --color-border: #1f2937;
+    --color-border-light: #374151;
+    --color-scrollbar-track: #111827;
+    --color-scrollbar-thumb: #374151;
+    --color-scrollbar-thumb-hover: #4b5563;
+  }
+
   body {
-    @apply bg-gray-950 text-gray-100 antialiased;
+    background-color: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   ::-webkit-scrollbar {
@@ -13,21 +50,87 @@
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-gray-900;
+    background-color: var(--color-scrollbar-track);
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-gray-700 rounded-full;
+    background-color: var(--color-scrollbar-thumb);
+    border-radius: 9999px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-gray-600;
+    background-color: var(--color-scrollbar-thumb-hover);
   }
+
+  /* Remap gray utility classes for light mode */
+  :root:not(.dark) .bg-gray-950 { background-color: #e8e8ee; }
+  :root:not(.dark) .bg-gray-900 { background-color: #dddde4; }
+  :root:not(.dark) .bg-gray-800 { background-color: #d2d2da; }
+  :root:not(.dark) .bg-gray-700 { background-color: #c8c8d4; }
+  :root:not(.dark) .hover\:bg-gray-800:hover { background-color: #d2d2da; }
+  :root:not(.dark) .hover\:bg-gray-700:hover { background-color: #c8c8d4; }
+  :root:not(.dark) .hover\:bg-gray-600:hover { background-color: #b8b8c8; }
+
+  :root:not(.dark) .text-white { color: #1a1a2e; }
+  :root:not(.dark) .text-gray-100 { color: #1a1a2e; }
+  :root:not(.dark) .text-gray-200 { color: #2d2d44; }
+  :root:not(.dark) .text-gray-300 { color: #44445e; }
+  :root:not(.dark) .text-gray-400 { color: #6b6b82; }
+  :root:not(.dark) .text-gray-500 { color: #8888a0; }
+  :root:not(.dark) .text-gray-600 { color: #8888a0; }
+  :root:not(.dark) .hover\:text-gray-200:hover { color: #1a1a2e; }
+  :root:not(.dark) .hover\:text-gray-300:hover { color: #2d2d44; }
+  :root:not(.dark) .group:hover .group-hover\:text-blue-400 { color: #2563eb; }
+
+  :root:not(.dark) .border-gray-800 { border-color: #c8c8d4; }
+  :root:not(.dark) .border-gray-700 { border-color: #b8b8c8; }
+  :root:not(.dark) .hover\:border-blue-500\/50:hover { border-color: rgba(59, 130, 246, 0.5); }
+
+  :root:not(.dark) .bg-black\/50 { background-color: rgba(0, 0, 0, 0.3); }
+  :root:not(.dark) .shadow-lg { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); }
+
+  :root:not(.dark) .placeholder-gray-500::placeholder { color: #8888a0; }
+
+  /* Remap accent colors for light mode readability */
+  :root:not(.dark) .text-blue-400 { color: #2563eb; }
+  :root:not(.dark) .text-blue-300 { color: #1d4ed8; }
+  :root:not(.dark) .text-green-400 { color: #16a34a; }
+  :root:not(.dark) .text-green-300 { color: #15803d; }
+  :root:not(.dark) .text-red-400 { color: #dc2626; }
+  :root:not(.dark) .text-red-300 { color: #b91c1c; }
+  :root:not(.dark) .text-yellow-400 { color: #ca8a04; }
+  :root:not(.dark) .text-cyan-300 { color: #0e7490; }
+  :root:not(.dark) .text-orange-300 { color: #c2410c; }
+  :root:not(.dark) .text-purple-400 { color: #7c3aed; }
+  :root:not(.dark) .text-pink-400 { color: #db2777; }
+
+  :root:not(.dark) .hover\:text-blue-400:hover { color: #2563eb; }
+  :root:not(.dark) .hover\:text-blue-300:hover { color: #1d4ed8; }
+  :root:not(.dark) .hover\:text-red-400:hover { color: #dc2626; }
+
+  /* Accent backgrounds for light mode (badges, status chips) */
+  :root:not(.dark) .bg-blue-600\/20 { background-color: rgba(37, 99, 235, 0.12); }
+  :root:not(.dark) .bg-blue-600\/10 { background-color: rgba(37, 99, 235, 0.08); }
+  :root:not(.dark) .bg-green-600\/20 { background-color: rgba(22, 163, 74, 0.12); }
+  :root:not(.dark) .bg-red-600\/20 { background-color: rgba(220, 38, 38, 0.12); }
+  :root:not(.dark) .bg-yellow-600\/20 { background-color: rgba(202, 138, 4, 0.12); }
+  :root:not(.dark) .bg-cyan-600\/20 { background-color: rgba(14, 116, 144, 0.12); }
+  :root:not(.dark) .bg-orange-900\/30 { background-color: rgba(194, 65, 12, 0.12); }
+
+  :root:not(.dark) .border-blue-500\/30 { border-color: rgba(37, 99, 235, 0.3); }
+  :root:not(.dark) .border-green-500\/30 { border-color: rgba(22, 163, 74, 0.3); }
+  :root:not(.dark) .border-red-500\/30 { border-color: rgba(220, 38, 38, 0.3); }
+  :root:not(.dark) .border-red-600\/50 { border-color: rgba(220, 38, 38, 0.4); }
+  :root:not(.dark) .border-yellow-500\/30 { border-color: rgba(202, 138, 4, 0.3); }
 }
 
 @layer components {
   .card {
-    @apply bg-gray-900 border border-gray-800 rounded-xl p-6 shadow-lg;
+    background-color: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
   }
 
   .btn-primary {
@@ -35,7 +138,13 @@
   }
 
   .btn-secondary {
-    @apply bg-gray-700 hover:bg-gray-600 text-gray-100 font-medium py-2 px-4 rounded-lg transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+    background-color: var(--color-bg-tertiary);
+    color: var(--color-text-primary);
+    @apply font-medium py-2 px-4 rounded-lg transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary:hover {
+    background-color: var(--color-border-light);
   }
 
   .btn-danger {
@@ -43,14 +152,27 @@
   }
 
   .input {
-    @apply bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200;
+    background-color: var(--color-bg-input);
+    border: 1px solid var(--color-border-light);
+    color: var(--color-text-primary);
+    @apply rounded-lg px-4 py-2 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200;
   }
 
   .table-header {
-    @apply text-left text-xs font-semibold text-gray-400 uppercase tracking-wider px-4 py-3;
+    color: var(--color-text-muted);
+    @apply text-left text-xs font-semibold uppercase tracking-wider px-4 py-3;
   }
 
   .table-cell {
-    @apply px-4 py-3 text-sm text-gray-300;
+    color: var(--color-text-tertiary);
+    @apply px-4 py-3 text-sm;
   }
+}
+
+/* CGView popover/highlighter text must be dark on white background */
+.cgv-highlighter-popover-box {
+  color: #111827 !important;
+}
+.cgv-highlighter-popover-box * {
+  color: #111827 !important;
 }

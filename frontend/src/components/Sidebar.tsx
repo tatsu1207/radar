@@ -5,29 +5,33 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { clsx } from 'clsx';
 import {
-  LayoutDashboard,
-  FolderKanban,
+  Info,
   Files,
-  FlaskConical,
+  Table2,
+  Workflow,
   BarChart3,
-  ShieldAlert,
+  GitBranch,
+  Wrench,
   Menu,
   X,
   Radar,
+  Sun,
+  Moon,
 } from 'lucide-react';
+import { useTheme } from '@/components/ThemeProvider';
 
 const navItems = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/projects', label: 'Projects', icon: FolderKanban },
   { href: '/files', label: 'Files', icon: Files },
-  { href: '/analysis', label: 'Analysis', icon: FlaskConical },
-  { href: '/results', label: 'Results', icon: BarChart3 },
-  { href: '/risk', label: 'Risk Assessment', icon: ShieldAlert },
+  { href: '/metadata', label: 'Metadata', icon: Table2 },
+  { href: '/results', label: 'Annotation', icon: BarChart3 },
+  { href: '/comparative', label: 'Comparative', icon: GitBranch },
+  { href: '/tools', label: 'Tools', icon: Wrench },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { theme, toggle } = useTheme();
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
@@ -36,16 +40,38 @@ export default function Sidebar() {
 
   const navContent = (
     <>
-      <div className="flex items-center gap-3 px-4 py-6 border-b border-gray-800">
-        <Radar className="w-8 h-8 text-blue-500" />
-        <div>
-          <h1 className="text-xl font-bold text-white tracking-tight">RADAR</h1>
-          <p className="text-[10px] text-gray-500 leading-tight">
-            Resistome Analysis, Detection,
-            <br />
-            Assessment &amp; Risk
-          </p>
+      <div className="px-4 py-6 border-b border-gray-800">
+        <div className="flex items-center gap-3">
+          <Radar className="w-8 h-8 text-blue-500" />
+          <div>
+            <h1 className="text-xl font-bold text-white tracking-tight">RADAR</h1>
+            <p className="text-[10px] text-gray-500 leading-tight">
+              Resistome Analysis, Detection,
+              <br />
+              Assessment &amp; Research
+            </p>
+          </div>
         </div>
+        <button
+          onClick={toggle}
+          className="flex items-center gap-2 mt-4 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition-colors duration-200 w-full"
+        >
+          {theme === 'dark' ? <Sun className="w-4 h-4 flex-shrink-0" /> : <Moon className="w-4 h-4 flex-shrink-0" />}
+          {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+        </button>
+        <Link
+          href="/"
+          onClick={() => setMobileOpen(false)}
+          className={clsx(
+            'flex items-center gap-2 mt-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-200 w-full',
+            isActive('/')
+              ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
+              : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+          )}
+        >
+          <Info className="w-4 h-4 flex-shrink-0" />
+          Introduction
+        </Link>
       </div>
       <nav className="flex-1 px-3 py-4 space-y-1">
         {navItems.map((item) => {

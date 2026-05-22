@@ -21,7 +21,7 @@ export default function BVBRCFetchDialog({ isOpen, onClose, projectId, onSubmit 
       .split(/[,\n]+/)
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
-    return [...new Set(items)];
+    return Array.from(new Set(items));
   }
 
   async function handleSubmit(e: React.FormEvent) {

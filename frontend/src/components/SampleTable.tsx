@@ -5,8 +5,8 @@ import { CheckCircle, XCircle, Clock, Loader2, Ban, Minus, Trash2 } from 'lucide
 import type { Sample, AnalysisJob } from '@/lib/api';
 
 const STEP_COLUMNS = [
-  { tool: 'bbduk', label: 'Trim' },
-  { tool: 'unicycler', label: 'Assembly' },
+  { tool: 'fastp', label: 'QC' },
+  { tool: 'assembly', label: 'Assembly' },
   { tool: 'amrfinderplus', label: 'ARG' },
   { tool: 'mob_recon', label: 'Plasmid' },
   { tool: 'mefinder', label: 'Mobile' },

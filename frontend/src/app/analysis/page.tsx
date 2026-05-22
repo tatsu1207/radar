@@ -9,8 +9,8 @@ import StatusBadge from '@/components/StatusBadge';
 import Modal from '@/components/Modal';
 
 const PIPELINE_STEPS = [
-  { tool: 'bbduk', label: 'Trimming (BBDuk)', description: 'Adapter trimming & quality filtering' },
-  { tool: 'unicycler', label: 'Assembly (Unicycler)', description: 'Genome assembly from reads' },
+  { tool: 'fastp', label: 'QC (fastp)', description: 'Adapter trimming & quality filtering' },
+  { tool: 'assembly', label: 'Assembly (SPAdes/Flye)', description: 'Genome assembly from reads' },
   { tool: 'quast', label: 'QUAST', description: 'Assembly quality metrics' },
   { tool: 'busco', label: 'BUSCO', description: 'Assembly completeness check' },
   { tool: 'amrfinderplus', label: 'AMRFinderPlus', description: 'Antimicrobial resistance gene detection' },
@@ -339,7 +339,7 @@ export default function AnalysisPage() {
               const job = getLatestJobForTool(step.tool);
               const status = job?.status;
               const isActive = status === 'pending' || status === 'running';
-              const assemblyDone = getLatestJobForTool('unicycler')?.status === 'complete';
+              const assemblyDone = getLatestJobForTool('assembly')?.status === 'complete';
               const needsAssembly = index >= 2; // quast, busco, and everything after need assembly
               const canStart = !pipelineRunning && !isActive && status !== 'complete'
                 && (!needsAssembly || assemblyDone);

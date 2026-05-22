@@ -31,8 +31,8 @@ radar/
 │   │   │   └── metadata.py    # Sample metadata & AST data
 │   │   ├── core/              # Bioinformatics pipeline modules
 │   │   │   ├── pipeline.py    # Main orchestrator
-│   │   │   ├── qc.py          # Read QC (bbduk)
-│   │   │   ├── assembly.py    # Genome assembly (unicycler)
+│   │   │   ├── qc.py          # Read QC (fastp)
+│   │   │   ├── assembly.py    # Genome assembly (SPAdes/Flye/Medaka/Polypolish)
 │   │   │   ├── arg_detect.py  # ARG detection (AMRFinderPlus only)
 │   │   │   ├── promoter.py    # Promoter analysis (BPROM, UP element)
 │   │   │   ├── rbs.py         # Ribosome binding site analysis (OSTIR)
@@ -75,8 +75,8 @@ radar/
 
 Based on the research methodology. For FASTQ input all steps run. For FASTA input (including BV-BRC pre-assembled), steps 1-3 are skipped.
 
-1. **QC** - bbduk (from bbmap): adapter trimming, quality filtering
-2. **Assembly** - unicycler: de novo assembly (supports short-read and hybrid with long reads)
+1. **QC** - fastp: adapter trimming, quality filtering (Illumina); Filtlong: ONT long-read filtering
+2. **Assembly** - SPAdes (Illumina-only), Flye + Medaka + Polypolish (hybrid), Flye (long-read-only; --nano-hq for ONT, --pacbio-hifi for PacBio)
 3. **Assembly QC** - QUAST + BUSCO: assembly quality metrics and genome completeness
 4. **ARG detection** - AMRFinderPlus: resistance gene identification
 5. **Promoter analysis** - extract 500bp upstream of each ARG, run BPROM for LDF scores, TF binding site count, promoter-to-ARG distance, UP element AT-rich ratio (20bp upstream of predicted promoter)
@@ -89,28 +89,36 @@ Based on the research methodology. For FASTQ input all steps run. For FASTA inpu
 
 ## Bioinformatics Tools
 
-**Installed via mamba (bioconda/conda-forge):**
+**One tool per conda environment (installed via `install.sh`):**
 
-| Tool | Purpose |
-|------|---------|
-| bbmap (bbduk) | Read trimming and quality filtering |
-| FastQC | Read quality reports |
-| unicycler | Hybrid/short-read genome assembly |
-| QUAST | Assembly quality assessment |
-| BUSCO | Genome completeness assessment |
-| sra-tools | Download FASTQ from SRA (SRR accessions via prefetch + fasterq-dump) |
-| AMRFinderPlus | NCBI resistance gene detection |
-| MOB-suite | Plasmid reconstruction and typing |
-| ViennaRNA | RNA structure energy calculations (dependency for OSTIR) |
+| Conda Env | Tool | Purpose |
+|-----------|------|---------|
+| radar-fastp | fastp | Adapter trimming and quality filtering (Illumina) |
+| radar-filtlong | Filtlong | ONT long-read quality filtering |
+| radar-spades | SPAdes | Short-read genome assembly |
+| radar-flye | Flye | Long-read genome assembly (ONT/PacBio) |
+| radar-medaka | Medaka | Long-read polishing (pip) |
+| radar-polypolish | Polypolish + BWA | Short-read polishing for hybrid assembly |
+| radar-quast | QUAST | Assembly quality assessment |
+| radar-busco | BUSCO | Genome completeness assessment (pip from gitlab) |
+| radar-amrfinder | AMRFinderPlus | ARG detection (GitHub binary v4.2.7 + HMMER/BLAST) |
+| radar-mobsuite | MOB-suite | Plasmid reconstruction and typing (pip) |
+| radar-mefinder | MobileElementFinder | Insertion sequence detection (pip, CLI: `mefinder find`) |
+| radar-mlst | mlst | Multi-locus sequence typing |
+| radar-skani | skani | Species ID via ANI against GTDB |
+| radar-integron | IntegronFinder | Integron detection (pip) |
+| radar-genomad | geNomad | Prophage/plasmid detection (pip) |
+| radar-serotype | SISTR + Kleborate | In silico serotyping |
+| radar-cgmlst | chewBBACA | Core-genome MLST (pip) |
+| radar-crispr | minced | CRISPR array detection |
+| radar-defense | DefenseFinder | Bacterial defense system detection (pip) |
+| radar-blast | BLAST + Infernal | Nucleotide searches (16S, ICEberg, sRNA/Rfam) |
+| radar-prodigal | Prodigal | Gene prediction (used by DefenseFinder, context annotations) |
+| radar-ostir | OSTIR + ViennaRNA | RBS translation initiation rate prediction (pip) |
+| radar-resfinder | ResFinder | PointFinder point mutations (pip) |
+| radar-sra | sra-tools | Download FASTQ from SRA (prefetch + fasterq-dump) |
 
-**Installed via pip:**
-
-| Tool | Purpose |
-|------|---------|
-| MobileElementFinder | Insertion sequence detection (CLI: `mefinder find`) |
-| OSTIR | RBS translation initiation rate prediction (expression, dG_total, dG_mRNA) |
-
-**Installed from binary:**
+**Installed from binary (optional):**
 
 | Tool | Purpose |
 |------|---------|

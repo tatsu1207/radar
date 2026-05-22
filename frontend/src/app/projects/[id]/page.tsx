@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { Pencil, Trash2, ArrowLeft, FolderOpen } from 'lucide-react';
+import { Pencil, Trash2, ArrowLeft, FolderOpen, GitBranch } from 'lucide-react';
 import Link from 'next/link';
 import { getProject, updateProject, deleteProject, listSamples, getProjectJobs, deleteSample } from '@/lib/api';
 import type { Project, Sample, AnalysisJob } from '@/lib/api';
@@ -126,8 +126,8 @@ export default function ProjectDetailPage() {
     return (
       <div className="text-center py-16">
         <p className="text-gray-400">Project not found</p>
-        <Link href="/projects" className="text-blue-400 hover:text-blue-300 mt-2 inline-block">
-          Back to Projects
+        <Link href="/" className="text-blue-400 hover:text-blue-300 mt-2 inline-block">
+          Back to Dashboard
         </Link>
       </div>
     );
@@ -135,7 +135,7 @@ export default function ProjectDetailPage() {
 
   return (
     <div>
-      <Link href="/projects" className="text-sm text-gray-400 hover:text-gray-200 flex items-center gap-1 mb-4">
+      <Link href="/" className="text-sm text-gray-400 hover:text-gray-200 flex items-center gap-1 mb-4">
         <ArrowLeft className="w-4 h-4" />
         Back to Projects
       </Link>
@@ -174,6 +174,10 @@ export default function ProjectDetailPage() {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-gray-100">Samples</h2>
           <div className="flex items-center gap-2">
+            <Link href={`/projects/${projectId}/comparative`} className="btn-secondary flex items-center gap-2 text-sm">
+              <GitBranch className="w-4 h-4" />
+              Comparative Analysis
+            </Link>
             <Link href={`/projects/${projectId}/files`} className="btn-primary flex items-center gap-2 text-sm">
               <FolderOpen className="w-4 h-4" />
               File Manager

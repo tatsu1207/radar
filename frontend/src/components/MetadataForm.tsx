@@ -25,7 +25,6 @@ export default function MetadataForm({ metadata, onSave }: MetadataFormProps) {
   const [source, setSource] = useState(metadata?.source || '');
   const [collectionDate, setCollectionDate] = useState(metadata?.collection_date || '');
   const [location, setLocation] = useState(metadata?.location || '');
-  const [species, setSpecies] = useState(metadata?.species || '');
   const [customFields, setCustomFields] = useState<Record<string, string>>(
     metadata?.custom_fields || {}
   );
@@ -57,7 +56,6 @@ export default function MetadataForm({ metadata, onSave }: MetadataFormProps) {
         source,
         collection_date: collectionDate,
         location,
-        species,
         custom_fields: customFields,
       });
     } finally {
@@ -95,16 +93,6 @@ export default function MetadataForm({ metadata, onSave }: MetadataFormProps) {
             value={location}
             onChange={(e) => setLocation(e.target.value)}
             placeholder="e.g., Hospital ICU, River sample site"
-            className="input w-full"
-          />
-        </div>
-        <div>
-          <label className="block text-sm text-gray-400 mb-1">Species</label>
-          <input
-            type="text"
-            value={species}
-            onChange={(e) => setSpecies(e.target.value)}
-            placeholder="e.g., Escherichia coli"
             className="input w-full"
           />
         </div>

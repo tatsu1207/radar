@@ -20,14 +20,14 @@ export default function ARGTable({ results }: ARGTableProps) {
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [showFilters, setShowFilters] = useState(false);
 
-  const drugClasses = useMemo(() => [...new Set(results.map((r) => r.drug_class))].sort(), [results]);
-  const databases = useMemo(() => [...new Set(results.map((r) => r.database))].sort(), [results]);
+  const drugClasses = useMemo(() => Array.from(new Set(results.map((r) => r.drug_class))).sort(), [results]);
+  const databases = useMemo(() => Array.from(new Set(results.map((r) => r.database))).sort(), [results]);
 
   const filtered = useMemo(() => {
     let data = [...results];
     if (drugClassFilter) data = data.filter((r) => r.drug_class === drugClassFilter);
     if (databaseFilter) data = data.filter((r) => r.database === databaseFilter);
-    if (minIdentity > 0) data = data.filter((r) => r.identity_percent >= minIdentity);
+    if (minIdentity > 0) data = data.filter((r) => r.identity >= minIdentity);
     if (plasmidOnly) data = data.filter((r) => r.on_plasmid);
 
     data.sort((a, b) => {
@@ -56,8 +56,8 @@ export default function ARGTable({ results }: ARGTableProps) {
       r.gene,
       r.drug_class,
       r.mechanism,
-      r.identity_percent,
-      r.coverage_percent,
+      r.identity,
+      r.coverage,
       r.contig,
       r.database,
       r.on_plasmid ? 'Yes' : 'No',
@@ -166,8 +166,8 @@ export default function ARGTable({ results }: ARGTableProps) {
               <SortableHeader label="Gene" field="gene" />
               <SortableHeader label="Drug Class" field="drug_class" />
               <SortableHeader label="Mechanism" field="mechanism" />
-              <SortableHeader label="Identity%" field="identity_percent" />
-              <SortableHeader label="Coverage%" field="coverage_percent" />
+              <SortableHeader label="Identity%" field="identity" />
+              <SortableHeader label="Coverage%" field="coverage" />
               <SortableHeader label="Contig" field="contig" />
               <SortableHeader label="Database" field="database" />
               <th className="table-header">On Plasmid</th>
@@ -189,17 +189,17 @@ export default function ARGTable({ results }: ARGTableProps) {
                   <td className="table-cell">
                     <span
                       className={
-                        r.identity_percent >= 99
+                        r.identity >= 99
                           ? 'text-green-400'
-                          : r.identity_percent >= 90
+                          : r.identity >= 90
                           ? 'text-yellow-400'
                           : 'text-red-400'
                       }
                     >
-                      {r.identity_percent.toFixed(1)}%
+                      {r.identity.toFixed(1)}%
                     </span>
                   </td>
-                  <td className="table-cell">{r.coverage_percent.toFixed(1)}%</td>
+                  <td className="table-cell">{r.coverage.toFixed(1)}%</td>
                   <td className="table-cell font-mono text-xs">{r.contig}</td>
                   <td className="table-cell">{r.database}</td>
                   <td className="table-cell">

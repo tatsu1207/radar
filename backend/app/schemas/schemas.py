@@ -267,14 +267,20 @@ class FileManagerSample(BaseModel):
     sample_id: uuid.UUID
     name: str
     status: str
+    input_type: str = "fastq"
     illumina_r1: Optional[FileSlot] = None
     illumina_r2: Optional[FileSlot] = None
     long_read: Optional[FileSlot] = None
     long_read_platform: Optional[str] = None
+    assembly: Optional[FileSlot] = None
     source: str = "upload"
     has_metadata: bool = False
     project_id: Optional[uuid.UUID] = None
     project_name: Optional[str] = None
+    pipeline_status: Optional[str] = None  # not_started, running, complete, failed
+    pipeline_job_id: Optional[str] = None
+    pipeline_progress: int = 0  # 0-100
+    busco_complete: Optional[float] = None  # BUSCO completeness %
 
 
 class FileManagerResponse(BaseModel):

@@ -1,11 +1,14 @@
+import os
 import uuid
 from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db import get_db
 from app.models.models import Sample, AnalysisJob, JobStatus
 from app.schemas.schemas import AnalysisJobRead, AnalysisRequest
@@ -14,7 +17,7 @@ router = APIRouter(tags=["analysis"])
 
 # Canonical pipeline step order
 PIPELINE_STEPS = [
-    "bbduk", "unicycler", "quast", "busco",
+    "fastp", "assembly", "quast", "busco",
     "amrfinderplus", "mob_recon", "mefinder",
     "phenotype_prediction", "risk_scoring",
 ]
@@ -185,3 +188,191 @@ def get_job(job_id: uuid.UUID, db: Session = Depends(get_db)):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
+
+
+# ── Preprocessing Pipeline ─────────────────────────────────────────────────
+
+@router.get("/pipeline/status")
+def pipeline_status(db: Session = Depends(get_db)):
+    """Get preprocessing pipeline status for all samples."""
+    from sqlalchemy.orm import joinedload
+
+    samples = db.query(Sample).order_by(Sample.name).all()
+
+    result = []
+    for s in samples:
+        # Find the latest preprocessing job for this sample
+        job = (
+            db.query(AnalysisJob)
+            .filter(
+                AnalysisJob.sample_id == s.id,
+                AnalysisJob.tool == "preprocessing",
+            )
+            .order_by(AnalysisJob.started_at.desc().nullslast())
+            .first()
+        )
+
+        status = "not_started"
+        job_id = None
+        log = None
+        if job:
+            job_id = str(job.id)
+            log = job.log
+            if job.status == JobStatus.complete:
+                status = "complete"
+            elif job.status in (JobStatus.running, JobStatus.pending):
+                status = "running"
+            elif job.status == JobStatus.failed:
+                status = "failed"
+
+        # Check if QC reports exist
+        qc_dir = os.path.join(settings.RESULTS_DIR, str(s.id), "assembly")
+        quast_report = os.path.join(qc_dir, "quast", "report.tsv")
+        busco_dir = os.path.join(qc_dir, "busco", "busco_result")
+        has_qc = os.path.exists(quast_report) or os.path.isdir(busco_dir)
+
+        result.append({
+            "sample_id": str(s.id),
+            "sample_name": s.name,
+            "status": status,
+            "job_id": job_id,
+            "log": log,
+            "has_qc": has_qc,
+        })
+
+    return result
+
+
+@router.get("/pipeline/qc/{sample_id}")
+def download_qc_report(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Download combined QUAST + BUSCO QC report as text."""
+    sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+
+    qc_dir = os.path.join(settings.RESULTS_DIR, str(sample_id), "assembly")
+    parts = [f"Assembly QC Report: {sample.name}", "=" * 50, ""]
+
+    # Contig Circularity (from assembly FASTA headers)
+    assembly_fasta = os.path.join(qc_dir, "assembly.fasta")
+    if os.path.exists(assembly_fasta):
+        import re
+        parts.append("Contig Circularity")
+        parts.append("-" * 30)
+        with open(assembly_fasta) as f:
+            for line in f:
+                if line.startswith(">"):
+                    header = line.strip()[1:]
+                    # Parse: "1 length=5268325 depth=1.00x circular=true"
+                    name = header.split()[0]
+                    length_m = re.search(r'length=(\d+)', header)
+                    depth_m = re.search(r'depth=([\d.]+)x', header)
+                    circ_m = re.search(r'circular=(\w+)', header)
+                    length = length_m.group(1) if length_m else "?"
+                    depth = depth_m.group(1) if depth_m else "?"
+                    circular = circ_m.group(1) if circ_m else "unknown"
+                    status = "CIRCULAR" if circular == "true" else "LINEAR"
+                    parts.append(f"  Contig {name}: {length} bp, depth {depth}x, {status}")
+        parts.append("")
+
+    # QUAST
+    quast_report = os.path.join(qc_dir, "quast", "report.tsv")
+    if os.path.exists(quast_report):
+        parts.append("QUAST Assembly Metrics")
+        parts.append("-" * 30)
+        with open(quast_report) as f:
+            parts.append(f.read().strip())
+        parts.append("")
+    else:
+        parts.append("QUAST: not available")
+        parts.append("")
+
+    # BUSCO
+    busco_result_dir = os.path.join(qc_dir, "busco", "busco_result")
+    busco_found = False
+    if os.path.isdir(busco_result_dir):
+        for root, dirs, files in os.walk(busco_result_dir):
+            for fname in files:
+                if fname.startswith("short_summary"):
+                    parts.append("BUSCO Completeness Assessment")
+                    parts.append("-" * 30)
+                    with open(os.path.join(root, fname)) as f:
+                        parts.append(f.read().strip())
+                    parts.append("")
+                    busco_found = True
+                    break
+            if busco_found:
+                break
+
+    if not busco_found:
+        parts.append("BUSCO: not available")
+        parts.append("")
+
+    report = "\n".join(parts)
+    return PlainTextResponse(
+        content=report,
+        headers={"Content-Disposition": f"attachment; filename={sample.name}_qc_report.txt"},
+    )
+
+
+class PipelineStartRequest(BaseModel):
+    threads: int = Field(default=12, ge=1, le=128)
+
+
+@router.post("/pipeline/start/{sample_id}")
+def start_preprocessing(
+    sample_id: uuid.UUID,
+    payload: PipelineStartRequest = None,
+    db: Session = Depends(get_db),
+):
+    """Start the preprocessing pipeline (fastp + Filtlong + SPAdes/Flye) for a sample."""
+    threads = payload.threads if payload else 12
+
+    sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+
+    if not sample.files:
+        raise HTTPException(status_code=400, detail="Sample has no uploaded files")
+
+    # Clean up stale running jobs (older than 2 hours) and allow restart
+    stale_cutoff = datetime.utcnow() - __import__('datetime').timedelta(hours=2)
+    stale_jobs = (
+        db.query(AnalysisJob)
+        .filter(
+            AnalysisJob.sample_id == sample_id,
+            AnalysisJob.tool == "preprocessing",
+            AnalysisJob.status.in_([JobStatus.pending, JobStatus.running]),
+        )
+        .all()
+    )
+    for sj in stale_jobs:
+        if sj.started_at and sj.started_at < stale_cutoff:
+            sj.status = JobStatus.failed
+            sj.finished_at = datetime.utcnow()
+            sj.log = (sj.log or "") + "\nMarked failed (stale job cleanup)\n"
+        else:
+            # Genuinely running
+            raise HTTPException(status_code=409, detail="Preprocessing already in progress")
+    db.commit()
+
+    job = AnalysisJob(
+        sample_id=sample_id,
+        tool="preprocessing",
+        status=JobStatus.pending,
+        threads=threads,
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    try:
+        from app.core.pipeline import run_preprocessing
+        result = run_preprocessing.delay(str(sample_id), str(job.id), threads)
+        job.celery_task_id = result.id
+        db.commit()
+    except Exception:
+        job.log = "Warning: Celery broker unavailable. Task queued."
+        db.commit()
+
+    return {"job_id": str(job.id), "status": "started"}

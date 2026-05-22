@@ -43,13 +43,28 @@ export RADAR_DATABASE_URL="postgresql://$(whoami)@localhost:${PORT_PG}/radar"
 export RADAR_REDIS_URL="redis://localhost:${PORT_REDIS}/0"
 export RADAR_UPLOAD_DIR="${DATA_DIR}/uploads"
 export RADAR_RESULTS_DIR="${DATA_DIR}/results"
+export TSS_DATA="$(dirname "$(which python)")"
+export RADAR_GENOMAD_DB="${SCRIPT_DIR}/databases/genomad_db"
+export RADAR_16S_DB="${SCRIPT_DIR}/databases/16S/16S_ribosomal_RNA"
+export RADAR_SKANI_DB="${SCRIPT_DIR}/databases/skani"
+export RADAR_RFAM_CM="${SCRIPT_DIR}/databases/Rfam.cm"
+export RADAR_POINTFINDER_DB="${SCRIPT_DIR}/databases/pointfinder_db"
+export RADAR_RESFINDER_DB="${SCRIPT_DIR}/databases/resfinder_db"
 
-# ── Celery worker ─────────────────────────────────────────────────────────
-echo "Starting Celery worker..."
+# ── Celery workers ────────────────────────────────────────────────────────
 cd "${SCRIPT_DIR}/backend"
-nohup celery -A app.celery_app worker --loglevel=info --pool=threads --concurrency=4 \
+# Pipeline worker: one job at a time (bioinformatics tools use many threads/RAM)
+echo "Starting Celery pipeline worker (concurrency=1)..."
+nohup celery -A app.celery_app worker --loglevel=info --pool=threads --concurrency=1 \
+    -Q pipeline -n pipeline@%h \
     >> "${LOG_DIR}/celery.log" 2>&1 &
 CELERY_PID=$!
+# Default worker: SRA downloads, BV-BRC fetches, etc.
+echo "Starting Celery default worker..."
+nohup celery -A app.celery_app worker --loglevel=info --pool=threads --concurrency=4 \
+    -Q celery -n default@%h \
+    >> "${LOG_DIR}/celery_default.log" 2>&1 &
+CELERY_DEFAULT_PID=$!
 
 # ── Backend ───────────────────────────────────────────────────────────────
 echo "Starting backend on port ${PORT_BACKEND}..."

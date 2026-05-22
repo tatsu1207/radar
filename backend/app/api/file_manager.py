@@ -25,6 +25,8 @@ from app.models.models import (
     SRADownloadStatus,
     InputType,
     SampleStatus,
+    AnalysisJob,
+    JobStatus,
 )
 import shutil
 
@@ -59,6 +61,7 @@ def _build_sample_entry(sample: Sample, db: Session, project_name: str | None = 
     illumina_r2: Optional[FileSlot] = None
     long_read: Optional[FileSlot] = None
     long_read_platform: Optional[str] = None
+    assembly: Optional[FileSlot] = None
     source = "upload"
 
     for sf in files:
@@ -70,24 +73,114 @@ def _build_sample_entry(sample: Sample, db: Session, project_name: str | None = 
             long_read = _build_file_slot(sf)
             if sf.platform:
                 long_read_platform = sf.platform.value
+        elif sf.pair == PairType.assembly:
+            assembly = _build_file_slot(sf)
         if sf.source:
             source = sf.source.value
 
     has_metadata = sample.metadata_record is not None
 
+    # Pipeline status from latest preprocessing/pipeline job
+    pipeline_status = "not_started"
+    pipeline_job_id = None
+    pipeline_progress = 0
+    latest_job = (
+        db.query(AnalysisJob)
+        .filter(
+            AnalysisJob.sample_id == sample.id,
+            AnalysisJob.tool.in_(["preprocessing", "pipeline"]),
+        )
+        .order_by(AnalysisJob.started_at.desc().nullslast())
+        .first()
+    )
+    if latest_job:
+        pipeline_job_id = str(latest_job.id)
+        if latest_job.status == JobStatus.complete:
+            pipeline_status = "complete"
+            pipeline_progress = 100
+        elif latest_job.status in (JobStatus.running, JobStatus.pending):
+            pipeline_status = "running"
+            pipeline_progress = _estimate_progress(latest_job.log or "")
+        elif latest_job.status == JobStatus.failed:
+            pipeline_status = "failed"
+            pipeline_progress = _estimate_progress(latest_job.log or "")
+
+    # BUSCO completeness (if pipeline completed)
+    busco_complete = None
+    if pipeline_status == "complete":
+        import re
+        busco_dir = os.path.join(settings.RESULTS_DIR, str(sample.id), "assembly", "busco", "busco_result")
+        if os.path.isdir(busco_dir):
+            for root, dirs, files in os.walk(busco_dir):
+                for fname in files:
+                    if fname.startswith("short_summary"):
+                        with open(os.path.join(root, fname)) as bf:
+                            m = re.search(r"C:([\d.]+)%", bf.read())
+                            if m:
+                                busco_complete = float(m.group(1))
+                        break
+                if busco_complete is not None:
+                    break
+
     return FileManagerSample(
         sample_id=sample.id,
         name=sample.name,
         status=sample.status.value if sample.status else "pending",
+        input_type=sample.input_type.value if sample.input_type else "fastq",
         illumina_r1=illumina_r1,
         illumina_r2=illumina_r2,
         long_read=long_read,
         long_read_platform=long_read_platform,
+        assembly=assembly,
         source=source,
         has_metadata=has_metadata,
         project_id=sample.project_id,
         project_name=project_name,
+        pipeline_status=pipeline_status,
+        pipeline_job_id=pipeline_job_id,
+        pipeline_progress=pipeline_progress,
+        busco_complete=busco_complete,
     )
+
+
+def _estimate_progress(log: str) -> int:
+    """Estimate pipeline progress (0-100) from job log text."""
+    # Map log markers to progress percentages (ordered by pipeline stage)
+    markers = [
+        ("Pipeline started", 2),
+        ("Phase 1", 3),
+        ("fastp", 5),
+        ("Filtlong", 8),
+        ("Genome assembly", 10),
+        ("Assembly complete", 30),
+        ("Assembly — skipped", 30),
+        ("QUAST", 33),
+        ("BUSCO", 36),
+        ("Phase 2", 38),
+        ("Species", 40),
+        ("MLST", 43),
+        ("Serotyping", 45),
+        ("AMRFinderPlus", 50),
+        ("MOB-recon", 55),
+        ("MobileElementFinder", 58),
+        ("IntegronFinder", 62),
+        ("geNomad", 65),
+        ("PointFinder", 68),
+        ("cgMLST", 72),
+        ("CRISPR", 75),
+        ("DefenseFinder", 78),
+        ("ICEfinder", 82),
+        ("Context annotations", 85),
+        ("ML phenotype", 90),
+        ("Phenotype prediction", 93),
+        ("Risk scoring", 96),
+        ("completed successfully", 100),
+    ]
+    progress = 0
+    for marker, pct in markers:
+        if marker in log:
+            progress = max(progress, pct)
+    return progress
 
 
 def _strip_extensions(filename: str) -> str:
@@ -103,21 +196,44 @@ def _parse_filename(filename: str) -> Tuple[str, PairType, Optional[SequencingPl
     """Parse sample name and pair type from filename.
 
     Rules:
-      SAMPLE_R1.fastq.gz -> Illumina R1
-      SAMPLE_R2.fastq.gz -> Illumina R2
-      SAMPLE.fastq.gz    -> long read (ONT vs PacBio detected from content)
+      SAMPLE_R1.fastq.gz / SAMPLE_1.fastq.gz -> Illumina R1
+      SAMPLE_R2.fastq.gz / SAMPLE_2.fastq.gz -> Illumina R2
+      SAMPLE_ONT.fastq.gz                    -> long read, ONT
+      SAMPLE_PB.fastq.gz                     -> long read, PacBio
+      SAMPLE.fastq.gz                        -> long read (platform detected from content)
+      SAMPLE.fasta/.fa/.fna                  -> pre-assembled FASTA
     """
+    # Check for FASTA files first
+    lower = filename.lower()
+    if lower.endswith((".fasta", ".fa", ".fna", ".fasta.gz", ".fa.gz", ".fna.gz")):
+        base = _strip_extensions(filename)
+        return base, PairType.assembly, None
+
     base = _strip_extensions(filename)
 
-    # Illumina paired-end
+    # Illumina paired-end: _R1/_R2 or _1/_2
     m = re.match(r"^(.+?)_R1$", base, re.IGNORECASE)
     if m:
         return m.group(1), PairType.R1, SequencingPlatform.illumina
     m = re.match(r"^(.+?)_R2$", base, re.IGNORECASE)
     if m:
         return m.group(1), PairType.R2, SequencingPlatform.illumina
+    m = re.match(r"^(.+?)_1$", base)
+    if m:
+        return m.group(1), PairType.R1, SequencingPlatform.illumina
+    m = re.match(r"^(.+?)_2$", base)
+    if m:
+        return m.group(1), PairType.R2, SequencingPlatform.illumina
 
-    # No _R1/_R2 suffix -> long read
+    # Explicit long-read platform tags
+    m = re.match(r"^(.+?)_ONT$", base, re.IGNORECASE)
+    if m:
+        return m.group(1), PairType.long_read, SequencingPlatform.ont
+    m = re.match(r"^(.+?)_PB$", base, re.IGNORECASE)
+    if m:
+        return m.group(1), PairType.long_read, SequencingPlatform.pacbio
+
+    # No suffix -> long read (platform auto-detected from FASTQ headers)
     return base, PairType.long_read, None
 
 
@@ -216,6 +332,16 @@ def _detect_platform_from_fastq(file_path: str) -> Tuple[Optional[SequencingPlat
 
 # ── GET global file manager view ────────────────────────────────────────────
 
+def _get_or_create_default_project(db: Session) -> Project:
+    """Get or create a default project for global uploads."""
+    project = db.query(Project).filter(Project.name == "Default").first()
+    if not project:
+        project = Project(name="Default", description="Auto-created default project")
+        db.add(project)
+        db.flush()
+    return project
+
+
 @router.get("/file-manager/all", response_model=FileManagerResponse)
 def get_all_file_manager(db: Session = Depends(get_db)):
     """Return all samples across all projects with project name."""
@@ -235,6 +361,150 @@ def get_all_file_manager(db: Session = Depends(get_db)):
         for s in samples
     ]
     return FileManagerResponse(samples=entries, total=len(entries))
+
+
+@router.post("/file-manager/upload", response_model=FileManagerResponse)
+async def global_upload_files(
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+):
+    """Upload files globally (auto-creates default project).
+
+    Supports FASTQ (paired-end, long-read) and FASTA (pre-assembled) files.
+    FASTA files (.fasta, .fa, .fna) are treated as assemblies and skip QC/assembly in the pipeline.
+    """
+    project = _get_or_create_default_project(db)
+    project_id = project.id
+    created_samples = {}
+
+    for upload_file in files:
+        if not upload_file.filename:
+            continue
+
+        sample_name, pair_from_name, platform_from_name = _parse_filename(upload_file.filename)
+        is_fasta = pair_from_name == PairType.assembly
+
+        if sample_name in created_samples:
+            sample = created_samples[sample_name]
+            if is_fasta and sample.input_type != InputType.fasta:
+                sample.input_type = InputType.fasta
+        else:
+            sample = (
+                db.query(Sample)
+                .filter(Sample.project_id == project_id, Sample.name == sample_name)
+                .first()
+            )
+            if not sample:
+                sample = Sample(
+                    project_id=project_id,
+                    name=sample_name,
+                    input_type=InputType.fasta if is_fasta else InputType.fastq,
+                    status=SampleStatus.pending,
+                )
+                db.add(sample)
+                db.flush()
+            elif is_fasta:
+                sample.input_type = InputType.fasta
+            created_samples[sample_name] = sample
+
+        upload_dir = os.path.join(settings.UPLOAD_DIR, str(sample.id))
+        os.makedirs(upload_dir, exist_ok=True)
+        dest_path = os.path.join(upload_dir, upload_file.filename)
+
+        content = await upload_file.read()
+        with open(dest_path, "wb") as f:
+            f.write(content)
+
+        file_size = len(content)
+
+        pair = pair_from_name
+        platform = platform_from_name
+        if pair == PairType.long_read and platform is None:
+            is_fastq = upload_file.filename.lower().endswith(
+                (".fastq.gz", ".fq.gz", ".fastq", ".fq")
+            )
+            if is_fastq:
+                detected_platform, _ = _detect_platform_from_fastq(dest_path)
+                if detected_platform:
+                    platform = detected_platform
+
+        ext = os.path.splitext(upload_file.filename)[1]
+        if upload_file.filename.endswith(".gz"):
+            ext = os.path.splitext(upload_file.filename[:-3])[1] + ".gz"
+
+        sf = SampleFile(
+            sample_id=sample.id,
+            file_path=dest_path,
+            file_type=ext,
+            pair=pair,
+            platform=platform,
+            source=FileSource.upload,
+            original_filename=upload_file.filename,
+            file_size=file_size,
+        )
+        db.add(sf)
+
+    db.commit()
+
+    # Return all samples
+    all_samples = db.query(Sample).order_by(Sample.created_at).all()
+    project_ids = {s.project_id for s in all_samples}
+    projects = db.query(Project).filter(Project.id.in_(project_ids)).all()
+    project_names = {p.id: p.name for p in projects}
+    entries = [_build_sample_entry(s, db, project_name=project_names.get(s.project_id)) for s in all_samples]
+    return FileManagerResponse(samples=entries, total=len(entries))
+
+
+@router.post("/file-manager/sra", response_model=List[SRADownloadRead])
+def global_start_sra_downloads(
+    body: SRARequest,
+    db: Session = Depends(get_db),
+):
+    """Submit SRA accessions for download (auto-creates default project)."""
+    project = _get_or_create_default_project(db)
+    results = []
+    for accession in body.accessions:
+        accession = accession.strip()
+        if not accession:
+            continue
+
+        sample = Sample(
+            project_id=project.id,
+            name=accession,
+            input_type=InputType.fastq,
+            status=SampleStatus.pending,
+        )
+        db.add(sample)
+        db.flush()
+
+        dl = SRADownload(
+            project_id=project.id,
+            sample_id=sample.id,
+            srr_accession=accession,
+            status=SRADownloadStatus.queued,
+        )
+        db.add(dl)
+        db.flush()
+
+        results.append(dl)
+        celery_app.send_task("app.core.sra.download_sra", args=[str(dl.id)])
+
+    db.commit()
+    for dl in results:
+        db.refresh(dl)
+
+    return [SRADownloadRead.model_validate(dl) for dl in results]
+
+
+@router.get("/file-manager/sra", response_model=List[SRADownloadRead])
+def global_list_sra_downloads(db: Session = Depends(get_db)):
+    """List all SRA download jobs."""
+    downloads = (
+        db.query(SRADownload)
+        .order_by(SRADownload.created_at.desc())
+        .all()
+    )
+    return [SRADownloadRead.model_validate(dl) for dl in downloads]
 
 
 # ── GET file manager view ───────────────────────────────────────────────────
