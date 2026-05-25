@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+busco_downloads/
+*.fastq
+*.fastq.gz
+*.fasta
+*.fa
+*.fna
+*.log
+.env
