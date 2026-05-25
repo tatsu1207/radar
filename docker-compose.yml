@@ -1,20 +1,16 @@
-version: '3.8'
-
 services:
   frontend:
-    build: ./frontend
+    image: ghcr.io/tatsu1207/radar-frontend:latest
     ports:
       - "${PORT_FRONTEND:-3000}:3000"
     environment:
       - NEXT_PUBLIC_BACKEND_HOST=backend
       - NEXT_PUBLIC_BACKEND_PORT=8000
-    volumes:
-      - ./frontend/src:/app/src
     depends_on:
       - backend
 
   backend:
-    build: ./backend
+    image: ghcr.io/tatsu1207/radar-backend:latest
     ports:
       - "${PORT_BACKEND:-8000}:8000"
     environment:
@@ -23,7 +19,6 @@ services:
       - RADAR_UPLOAD_DIR=/data/uploads
       - RADAR_RESULTS_DIR=/data/results
     volumes:
-      - ./backend:/app
       - radar-data:/data
     depends_on:
       db:
@@ -32,7 +27,7 @@ services:
         condition: service_started
 
   worker:
-    build: ./backend
+    image: ghcr.io/tatsu1207/radar-worker:latest
     command: celery -A app.celery_app worker --loglevel=info
     environment:
       - RADAR_DATABASE_URL=postgresql://radar:radar@db:5432/radar
@@ -40,7 +35,6 @@ services:
       - RADAR_UPLOAD_DIR=/data/uploads
       - RADAR_RESULTS_DIR=/data/results
     volumes:
-      - ./backend:/app
       - radar-data:/data
     depends_on:
       db:
