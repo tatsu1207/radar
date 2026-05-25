@@ -56,6 +56,8 @@ def run_amrfinderplus(sample_id: str, assembly_path: str, db, threads: int = 4) 
 
     # Parse TSV output
     results = []
+    seen_args = set()  # (gene, contig, start, end) to deduplicate
+    seen_vfs = set()
     if os.path.exists(output_path):
         with open(output_path) as f:
             reader = csv.DictReader(f, delimiter="\t")
@@ -63,8 +65,8 @@ def run_amrfinderplus(sample_id: str, assembly_path: str, db, threads: int = 4) 
                 element_type = row.get("Element type", row.get("Type", ""))
                 element_subtype = row.get("Element subtype", row.get("Subtype", ""))
 
-                # Skip stress/biocide unless relevant
-                if element_type not in ("AMR", "STRESS", "VIRULENCE", ""):
+                # Only keep AMR, STRESS, and VIRULENCE entries
+                if element_type not in ("AMR", "STRESS", "VIRULENCE"):
                     continue
 
                 gene_name = row.get("Gene symbol", row.get("Element symbol", row.get("Sequence name", "unknown")))
@@ -81,6 +83,10 @@ def run_amrfinderplus(sample_id: str, assembly_path: str, db, threads: int = 4) 
                 method = row.get("Method", "")
 
                 if element_type == "VIRULENCE":
+                    vf_key = (gene_name, contig, start, end)
+                    if vf_key in seen_vfs:
+                        continue
+                    seen_vfs.add(vf_key)
                     vf = VirulenceResult(
                         sample_id=sample_id,
                         gene=gene_name,
@@ -94,6 +100,11 @@ def run_amrfinderplus(sample_id: str, assembly_path: str, db, threads: int = 4) 
                     )
                     db.add(vf)
                     continue
+
+                arg_key = (gene_name, contig, start, end)
+                if arg_key in seen_args:
+                    continue
+                seen_args.add(arg_key)
 
                 arg = ARGResult(
                     sample_id=sample_id,

@@ -1,5 +1,7 @@
 import csv
 import io
+import os
+import re
 import uuid
 from typing import Dict, List, Optional
 
@@ -7,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db import get_db
 from app.models.models import (
     Sample,
@@ -17,6 +20,10 @@ from app.models.models import (
     RiskScore,
     VirulenceResult,
     Project,
+    SpeciesResult,
+    MLSTResult,
+    SerotypeResult,
+    BacMetResult,
 )
 from app.schemas.schemas import (
     ARGResultRead,
@@ -27,6 +34,125 @@ from app.schemas.schemas import (
 )
 
 router = APIRouter(tags=["results"])
+
+
+@router.get("/samples/{sample_id}/summary")
+def get_sample_summary(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Aggregate summary of all annotation results for a sample."""
+    sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+
+    # Species
+    species_row = db.query(SpeciesResult).filter(SpeciesResult.sample_id == sample_id).first()
+    # MLST
+    mlst_row = db.query(MLSTResult).filter(MLSTResult.sample_id == sample_id).first()
+    # Serotype
+    sero_row = db.query(SerotypeResult).filter(SerotypeResult.sample_id == sample_id).first()
+
+    # ARGs
+    args = db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
+    arg_genes = [a.gene for a in args]
+    drug_classes = sorted(set(dc.strip() for a in args if a.drug_class for dc in a.drug_class.split(";")))
+
+    # VFs
+    vfs = db.query(VirulenceResult).filter(VirulenceResult.sample_id == sample_id).all()
+
+    # Plasmids
+    plasmids = db.query(PlasmidResult).filter(PlasmidResult.sample_id == sample_id).all()
+
+    # BacMet
+    bacmets = db.query(BacMetResult).filter(BacMetResult.sample_id == sample_id).all()
+
+    # QUAST (from file)
+    quast_data = None
+    quast_report = os.path.join(settings.RESULTS_DIR, str(sample_id), "assembly", "quast", "report.tsv")
+    if os.path.exists(quast_report):
+        quast_data = {}
+        quast_key_map = {
+            "Total length": "total_length",
+            "# contigs": "num_contigs",
+            "N50": "n50",
+            "GC (%)": "gc_percent",
+            "Largest contig": "largest_contig",
+        }
+        with open(quast_report) as f:
+            for line in f:
+                parts = line.strip().split("\t")
+                if len(parts) < 2:
+                    continue
+                key, val = parts[0], parts[1]
+                # Skip lines with parenthetical qualifiers like "# contigs (>= 1000 bp)"
+                if key in quast_key_map:
+                    field = quast_key_map[key]
+                    if field == "gc_percent":
+                        quast_data[field] = _safe_float_val(val)
+                    else:
+                        quast_data[field] = _safe_int_val(val)
+
+    # BUSCO (from file)
+    busco_data = None
+    busco_dir = os.path.join(settings.RESULTS_DIR, str(sample_id), "assembly", "busco", "busco_result")
+    if os.path.isdir(busco_dir):
+        for root, dirs, files in os.walk(busco_dir):
+            for fname in files:
+                if fname.startswith("short_summary"):
+                    with open(os.path.join(root, fname)) as bf:
+                        content = bf.read()
+                        busco_data = {}
+                        m = re.search(r"C:([\d.]+)%\[S:([\d.]+)%,D:([\d.]+)%\],F:([\d.]+)%.*M:([\d.]+)%", content)
+                        if m:
+                            busco_data["complete"] = float(m.group(1))
+                            busco_data["single_copy"] = float(m.group(2))
+                            busco_data["duplicated"] = float(m.group(3))
+                            busco_data["fragmented"] = float(m.group(4))
+                            busco_data["missing"] = float(m.group(5))
+                    break
+            if busco_data is not None:
+                break
+
+    return {
+        "sample_id": str(sample_id),
+        "sample_name": sample.name,
+        "status": sample.status.value if sample.status else "unknown",
+        "species": species_row.species if species_row else None,
+        "species_identity": species_row.identity if species_row else None,
+        "mlst_scheme": mlst_row.scheme if mlst_row else None,
+        "mlst_st": mlst_row.sequence_type if mlst_row else None,
+        "serotype": sero_row.serotype if sero_row else None,
+        "serotype_tool": sero_row.tool if sero_row else None,
+        "arg_count": len(args),
+        "arg_genes": arg_genes,
+        "drug_classes": drug_classes,
+        "vf_count": len(vfs),
+        "vf_genes": [v.gene for v in vfs],
+        "drug_resistance": drug_classes,
+        "pathotype": None,
+        "plasmids": [
+            {"plasmid_id": p.plasmid_id or "", "replicon": p.replicon or "", "mobility": p.predicted_mobility or ""}
+            for p in plasmids
+        ],
+        "bacmet": [
+            {"gene": b.gene, "compound": b.compound or "", "identity": b.identity or 0}
+            for b in bacmets
+        ],
+        "quast": quast_data,
+        "busco": busco_data,
+    }
+
+
+def _safe_int_val(val: str):
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return None
+
+
+def _safe_float_val(val: str):
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
 
 
 @router.get("/samples/{sample_id}/args", response_model=List[ARGResultRead])
@@ -53,7 +179,13 @@ def get_arg_results(
     if on_plasmid is not None:
         query = query.filter(ARGResult.on_plasmid == on_plasmid)
 
-    return query.all()
+    # Deduplicate by gene name: keep the hit with highest identity
+    results = query.all()
+    seen: dict = {}
+    for r in results:
+        if r.gene not in seen or (r.identity or 0) > (seen[r.gene].identity or 0):
+            seen[r.gene] = r
+    return list(seen.values())
 
 
 @router.get("/samples/{sample_id}/plasmids", response_model=List[PlasmidResultRead])
@@ -181,79 +313,123 @@ def get_is_elements(
                     "plasmid_id": row.get("primary_cluster_id", "") if mol_type == "plasmid" else "",
                 })
 
-    # Get ARGs
+    # Get ARGs and VFs
     args = db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
+    vfs = db.query(VirulenceResult).filter(VirulenceResult.sample_id == sample_id).all()
 
-    # Find ARG-IS associations within flanking distance
-    arg_is_pairs = []
+    def _calc_distance(el_start, el_end, feat_start, feat_end):
+        if feat_end < el_start:
+            return el_start - feat_end
+        elif feat_start > el_end:
+            return feat_start - el_end
+        return 0  # overlapping
+
+    # For each IS element, find nearby ARGs and VFs
     for is_el in is_elements:
-        nearby_args = []
+        nearby = []
         for arg in args:
             arg_contig = arg.contig.split()[0] if arg.contig else ""
-            if arg_contig != is_el["contig"]:
+            if arg_contig != is_el["contig"] or not arg.start or not arg.end:
                 continue
-            if not arg.start or not arg.end:
-                continue
-            # Distance from IS to ARG
-            if arg.end < is_el["start"]:
-                dist = is_el["start"] - arg.end
-            elif arg.start > is_el["end"]:
-                dist = arg.start - is_el["end"]
-            else:
-                dist = 0  # overlapping
+            dist = _calc_distance(is_el["start"], is_el["end"], arg.start, arg.end)
             if dist <= flanking:
-                nearby_args.append({
+                nearby.append({
                     "gene": arg.gene,
-                    "drug_class": arg.drug_class or "",
+                    "type": "ARG",
+                    "detail": arg.drug_class or "",
                     "start": arg.start,
                     "end": arg.end,
+                    "strand": 1,
                     "distance": dist,
-                    "database": arg.database or "",
                 })
-        is_el["nearby_args"] = nearby_args
-
-    # Also build ARG-centric view: for each ARG, list nearby IS elements
-    arg_associations = []
-    for arg in args:
-        if not arg.start or not arg.end:
-            continue
-        arg_contig = arg.contig.split()[0] if arg.contig else ""
-        nearby_is = []
-        for is_el in is_elements:
-            if is_el["contig"] != arg_contig:
+        for vf in vfs:
+            vf_contig = vf.contig.split()[0] if vf.contig else ""
+            if vf_contig != is_el["contig"] or not vf.start or not vf.end:
                 continue
-            if arg.end < is_el["start"]:
-                dist = is_el["start"] - arg.end
-            elif arg.start > is_el["end"]:
-                dist = arg.start - is_el["end"]
-            else:
-                dist = 0
+            dist = _calc_distance(is_el["start"], is_el["end"], vf.start, vf.end)
             if dist <= flanking:
-                nearby_is.append({
-                    "is_name": is_el["is_name"],
-                    "is_family": is_el["is_family"],
-                    "start": is_el["start"],
-                    "end": is_el["end"],
+                nearby.append({
+                    "gene": vf.gene,
+                    "type": "VF",
+                    "detail": vf.category or "virulence",
+                    "start": vf.start,
+                    "end": vf.end,
+                    "strand": 1,
                     "distance": dist,
                 })
-        if nearby_is:
-            arg_associations.append({
-                "gene": arg.gene,
-                "drug_class": arg.drug_class or "",
-                "contig": arg_contig,
-                "start": arg.start,
-                "end": arg.end,
-                "on_plasmid": arg.on_plasmid,
-                "database": arg.database or "",
-                "nearby_is": sorted(nearby_is, key=lambda x: x["distance"]),
+        is_el["nearby_genes"] = sorted(nearby, key=lambda x: x["start"])
+
+    # Build synteny regions: for each IS with nearby genes, define a region
+    # spanning from the leftmost to the rightmost feature + padding
+    synteny_regions = []
+    for is_el in is_elements:
+        if not is_el["nearby_genes"]:
+            continue
+        all_starts = [is_el["start"]] + [g["start"] for g in is_el["nearby_genes"]]
+        all_ends = [is_el["end"]] + [g["end"] for g in is_el["nearby_genes"]]
+        region_start = min(all_starts)
+        region_end = max(all_ends)
+        # Pad by 500bp for visual breathing room
+        region_start = max(0, region_start - 500)
+        region_end = region_end + 500
+
+        # Build features list for this region
+        features = [{
+            "type": "mobile_element",
+            "name": is_el["is_name"],
+            "label": is_el["is_family"],
+            "family": is_el["is_family"],
+            "start": is_el["start"],
+            "end": is_el["end"],
+            "strand": 1,
+        }]
+        for g in is_el["nearby_genes"]:
+            features.append({
+                "type": "arg" if g["type"] == "ARG" else "virulence",
+                "name": g["gene"],
+                "label": g["detail"],
+                "family": g["detail"],
+                "start": g["start"],
+                "end": g["end"],
+                "strand": g["strand"],
             })
+        features.sort(key=lambda f: f["start"])
+
+        # Also find other IS elements on the same contig in this region
+        for other in is_elements:
+            if other is is_el:
+                continue
+            if other["contig"] != is_el["contig"]:
+                continue
+            if other["end"] >= region_start and other["start"] <= region_end:
+                features.append({
+                    "type": "mobile_element",
+                    "name": other["is_name"],
+                    "label": other["is_family"],
+                    "family": other["is_family"],
+                    "start": other["start"],
+                    "end": other["end"],
+                    "strand": 1,
+                })
+        features.sort(key=lambda f: f["start"])
+
+        synteny_regions.append({
+            "contig": is_el["contig"],
+            "is_name": is_el["is_name"],
+            "molecule_type": is_el["molecule_type"],
+            "plasmid_id": is_el.get("plasmid_id", ""),
+            "region_start": region_start,
+            "region_end": region_end,
+            "length": region_end - region_start,
+            "features": features,
+        })
 
     return {
         "is_elements": is_elements,
-        "arg_associations": sorted(arg_associations, key=lambda x: len(x["nearby_is"]), reverse=True),
+        "synteny_regions": synteny_regions,
         "flanking_distance": flanking,
         "total_is": len(is_elements),
-        "args_with_is": len(arg_associations),
+        "with_nearby": sum(1 for el in is_elements if el["nearby_genes"]),
     }
 
 
@@ -698,7 +874,45 @@ def get_plasmid_map(sample_id: uuid.UUID, db: Session = Depends(get_db)):
             "features": features,
         })
 
-    return result
+    # Group contigs by plasmid_id into single maps
+    grouped: dict = {}
+    for entry in result:
+        pid = entry["plasmid_id"]
+        if pid not in grouped:
+            grouped[pid] = {
+                "plasmid_id": pid,
+                "contig": entry["contig"],
+                "size": entry["size"],
+                "replicon": entry["replicon"],
+                "mob_type": entry["mob_type"],
+                "mpf_type": entry["mpf_type"],
+                "orit_type": entry["orit_type"],
+                "predicted_mobility": entry["predicted_mobility"],
+                "features": list(entry["features"]),
+            }
+        else:
+            g = grouped[pid]
+            g["size"] += entry["size"]
+            g["contig"] += f", {entry['contig']}"
+            # Merge features, offsetting positions by accumulated size
+            offset = g["size"] - entry["size"]
+            for f in entry["features"]:
+                grouped[pid]["features"].append({
+                    **f,
+                    "start": f["start"] + offset,
+                    "end": f["end"] + offset,
+                })
+            # Keep the more informative replicon/mob_type
+            if entry["replicon"] != "-" and g["replicon"] == "-":
+                g["replicon"] = entry["replicon"]
+            if entry["mob_type"] != "-" and g["mob_type"] == "-":
+                g["mob_type"] = entry["mob_type"]
+
+    merged = list(grouped.values())
+    for m in merged:
+        m["features"].sort(key=lambda f: f["start"])
+
+    return merged
 
 
 @router.get("/samples/{sample_id}/export")
@@ -735,6 +949,125 @@ def export_results_csv(sample_id: uuid.UUID, db: Session = Depends(get_db)):
         iter([output.getvalue()]),
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={sample.name}_results.csv"},
+    )
+
+
+@router.get("/samples/{sample_id}/export-all")
+def export_sample_annotations_tsv(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Export all annotation results for a single sample as one TSV file."""
+    from app.models.models import (
+        SpeciesResult, MLSTResult, PlasmidResult,
+        ProphageResult, IntegronResult, CRISPRResult, DefenseFinderResult,
+        ICEResult, BacMetResult, PointMutationResult,
+    )
+
+    sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+
+    # Species & MLST for filename
+    sp = db.query(SpeciesResult).filter(SpeciesResult.sample_id == sample_id).first()
+    mlst = db.query(MLSTResult).filter(MLSTResult.sample_id == sample_id).first()
+    species_str = sp.species.replace(" ", "_") if sp and sp.species else "unknown"
+    mlst_str = f"ST{mlst.sequence_type}" if mlst and mlst.sequence_type else "ST_unknown"
+    filename = f"{sample.name}-{species_str}-{mlst_str}.tsv"
+
+    # Build contig → location lookup from MOB-recon contig_report
+    contig_location = {}  # contig_id -> "plasmid(cluster_id)" or "chromosome"
+    contig_report = os.path.join(settings.RESULTS_DIR, str(sample_id), "plasmid", "mob_recon_out", "contig_report.txt")
+    if os.path.exists(contig_report):
+        with open(contig_report) as f:
+            header = f.readline().strip().split("\t")
+            for line in f:
+                cols = line.strip().split("\t")
+                if len(cols) < 6:
+                    continue
+                row = dict(zip(header, cols))
+                cid = row.get("contig_id", "").split()[0]
+                mol = row.get("molecule_type", "")
+                if mol == "plasmid":
+                    pid = row.get("primary_cluster_id", "")
+                    contig_location[cid] = f"plasmid({pid})" if pid else "plasmid"
+                else:
+                    contig_location[cid] = "chromosome"
+
+    def _loc(contig_str):
+        if not contig_str:
+            return ""
+        cid = contig_str.split()[0]
+        return contig_location.get(cid, "chromosome")
+
+    rows = []
+
+    # ARGs
+    for a in db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all():
+        rows.append([a.contig or "", _loc(a.contig), a.start or 0, a.end or 0,
+                      a.gene, "ARG", a.drug_class or "", a.identity, a.coverage])
+
+    # Virulence
+    for v in db.query(VirulenceResult).filter(VirulenceResult.sample_id == sample_id).all():
+        rows.append([v.contig or "", _loc(v.contig), v.start or 0, v.end or 0,
+                      v.gene, "Virulence", v.category or "", v.identity, v.coverage])
+
+    # BacMet
+    for b in db.query(BacMetResult).filter(BacMetResult.sample_id == sample_id).all():
+        rows.append([b.contig or "", _loc(b.contig), b.start or 0, b.end or 0,
+                      b.gene, "BacMet", b.compound or "", b.identity, b.coverage])
+
+    # Point mutations
+    for pm in db.query(PointMutationResult).filter(PointMutationResult.sample_id == sample_id).all():
+        rows.append(["", "", 0, 0,
+                      pm.gene, "PointMutation", f"{pm.mutation} ({pm.drug_class or ''})", "", ""])
+
+    # Prophages
+    for p in db.query(ProphageResult).filter(ProphageResult.sample_id == sample_id).all():
+        rows.append([p.contig or "", _loc(p.contig), p.start or 0, p.end or 0,
+                      p.taxonomy or "prophage", "Prophage", f"score={p.virus_score or ''}", "", ""])
+
+    # CRISPR
+    for c in db.query(CRISPRResult).filter(CRISPRResult.sample_id == sample_id).all():
+        rows.append([c.contig or "", _loc(c.contig), c.start or 0, c.end or 0,
+                      c.crispr_id or "", "CRISPR", f"cas={c.cas_type or 'none'} spacers={c.num_spacers}", "", ""])
+
+    # Defense systems
+    for d in db.query(DefenseFinderResult).filter(DefenseFinderResult.sample_id == sample_id).all():
+        rows.append([d.contig or "", _loc(d.contig), d.start or 0, d.end or 0,
+                      d.system_type, "Defense", d.subtype or "", "", ""])
+
+    # Integrons
+    for ig in db.query(IntegronResult).filter(IntegronResult.sample_id == sample_id).all():
+        rows.append([ig.contig or "", _loc(ig.contig), ig.start or 0, ig.end or 0,
+                      ig.integron_id or "", "Integron", ig.integron_type or "", "", ""])
+
+    # ICE
+    for ice in db.query(ICEResult).filter(ICEResult.sample_id == sample_id).all():
+        rows.append([ice.contig or "", _loc(ice.contig), ice.start or 0, ice.end or 0,
+                      ice.ice_id or "", "ICE", f"{ice.ice_type or ''} integrase={ice.integrase or ''}", "", ""])
+
+    # Plasmids (summary rows, no contig position — sorted last)
+    for p in db.query(PlasmidResult).filter(PlasmidResult.sample_id == sample_id).all():
+        rows.append(["~plasmid_summary", "plasmid", 0, 0,
+                      p.plasmid_id or "", "Plasmid", f"replicon={p.replicon or ''} mob={p.mob_type or ''} {p.predicted_mobility or ''}", "", ""])
+
+    # Sort by contig_id then start position
+    rows.sort(key=lambda r: (r[0], r[2] if isinstance(r[2], int) else 0))
+
+    output = io.StringIO()
+    w = csv.writer(output, delimiter="\t")
+    w.writerow(["contig_id", "location", "start", "end", "gene", "category", "detail", "identity", "coverage"])
+    for row in rows:
+        # Clean up plasmid summary contig marker
+        if row[0] == "~plasmid_summary":
+            row[0] = ""
+            row[2] = ""
+            row[3] = ""
+        w.writerow(row)
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/tab-separated-values",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 
@@ -953,6 +1286,105 @@ def get_sra_submission_data(db: Session = Depends(get_db)):
         })
 
     return entries
+
+
+# ── Point Mutations ──────────────────────────────────────────────────────────
+
+@router.get("/samples/{sample_id}/point-mutations")
+def get_point_mutations(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+    from app.models.models import PointMutationResult
+    sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    results = db.query(PointMutationResult).filter(PointMutationResult.sample_id == sample_id).all()
+    return [
+        {
+            "id": str(r.id),
+            "sample_id": str(r.sample_id),
+            "gene": r.gene,
+            "mutation": r.mutation,
+            "drug_class": r.drug_class,
+            "resistance": r.resistance,
+            "nucleotide_change": r.nucleotide_change,
+        }
+        for r in results
+    ]
+
+
+# ── CRISPR, Defense Systems, ICE ─────────────────────────────────────────────
+
+@router.get("/samples/{sample_id}/crispr")
+def get_crispr_results(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+    from app.models.models import CRISPRResult
+    sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    results = db.query(CRISPRResult).filter(CRISPRResult.sample_id == sample_id).all()
+    return [
+        {
+            "id": str(r.id),
+            "sample_id": str(r.sample_id),
+            "crispr_id": r.crispr_id,
+            "contig": r.contig,
+            "start": r.start,
+            "end": r.end,
+            "cas_type": r.cas_type,
+            "cas_genes": r.cas_genes,
+            "num_spacers": r.num_spacers,
+            "repeat_length": r.repeat_length,
+            "spacer_length": r.spacer_length,
+            "evidence_level": r.evidence_level,
+        }
+        for r in results
+    ]
+
+
+@router.get("/samples/{sample_id}/defense-systems")
+def get_defense_systems(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+    from app.models.models import DefenseFinderResult
+    sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    results = db.query(DefenseFinderResult).filter(DefenseFinderResult.sample_id == sample_id).all()
+    return [
+        {
+            "id": str(r.id),
+            "sample_id": str(r.sample_id),
+            "system_type": r.system_type,
+            "subtype": r.subtype,
+            "genes": r.genes,
+            "contig": r.contig,
+            "start": r.start,
+            "end": r.end,
+            "protein_count": r.protein_count,
+        }
+        for r in results
+    ]
+
+
+@router.get("/samples/{sample_id}/ice")
+def get_ice_results(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+    from app.models.models import ICEResult
+    sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    results = db.query(ICEResult).filter(ICEResult.sample_id == sample_id).all()
+    return [
+        {
+            "id": str(r.id),
+            "sample_id": str(r.sample_id),
+            "ice_id": r.ice_id,
+            "ice_type": r.ice_type,
+            "contig": r.contig,
+            "start": r.start,
+            "end": r.end,
+            "length": r.length,
+            "integrase": r.integrase,
+            "arg_genes": r.arg_genes,
+            "nearest_trna": r.nearest_trna,
+        }
+        for r in results
+    ]
 
 
 # ── BacMet Results ───────────────────────────────────────────────────────────

@@ -198,17 +198,21 @@ export default function PlasmidMap({ data }: PlasmidMapProps) {
   useEffect(() => {
     if (!containerRef.current) return;
 
-    let viewer: any = null;
+    let cancelled = false;
 
     (async () => {
       try {
-        // Dynamic import to avoid SSR issues
         const CGView = await import('cgview');
 
-        // CGView expects a CSS selector string, not a DOM element
-        viewer = new CGView.Viewer(`#${containerId}`, {
+        // If cleanup ran while we were awaiting the import, bail out
+        if (cancelled || !containerRef.current) return;
+
+        // Clear any leftover content from a previous render
+        containerRef.current.innerHTML = '';
+
+        const viewer = new CGView.Viewer(`#${containerId}`, {
           height: 500,
-          width: containerRef.current!.clientWidth || 700,
+          width: containerRef.current.clientWidth || 700,
         });
 
         viewer.io.loadJSON(cgJSON);
@@ -216,19 +220,24 @@ export default function PlasmidMap({ data }: PlasmidMapProps) {
         viewerRef.current = viewer;
         setLoaded(true);
       } catch (err) {
-        console.error('CGView error:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load CGView');
+        if (!cancelled) {
+          console.error('CGView error:', err);
+          setError(err instanceof Error ? err.message : 'Failed to load CGView');
+        }
       }
     })();
 
     return () => {
-      // Cleanup
-      if (viewer && typeof viewer.destroy === 'function') {
-        viewer.destroy();
+      cancelled = true;
+      if (viewerRef.current && typeof viewerRef.current.destroy === 'function') {
+        viewerRef.current.destroy();
+      }
+      if (containerRef.current) {
+        containerRef.current.innerHTML = '';
       }
       viewerRef.current = null;
     };
-  }, [cgJSON]);
+  }, [cgJSON, containerId]);
 
   // Resize handler
   useEffect(() => {

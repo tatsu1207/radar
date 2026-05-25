@@ -9,9 +9,7 @@ import {
   getARGs,
   getPlasmids,
   getPlasmidMap,
-  getMobility,
   getISElements,
-  getLinearMap,
   getVirulence,
   getJobs,
   getIntegrons,
@@ -26,9 +24,7 @@ import type {
   ARGResult,
   PlasmidResult,
   PlasmidMapData,
-  MobilityResult,
   ISElementData,
-  LinearMapContig,
   VirulenceResult,
   AnalysisJob,
   SampleSummary,
@@ -67,10 +63,8 @@ export default function SampleDetailPage() {
   const [args, setArgs] = useState<ARGResult[]>([]);
   const [plasmids, setPlasmids] = useState<PlasmidResult[]>([]);
   const [plasmidMaps, setPlasmidMaps] = useState<PlasmidMapData[]>([]);
-  const [mobility, setMobility] = useState<MobilityResult[]>([]);
   const [isData, setIsData] = useState<ISElementData | null>(null);
   const [flanking, setFlanking] = useState(5000);
-  const [linearMaps, setLinearMaps] = useState<LinearMapContig[]>([]);
   const [integrons, setIntegrons] = useState<IntegronResult[]>([]);
   const [pointMutations, setPointMutations] = useState<PointMutationResult[]>([]);
   const [virulence, setVirulence] = useState<VirulenceResult[]>([]);
@@ -109,10 +103,8 @@ export default function SampleDetailPage() {
       getPlasmids(sampleId).then(setPlasmids).catch(() => {});
       getPlasmidMap(sampleId).then(setPlasmidMaps).catch(() => {});
     } else if (tab === 'Mobile Elements' && !isData) {
-      getMobility(sampleId).then(setMobility).catch(() => {});
       getIntegrons(sampleId).then(setIntegrons).catch(() => {});
       getISElements(sampleId, flanking).then(setIsData).catch(() => {});
-      if (linearMaps.length === 0) getLinearMap(sampleId).then(setLinearMaps).catch(() => {});
     } else if (tab === 'Defense Systems' && crisprs.length === 0 && defenseSystems.length === 0) {
       getCRISPRResults(sampleId).then(setCrisprs).catch(() => {});
       getDefenseSystems(sampleId).then(setDefenseSystems).catch(() => {});
@@ -122,11 +114,13 @@ export default function SampleDetailPage() {
     }
   }, [tab, sample, sampleId, args.length, plasmids.length, isData, crisprs.length, defenseSystems.length, virulence.length]);
 
-  // Refetch IS data when flanking distance changes
+  // Refetch IS data when flanking distance changes (debounced)
   useEffect(() => {
-    if (tab === 'Mobile Elements' && sample) {
+    if (tab !== 'Mobile Elements' || !sample) return;
+    const timer = setTimeout(() => {
       getISElements(sampleId, flanking).then(setIsData).catch(() => {});
-    }
+    }, 300);
+    return () => clearTimeout(timer);
   }, [flanking, sampleId, tab, sample]);
 
   if (loading) {
@@ -354,21 +348,7 @@ export default function SampleDetailPage() {
       {tab === 'Resistance Genes' && (
         <div className="space-y-6">
           <div className="card">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-100">Resistance Genes (AMRFinderPlus)</h2>
-              <button
-                onClick={() => downloadTSV(
-                  `${sample?.name || 'sample'}_ARGs.tsv`,
-                  ['Gene', 'Drug Class', 'Mechanism', 'Identity%', 'Coverage%', 'Contig', 'Start', 'End', 'On Plasmid'],
-                  args.map((r) => [r.gene, r.drug_class, r.mechanism, r.identity, r.coverage, r.contig, r.start, r.end, r.on_plasmid ? 'Yes' : 'No'])
-                )}
-                disabled={args.length === 0}
-                className="btn-secondary flex items-center gap-2 text-xs"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Download TSV
-              </button>
-            </div>
+            <h2 className="text-lg font-semibold text-gray-100 mb-4">Resistance Genes (AMRFinderPlus)</h2>
             <ARGTable results={args} />
           </div>
 
@@ -411,10 +391,13 @@ export default function SampleDetailPage() {
             </div>
           ) : (
             <>
-              {plasmidMaps.map((pm) => (
+              {/* Only show maps for contigs that have features */}
+              {plasmidMaps.filter((pm) => pm.features.length > 0).map((pm) => (
                 <PlasmidMap key={pm.contig} data={pm} />
               ))}
-              {plasmidMaps.length === 0 && plasmids.length > 0 && (
+
+              {/* Plasmid summary table */}
+              {plasmids.length > 0 && (
                 <div className="card">
                   <h2 className="text-lg font-semibold text-gray-100 mb-4">Plasmid Results (MOB-recon)</h2>
                   <div className="overflow-x-auto">
@@ -453,31 +436,21 @@ export default function SampleDetailPage() {
       {/* ── Mobile Elements tab ── */}
       {tab === 'Mobile Elements' && (
         <div className="space-y-6">
-          {/* Linear genome maps */}
-          {linearMaps.length > 0 && linearMaps.map((contig) => (
-            <LinearGenomeMap
-              key={contig.contig}
-              title={`${contig.contig} ${contig.plasmid_id ? `(${contig.plasmid_id})` : ''}`}
-              subtitle={`${contig.molecule_type} — ${(contig.length / 1000).toFixed(1)} kb — ${contig.features.length} features`}
-              length={contig.length}
-              features={contig.features}
-            />
-          ))}
-
-          {/* ARG-IS Associations with flanking distance slider */}
+          {/* Controls */}
           <div className="card">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-100">ARGs Flanked by IS Elements</h2>
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-semibold text-gray-100">Mobile Elements</h2>
               <div className="flex items-center gap-3">
-                {isData && isData.arg_associations.length > 0 && (
+                {isData && isData.is_elements.length > 0 && (
                   <button
                     onClick={() => downloadTSV(
-                      `${sample?.name || 'sample'}_ARG_IS_associations.tsv`,
-                      ['Gene', 'Drug Class', 'Contig', 'Start', 'End', 'On Plasmid', 'Nearby IS', 'Min Distance (bp)'],
-                      isData.arg_associations.map((a) => [
-                        a.gene, a.drug_class, a.contig, a.start, a.end, a.on_plasmid ? 'Yes' : 'No',
-                        a.nearby_is.map((is_el) => is_el.is_name).join('; '),
-                        Math.min(...a.nearby_is.map((is_el) => is_el.distance)),
+                      `${sample?.name || 'sample'}_mobile_elements.tsv`,
+                      ['IS Name', 'Family', 'Contig', 'Location', 'Start', 'End', 'Nearby Genes'],
+                      isData.is_elements.map((el: any) => [
+                        el.is_name, el.is_family, el.contig,
+                        el.molecule_type === 'plasmid' ? el.plasmid_id : 'chromosome',
+                        el.start, el.end,
+                        (el.nearby_genes || []).map((g: any) => `${g.gene}(${g.type},${g.distance}bp)`).join('; '),
                       ])
                     )}
                     className="btn-secondary flex items-center gap-2 text-xs"
@@ -486,125 +459,47 @@ export default function SampleDetailPage() {
                     TSV
                   </button>
                 )}
-                <label className="text-xs text-gray-400">Flanking distance:</label>
+                <label className="text-xs text-gray-400">Flanking:</label>
                 <input type="range" min={0} max={20000} step={500} value={flanking}
                   onChange={(e) => setFlanking(Number(e.target.value))}
                   className="w-32 accent-blue-500" />
                 <span className="text-sm text-gray-300 font-mono w-16 text-right">{(flanking/1000).toFixed(1)} kb</span>
               </div>
             </div>
-            {isData && isData.arg_associations.length > 0 ? (
-              <>
-                <p className="text-xs text-gray-400 mb-3">
-                  {isData.args_with_is} of {isData.arg_associations.length + (isData.total_is - isData.args_with_is)} ARGs have IS elements within {(flanking/1000).toFixed(1)} kb
-                </p>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-gray-800">
-                        <th className="table-header">Gene</th>
-                        <th className="table-header">Drug Class</th>
-                        <th className="table-header">Contig</th>
-                        <th className="table-header">Plasmid</th>
-                        <th className="table-header">Nearby IS Elements</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-800">
-                      {isData.arg_associations.map((a, i) => (
-                        <tr key={i} className="hover:bg-gray-800/50">
-                          <td className="table-cell font-medium text-red-400">{a.gene}</td>
-                          <td className="table-cell text-sm">{a.drug_class}</td>
-                          <td className="table-cell font-mono text-xs">{a.contig}</td>
-                          <td className="table-cell">
-                            {a.on_plasmid ? <span className="text-orange-400 text-xs">Yes</span> : <span className="text-gray-600 text-xs">No</span>}
-                          </td>
-                          <td className="table-cell">
-                            <div className="flex flex-wrap gap-1">
-                              {a.nearby_is.map((is_el, j) => (
-                                <span key={j} className={`px-1.5 py-0.5 rounded text-xs ${
-                                  is_el.distance === 0 ? 'bg-red-600/20 text-red-300' :
-                                  is_el.distance < 1000 ? 'bg-yellow-600/20 text-yellow-300' :
-                                  'bg-gray-700 text-gray-300'
-                                }`}>
-                                  {is_el.is_name} <span className="text-[10px] opacity-70">({is_el.distance === 0 ? 'overlap' : `${(is_el.distance/1000).toFixed(1)}kb`})</span>
-                                </span>
-                              ))}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            ) : isData ? (
-              <p className="text-gray-500 text-center py-6">No ARGs found within {(flanking/1000).toFixed(1)} kb of IS elements.</p>
-            ) : (
-              <p className="text-gray-500 text-center py-6">Loading...</p>
+            {isData && (
+              <p className="text-xs text-gray-400">
+                {isData.total_is} IS elements detected — {isData.with_nearby || 0} flanked by ARG/VF within {(flanking/1000).toFixed(1)} kb
+              </p>
             )}
           </div>
 
-          {/* IS Elements summary */}
-          {isData && isData.total_is > 0 && (
-            <div className="card">
-              <h2 className="text-lg font-semibold text-gray-100 mb-4">
-                All IS Elements ({isData.total_is})
-                <span className="text-sm font-normal text-gray-400 ml-2">from MOB-recon</span>
-              </h2>
-              <button
-                onClick={() => downloadTSV(
-                  `${sample?.name || 'sample'}_IS_elements.tsv`,
-                  ['IS Name', 'Family', 'Contig', 'Start', 'End', 'Location', 'Plasmid ID', 'Nearby ARGs'],
-                  isData.is_elements.map((el) => [
-                    el.is_name, el.is_family, el.contig, el.start, el.end,
-                    el.molecule_type, el.plasmid_id,
-                    el.nearby_args.map((a) => a.gene).join('; '),
-                  ])
-                )}
-                className="btn-secondary flex items-center gap-2 text-xs mb-3"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Download TSV
-              </button>
-              <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
-                <table className="w-full">
-                  <thead className="sticky top-0 bg-gray-900">
-                    <tr className="border-b border-gray-800">
-                      <th className="table-header">IS Name</th>
-                      <th className="table-header">Family</th>
-                      <th className="table-header">Contig</th>
-                      <th className="table-header">Location</th>
-                      <th className="table-header">Position</th>
-                      <th className="table-header">Nearby ARGs</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-800">
-                    {isData.is_elements.map((el, i) => (
-                      <tr key={i} className="hover:bg-gray-800/50">
-                        <td className="table-cell font-medium text-yellow-400">{el.is_name}</td>
-                        <td className="table-cell text-sm">{el.is_family}</td>
-                        <td className="table-cell font-mono text-xs">{el.contig}</td>
-                        <td className="table-cell text-xs">
-                          {el.molecule_type === 'plasmid' ? (
-                            <span className="text-orange-400">{el.plasmid_id}</span>
-                          ) : <span className="text-gray-500">chromosome</span>}
-                        </td>
-                        <td className="table-cell font-mono text-xs">{el.start.toLocaleString()}-{el.end.toLocaleString()}</td>
-                        <td className="table-cell">
-                          {el.nearby_args.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {el.nearby_args.map((a, j) => (
-                                <span key={j} className="px-1.5 py-0.5 bg-red-600/20 text-red-300 rounded text-xs">{a.gene}</span>
-                              ))}
-                            </div>
-                          ) : <span className="text-gray-600 text-xs">-</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+          {!isData ? (
+            <div className="card"><p className="text-gray-500 text-center py-6">Loading...</p></div>
+          ) : isData.is_elements.length === 0 ? (
+            <div className="card"><p className="text-gray-500 text-center py-6">No mobile elements detected.</p></div>
+          ) : (
+            <>
+              {/* Synteny maps for IS elements with nearby ARGs/VFs */}
+              {isData.synteny_regions && isData.synteny_regions.length > 0 ? (
+                <div className="space-y-4">
+                  {isData.synteny_regions.map((region: any, i: number) => (
+                    <LinearGenomeMap
+                      key={`${region.contig}-${region.is_name}-${i}`}
+                      title={`${region.is_name} — ${region.contig}`}
+                      subtitle={`${region.molecule_type}${region.plasmid_id ? ` (${region.plasmid_id})` : ''} — ${(region.length / 1000).toFixed(1)} kb region — ${region.features.length} features`}
+                      length={region.region_end}
+                      features={region.features}
+                      regionStart={region.region_start}
+                      regionEnd={region.region_end}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="card">
+                  <p className="text-gray-500 text-center py-6">No IS elements flanked by ARGs or VFs within {(flanking/1000).toFixed(1)} kb.</p>
+                </div>
+              )}
+            </>
           )}
 
           {/* Integrons */}

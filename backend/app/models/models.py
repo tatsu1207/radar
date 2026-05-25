@@ -538,10 +538,6 @@ class PointMutationResult(Base):
     sample = relationship("Sample", back_populates="point_mutation_results")
 
 
-# ---------------------------------------------------------------------------
-# Project-level comparative analysis results
-# ---------------------------------------------------------------------------
-
 class CRISPRResult(Base):
     """CRISPR array detected by CRISPRCasFinder."""
     __tablename__ = "crispr_results"
@@ -598,54 +594,6 @@ class ICEResult(Base):
     sample = relationship("Sample", back_populates="ice_results")
 
 
-class ComparativeAnalysisJob(Base):
-    """Tracks project-level comparative analysis runs."""
-    __tablename__ = "comparative_analysis_jobs"
-
-    id = Column(UUID, primary_key=True, default=uuid.uuid4)
-    project_id = Column(UUID, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
-    analysis_type = Column(String(50), nullable=False)  # pangenome, snp_tree, mashtree, cgmlst_cluster
-    status = Column(Enum(JobStatus), nullable=False, default=JobStatus.pending)
-    started_at = Column(DateTime, nullable=True)
-    finished_at = Column(DateTime, nullable=True)
-    log = Column(Text, nullable=True)
-    celery_task_id = Column(String(255), nullable=True)
-    sample_ids = Column(JSON, nullable=True)  # list of sample UUIDs included
-    parameters = Column(JSON, nullable=True)  # user-configurable params (e.g., reference for Snippy)
-    result_dir = Column(String(1024), nullable=True)
-
-
-class PangenomeResult(Base):
-    """Panaroo pan-genome analysis result (project-level)."""
-    __tablename__ = "pangenome_results"
-
-    id = Column(UUID, primary_key=True, default=uuid.uuid4)
-    project_id = Column(UUID, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
-    job_id = Column(UUID, ForeignKey("comparative_analysis_jobs.id", ondelete="CASCADE"), nullable=True)
-    core_genes = Column(Integer, nullable=True)
-    soft_core_genes = Column(Integer, nullable=True)
-    shell_genes = Column(Integer, nullable=True)
-    cloud_genes = Column(Integer, nullable=True)
-    total_genes = Column(Integer, nullable=True)
-    gene_presence_absence_path = Column(String(1024), nullable=True)  # CSV path
-    core_alignment_path = Column(String(1024), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-
-class SNPPhylogenyResult(Base):
-    """Snippy + Gubbins core-genome SNP phylogeny (project-level)."""
-    __tablename__ = "snp_phylogeny_results"
-
-    id = Column(UUID, primary_key=True, default=uuid.uuid4)
-    project_id = Column(UUID, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
-    job_id = Column(UUID, ForeignKey("comparative_analysis_jobs.id", ondelete="CASCADE"), nullable=True)
-    reference_sample_id = Column(UUID, nullable=True)
-    core_snp_count = Column(Integer, nullable=True)
-    core_genome_size = Column(Integer, nullable=True)
-    newick_path = Column(String(1024), nullable=True)
-    newick_recomb_filtered_path = Column(String(1024), nullable=True)  # after Gubbins
-    snp_alignment_path = Column(String(1024), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class BacMetResult(Base):
@@ -685,13 +633,3 @@ class MLPhenotypePrediction(Base):
     sample = relationship("Sample", back_populates="ml_predictions")
 
 
-class MashtreeResult(Base):
-    """Mashtree distance-based phylogenomic tree (project-level)."""
-    __tablename__ = "mashtree_results"
-
-    id = Column(UUID, primary_key=True, default=uuid.uuid4)
-    project_id = Column(UUID, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
-    job_id = Column(UUID, ForeignKey("comparative_analysis_jobs.id", ondelete="CASCADE"), nullable=True)
-    newick_path = Column(String(1024), nullable=True)
-    distance_matrix_path = Column(String(1024), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)

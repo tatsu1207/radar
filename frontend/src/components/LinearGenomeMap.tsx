@@ -25,7 +25,7 @@ interface LinearGenomeMapProps {
 
 const TRACK_COLORS: Record<string, { fill: string; stroke: string; label: string }> = {
   arg:            { fill: '#EF4444', stroke: '#B91C1C', label: 'ARG' },
-  virulence:      { fill: '#FB923C', stroke: '#C2410C', label: 'Virulence' },
+  virulence:      { fill: '#14B8A6', stroke: '#0D9488', label: 'Virulence' },
   bacmet:         { fill: '#A78BFA', stroke: '#7C3AED', label: 'Biocide/Metal' },
   mobile_element: { fill: '#F59E0B', stroke: '#B45309', label: 'IS Element' },
   integron:       { fill: '#8B5CF6', stroke: '#6D28D9', label: 'Integron' },
@@ -75,9 +75,13 @@ export default function LinearGenomeMap({
   const plotWidth = svgWidth - MARGIN.left - MARGIN.right;
   const viewSpan = viewEnd - viewStart;
 
-  // Assign features to rows to avoid overlaps
+  // Separate mobile_element features (rendered as background bands) from gene features (rendered as arrows)
+  const bgFeatures = useMemo(() => features.filter((f) => f.type === 'mobile_element'), [features]);
+  const geneFeatures = useMemo(() => features.filter((f) => f.type !== 'mobile_element'), [features]);
+
+  // Assign gene features to rows to avoid overlaps
   const { rows, svgHeight } = useMemo(() => {
-    const visibleFeatures = features
+    const visibleFeatures = geneFeatures
       .filter((f) => f.end > viewStart && f.start < viewEnd)
       .sort((a, b) => a.start - b.start);
 
@@ -87,12 +91,11 @@ export default function LinearGenomeMap({
     for (const f of visibleFeatures) {
       const fxStart = ((f.start - viewStart) / viewSpan) * plotWidth;
       const fxEnd = ((f.end - viewStart) / viewSpan) * plotWidth;
-      const labelWidth = f.name.length * 6 + 10;
-      const neededEnd = Math.max(fxEnd, fxStart + labelWidth);
+      const neededEnd = fxEnd;
 
       let placed = false;
       for (let r = 0; r < rowEnds.length; r++) {
-        if (fxStart >= rowEnds[r] + 4) {
+        if (fxStart >= rowEnds[r] + 1) {
           rowEnds[r] = neededEnd;
           assigned.push({ feature: f, row: r });
           placed = true;
@@ -108,7 +111,7 @@ export default function LinearGenomeMap({
     const numRows = Math.max(rowEnds.length, 1);
     const height = MARGIN.top + numRows * (TRACK_HEIGHT + 20) + MARGIN.bottom;
     return { rows: assigned, svgHeight: height };
-  }, [features, viewStart, viewEnd, viewSpan, plotWidth]);
+  }, [geneFeatures, viewStart, viewEnd, viewSpan, plotWidth]);
 
   // Tick marks
   const ticks = useMemo(() => {
@@ -254,14 +257,16 @@ export default function LinearGenomeMap({
       </div>
 
       {/* Tooltip */}
-      {hoveredFeature && (
-        <div className="mb-2 px-3 py-1.5 bg-gray-800/90 border border-gray-700 rounded text-xs inline-block">
-          <span className="font-medium text-gray-100">{hoveredFeature.name}</span>
-          <span className="text-gray-400 ml-2">{TRACK_COLORS[hoveredFeature.type]?.label || hoveredFeature.type}</span>
-          {hoveredFeature.label && <span className="text-gray-500 ml-2">{hoveredFeature.label}</span>}
-          <span className="text-gray-500 ml-2 font-mono">{hoveredFeature.start.toLocaleString()}-{hoveredFeature.end.toLocaleString()}</span>
-        </div>
-      )}
+      <div className="mb-2 h-7">
+        {hoveredFeature && (
+          <div className="px-3 py-1.5 bg-gray-800/90 border border-gray-700 rounded text-xs inline-block">
+            <span className="font-medium text-gray-100">{hoveredFeature.name}</span>
+            <span className="text-gray-400 ml-2">{TRACK_COLORS[hoveredFeature.type]?.label || hoveredFeature.type}</span>
+            {hoveredFeature.label && <span className="text-gray-500 ml-2">{hoveredFeature.label}</span>}
+            <span className="text-gray-500 ml-2 font-mono">{hoveredFeature.start.toLocaleString()}-{hoveredFeature.end.toLocaleString()}</span>
+          </div>
+        )}
+      </div>
 
       {/* SVG */}
       <svg
@@ -294,7 +299,32 @@ export default function LinearGenomeMap({
           return <line key={r} x1={MARGIN.left} y1={y} x2={MARGIN.left + plotWidth} y2={y} stroke="#E5E7EB" strokeWidth={1} />;
         })}
 
-        {/* Features as arrows */}
+        {/* Mobile element background bands */}
+        {bgFeatures.filter((f) => f.end > viewStart && f.start < viewEnd).map((f, i) => {
+          const x1 = Math.max(MARGIN.left, bpToX(f.start));
+          const x2 = Math.min(MARGIN.left + plotWidth, bpToX(f.end));
+          const w = Math.max(3, x2 - x1);
+          const c = TRACK_COLORS[f.type] || TRACK_COLORS.gene;
+          const numRows2 = Math.max(1, rows.reduce((m, r) => Math.max(m, r.row + 1), 0));
+          const bandH = numRows2 * (TRACK_HEIGHT + 20);
+          const isHov = hoveredFeature === f;
+          return (
+            <g key={`bg-${i}`}
+              onMouseEnter={() => setHoveredFeature(f)}
+              onMouseLeave={() => setHoveredFeature(null)}
+              className="cursor-pointer"
+            >
+              <rect x={x1} y={MARGIN.top - 4} width={w} height={bandH + 8}
+                fill={c.fill} opacity={isHov ? 0.18 : 0.1} rx={3}
+                stroke={c.stroke} strokeWidth={isHov ? 1.5 : 0.5} strokeDasharray={isHov ? '' : '4 2'} />
+              <text x={x1 + w / 2} y={MARGIN.top + bandH + 14}
+                textAnchor="middle" fill={c.fill} fontSize={9} fontWeight="bold" fontFamily="sans-serif"
+                pointerEvents="none">{f.name}</text>
+            </g>
+          );
+        })}
+
+        {/* Gene features as arrows */}
         {rows.map(({ feature: f, row }, i) => {
           const x1 = Math.max(MARGIN.left, bpToX(f.start));
           const x2 = Math.min(MARGIN.left + plotWidth, bpToX(f.end));

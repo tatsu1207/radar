@@ -10,7 +10,6 @@ import {
   Table2,
   Workflow,
   BarChart3,
-  GitBranch,
   Wrench,
   Menu,
   X,
@@ -24,7 +23,6 @@ const navItems = [
   { href: '/files', label: 'Files', icon: Files },
   { href: '/metadata', label: 'Metadata', icon: Table2 },
   { href: '/results', label: 'Annotation', icon: BarChart3 },
-  { href: '/comparative', label: 'Comparative', icon: GitBranch },
   { href: '/tools', label: 'Tools', icon: Wrench },
 ];
 

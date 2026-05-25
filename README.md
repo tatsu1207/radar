@@ -145,13 +145,13 @@ Pipeline Worker   Default Worker
 radar/
   backend/
     app/
-      api/           # REST endpoints (analysis, file_manager, results, metadata, comparative)
+      api/           # REST endpoints (analysis, file_manager, results, metadata)
       core/          # Pipeline modules (qc, assembly, arg_detect, plasmid, ml_phenotype, bacmet, ...)
       models/        # SQLAlchemy ORM models
       schemas/       # Pydantic request/response schemas
   frontend/
     src/
-      app/           # Next.js pages (files, results, metadata, tools, comparative, samples)
+      app/           # Next.js pages (files, results, metadata, tools, samples)
       components/    # React components (PlasmidMap, LinearGenomeMap, ARGTable, ...)
       lib/api.ts     # Backend API client
   install.sh         # Install all conda envs + databases
