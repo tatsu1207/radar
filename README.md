@@ -12,10 +12,12 @@ A bioinformatics platform for whole-genome sequencing (WGS) based antimicrobial 
 - **Automated pipeline** with skip logic for re-runs, one-click execution, real-time progress tracking
 - **ML phenotype prediction** using 107 pre-trained Random Forest models across 5 species and up to 35 antibiotics per species
 - **Expression context analysis** -- goes beyond gene presence to analyze promoter strength (BPROM), ribosome binding site efficiency (OSTIR), and codon adaptation (CAI)
-- **Interactive genome and plasmid maps** with ARGs, virulence factors, IS elements, prophages, and conjugation machinery
+- **Circular plasmid maps** grouped by cluster with ARGs, VFs, IS elements, prophages, and conjugation machinery
+- **Synteny maps** showing MGE-flanked ARGs and virulence factors with adjustable flanking distance
+- **Defense systems** including CRISPR-Cas, RM systems, abortive infection, ICE, and more (DefenseFinder + minced)
 - **Biocide/metal resistance** detection via BacMet2
 - **Composite risk scoring** combining ARG burden, virulence, and mobility (0-10 scale)
-- **Bulk export** of all annotation results as a ZIP of TSV files
+- **Per-sample TSV export** (single file with all annotations) or bulk ZIP export
 
 ## Supported Species (ML Phenotype Prediction)
 
@@ -110,8 +112,8 @@ Ports are derived from your UID for multi-user servers (see `data/ports.env`):
 1. Open the frontend in your browser
 2. Go to **Files** -- upload FASTQ/FASTA files (or fetch from SRA)
 3. Click **Start** to run the pipeline (progress shown in real time)
-4. Go to **Annotation** -- view results, genome maps, download reports
-5. Go to **Tools > Phenotype Prediction** -- view ML-based resistance predictions
+4. Go to **Annotation** -- click a sample to view per-sample results (Summary, Resistance Genes, Plasmids, Mobile Elements, Defense Systems, Virulence), download per-sample TSV
+5. Go to **Tools > Phenotype Prediction** -- view ML-based resistance predictions with multi-select filters
 
 ## Architecture
 
@@ -161,20 +163,62 @@ radar/
   databases/         # Reference databases (auto-downloaded by install.sh)
 ```
 
-## Standalone Pipeline
+## Command-Line Tools
 
-For command-line usage without the web interface:
+RADAR also provides standalone scripts for installation and analysis without the web interface.
+
+### install.sh — Environment & Database Setup
+
+Installs all 24 conda environments (one bioinformatics tool per env) and downloads 8 reference databases. Safe to re-run: existing environments are skipped automatically.
 
 ```bash
-# Illumina only
+# Default: install everything in ./databases
+./install.sh
+
+# Custom database directory and thread count
+./install.sh -d /path/to/databases -t 8
+```
+
+**What it installs:**
+- **24 conda environments**: fastp, Filtlong, SPAdes, Flye, Medaka, Polypolish, QUAST, BUSCO, AMRFinderPlus (v4.2.7 binary), MOB-suite, MobileElementFinder, mlst, skani, IntegronFinder, geNomad, SISTR/Kleborate, chewBBACA, minced, DefenseFinder, BLAST, Prodigal, OSTIR, ResFinder, sra-tools
+- **8 databases**: AMRFinderPlus DB, geNomad DB (~3.5 GB), skani GTDB sketch (~1.5 GB), NCBI 16S rRNA, MOB-suite DB, PointFinder DB, ResFinder DB, Rfam CM, DefenseFinder models
+- **Optional**: BPROM binary (if found at `/tmp/bprom`)
+
+**Requirements**: mamba (Miniforge), ~10 GB disk for databases, ~5 GB for conda envs.
+
+### pipeline.sh — Standalone Analysis Pipeline
+
+Runs the full annotation pipeline from the command line. Supports Illumina, hybrid (Illumina + ONT), and PacBio HiFi input.
+
+```bash
+# Illumina paired-end
 ./pipeline.sh -1 reads_R1.fastq.gz -2 reads_R2.fastq.gz -o results/ -t 12
 
-# Hybrid (Illumina + ONT)
+# Hybrid assembly (Illumina + ONT)
 ./pipeline.sh -1 reads_R1.fastq.gz -2 reads_R2.fastq.gz -l ont.fastq.gz -o results/
 
 # PacBio HiFi only
 ./pipeline.sh -l hifi.fastq.gz -p pacbio -o results/
 ```
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `-1` | Illumina R1 reads (FASTQ or FASTQ.GZ) |
+| `-2` | Illumina R2 reads (FASTQ or FASTQ.GZ) |
+| `-l` | Long reads: ONT or PacBio (FASTQ or FASTQ.GZ) |
+| `-p` | Long-read platform: `ont` (default) or `pacbio` |
+| `-o` | Output directory (default: `./results`) |
+| `-t` | Threads (default: 4) |
+| `-d` | Database directory (default: `./databases`) |
+
+**Pipeline flow:**
+1. **QC**: fastp (Illumina) / Filtlong (ONT)
+2. **Assembly**: SPAdes (Illumina) / Flye + Medaka + Polypolish (hybrid) / Flye (long-read)
+3. **Assembly QC**: QUAST + BUSCO
+4. **Annotation**: AMRFinderPlus, MOB-recon, MobileElementFinder, IntegronFinder, geNomad, species ID, MLST, serotyping, CRISPR, DefenseFinder, BacMet2, promoter/RBS analysis
+
+Output is written to the specified directory with subdirectories per analysis step.
 
 ## License
 

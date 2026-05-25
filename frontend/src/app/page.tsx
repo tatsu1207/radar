@@ -6,7 +6,7 @@ export default function IntroductionPage() {
     { num: 1, title: 'Upload sequencing data', desc: 'Upload FASTQ/FASTA files, fetch from NCBI SRA, or import from BV-BRC. Supports Illumina paired-end, ONT, and PacBio HiFi reads.', href: '/files' },
     { num: 2, title: 'Run the analysis pipeline', desc: 'One-click pipeline: QC, assembly, resistance gene detection, plasmid typing, mobile elements, virulence factors, and more. Track progress in real time.', href: '/files' },
     { num: 3, title: 'Add metadata', desc: 'Upload a TSV or manually enter sample metadata: source, collection date, location, and custom fields.', href: '/metadata' },
-    { num: 4, title: 'Explore annotation results', desc: 'Interactive genome and plasmid maps, drug resistance profiles, phenotype predictions, and downloadable reports.', href: '/results' },
+    { num: 4, title: 'Explore annotation results', desc: 'Per-sample annotation detail with synteny maps, defense systems, plasmid maps, and single-file TSV export.', href: '/results' },
   ];
 
   const pipelineSteps = [
@@ -38,8 +38,9 @@ export default function IntroductionPage() {
       { name: 'Prodigal', desc: 'Gene prediction, codon adaptation, rare codons, GC deviation' },
     ]},
     { category: 'Defense & Structure', tools: [
-      { name: 'DefenseFinder', desc: 'Bacterial defense systems (RM, CRISPR-Cas, Abi, BREX, etc.)' },
-      { name: 'minced', desc: 'CRISPR array detection' },
+      { name: 'DefenseFinder', desc: 'Bacterial defense systems (RM, CRISPR-Cas, Abi, BREX, Zorya, etc.)' },
+      { name: 'minced', desc: 'CRISPR array detection with spacer/repeat analysis' },
+      { name: 'ICEfinder', desc: 'Integrative and conjugative element detection' },
       { name: 'Infernal / Rfam', desc: 'sRNA detection near resistance genes' },
     ]},
     { category: 'Prediction & Scoring', tools: [
@@ -52,7 +53,7 @@ export default function IntroductionPage() {
     { icon: Dna, title: '24 Bioinformatics Tools', desc: 'One tool per conda environment for reproducibility. From QC to phenotype prediction.' },
     { icon: Shield, title: 'ML Phenotype Prediction', desc: 'Pre-trained Random Forest models predict resistance to 13-35 antibiotics per species with confidence scores.' },
     { icon: FlaskConical, title: 'Expression Context', desc: 'Goes beyond gene presence: analyzes promoter strength, RBS efficiency, codon adaptation to explain why genes may or may not confer resistance.' },
-    { icon: Map, title: 'Interactive Maps', desc: 'Circular plasmid maps and linear genome maps showing ARGs, virulence factors, mobile elements, and prophages.' },
+    { icon: Map, title: 'Interactive Maps', desc: 'Circular plasmid maps grouped by cluster, and synteny maps showing MGE-associated ARGs and virulence factors with adjustable flanking distance.' },
   ];
 
   return (
@@ -180,8 +181,12 @@ export default function IntroductionPage() {
             <span className="text-gray-300">Circular maps with ARGs, VFs, IS, T4SS</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-gray-400">Genome maps</span>
-            <span className="text-gray-300">Linear maps with all features per contig</span>
+            <span className="text-gray-400">Synteny maps</span>
+            <span className="text-gray-300">MGE-flanked ARGs/VFs with adjustable distance</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-400">Defense systems</span>
+            <span className="text-gray-300">CRISPR-Cas, RM, Abi, ICE, and more</span>
           </div>
           <div className="flex justify-between">
             <span className="text-gray-400">Biocide/metal resistance</span>
@@ -193,7 +198,7 @@ export default function IntroductionPage() {
           </div>
           <div className="flex justify-between">
             <span className="text-gray-400">Export</span>
-            <span className="text-gray-300">ZIP of TSV files for all annotation types</span>
+            <span className="text-gray-300">Single TSV per sample or bulk ZIP export</span>
           </div>
         </div>
       </div>
