@@ -28,7 +28,10 @@ services:
 
   worker:
     image: ghcr.io/tatsu1207/radar-worker:latest
-    command: celery -A app.celery_app worker --loglevel=info
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command: celery -A app.celery_app worker --loglevel=info -Q pipeline,celery --concurrency=4
     environment:
       - RADAR_DATABASE_URL=postgresql://radar:radar@db:5432/radar
       - RADAR_REDIS_URL=redis://redis:6379/0
@@ -36,6 +39,7 @@ services:
       - RADAR_RESULTS_DIR=/data/results
     volumes:
       - radar-data:/data
+      - radar-databases:/databases
     depends_on:
       db:
         condition: service_healthy
@@ -66,3 +70,4 @@ services:
 volumes:
   pgdata:
   radar-data:
+  radar-databases:

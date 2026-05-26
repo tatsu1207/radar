@@ -12,15 +12,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DB_DIR="${SCRIPT_DIR}/databases"
 THREADS=4
+ENVS_ONLY=0
 
-while getopts "d:t:h" opt; do
+while getopts "d:t:eh" opt; do
     case $opt in
         d) DB_DIR="$OPTARG" ;;
         t) THREADS="$OPTARG" ;;
+        e) ENVS_ONLY=1 ;;
         h)
-            echo "Usage: $0 [-d database_dir] [-t threads]"
+            echo "Usage: $0 [-d database_dir] [-t threads] [-e]"
             echo "  -d  Database directory (default: ./databases)"
             echo "  -t  Threads for database indexing (default: 4)"
+            echo "  -e  Envs only (skip database downloads)"
             exit 0
             ;;
         *) exit 1 ;;
@@ -221,8 +224,19 @@ if [ "${FAIL}" -eq 1 ]; then
 fi
 
 # --------------------------------------------------------------------------
-# 3. Download databases
+# 3. Download databases (skip with -e flag)
 # --------------------------------------------------------------------------
+if [ "${ENVS_ONLY}" -eq 1 ]; then
+    echo "[2/3] Skipping database downloads (-e flag)"
+    echo ""
+    echo "[3/3] Skipping optional tools (-e flag)"
+    echo ""
+    echo "============================================"
+    echo "  RADAR install complete (envs only)!"
+    echo "============================================"
+    exit 0
+fi
+
 echo "[2/3] Downloading databases..."
 mkdir -p "${DB_DIR}"
 

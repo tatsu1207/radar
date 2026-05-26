@@ -1,0 +1,35 @@
+FROM condaforge/miniforge3:latest
+
+# Pin base env to Python 3.11 (matches project spec; needed for pip deps)
+RUN mamba install -y python=3.11 && mamba clean --all -y
+
+WORKDIR /build
+
+# OS dependencies needed by bioinformatics tools and psycopg2
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ make \
+    libpq-dev \
+    git \
+    curl \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install all radar-* conda environments (envs only, no databases)
+COPY install.sh /build/install.sh
+RUN chmod +x /build/install.sh && /build/install.sh -e && \
+    mamba clean --all -y && \
+    rm -rf /build
+
+# Install Python dependencies for the worker
+WORKDIR /app
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy backend source
+COPY backend/ .
+
+# Databases are mounted at runtime at /databases
+# (matches resolved path from backend/app/core/*.py: 4 dirs up from app/core/X.py → /)
+VOLUME ["/databases"]
+
+CMD ["celery", "-A", "app.celery_app", "worker", "--loglevel=info", "-Q", "pipeline,celery"]
