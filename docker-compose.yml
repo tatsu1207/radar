@@ -5,14 +5,14 @@ services:
       - "${PORT_FRONTEND:-3000}:3000"
     environment:
       - NEXT_PUBLIC_BACKEND_HOST=backend
-      - NEXT_PUBLIC_BACKEND_PORT=8000
+      - NEXT_PUBLIC_BACKEND_PORT=${PORT_BACKEND:-7000}
     depends_on:
       - backend
 
   backend:
     image: ghcr.io/tatsu1207/radar-backend:latest
     ports:
-      - "${PORT_BACKEND:-8000}:8000"
+      - "${PORT_BACKEND:-7000}:8000"
     environment:
       - RADAR_DATABASE_URL=postgresql://radar:radar@db:5432/radar
       - RADAR_REDIS_URL=redis://redis:6379/0

@@ -707,10 +707,7 @@ export function uploadFilesToProject(
 ): Promise<FileManagerResponse> {
   const formData = new FormData();
   files.forEach((file) => formData.append('files', file));
-  // Post directly to backend to bypass Next.js proxy body size limit
-  const backendPort = process.env.NEXT_PUBLIC_BACKEND_PORT || '8000';
-  const backendHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-  const url = `http://${backendHost}:${backendPort}/api/projects/${projectId}/file-manager/upload`;
+  const url = `/api/projects/${projectId}/file-manager/upload`;
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -805,10 +802,7 @@ export function globalUploadFiles(
 ): Promise<FileManagerResponse> {
   const formData = new FormData();
   files.forEach((file) => formData.append('files', file));
-  // Post directly to backend to bypass Next.js proxy body size limit
-  const backendPort = process.env.NEXT_PUBLIC_BACKEND_PORT || '8000';
-  const backendHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-  const url = `http://${backendHost}:${backendPort}/api/file-manager/upload`;
+  const url = `/api/file-manager/upload`;
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
