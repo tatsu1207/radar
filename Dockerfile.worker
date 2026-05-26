@@ -18,7 +18,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY install.sh /build/install.sh
 RUN chmod +x /build/install.sh && /build/install.sh -e && \
     mamba clean --all -y && \
-    rm -rf /build
+    # Strip conda envs: docs, tests, man pages, static libs, __pycache__, include headers
+    find /opt/conda/envs -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null; \
+    find /opt/conda/envs -type d -name "tests" -exec rm -rf {} + 2>/dev/null; \
+    find /opt/conda/envs -type d -name "test" -exec rm -rf {} + 2>/dev/null; \
+    find /opt/conda/envs -type d -name "man" -exec rm -rf {} + 2>/dev/null; \
+    find /opt/conda/envs -type d -name "doc" -exec rm -rf {} + 2>/dev/null; \
+    find /opt/conda/envs -type d -name "docs" -exec rm -rf {} + 2>/dev/null; \
+    find /opt/conda/envs -type f -name "*.a" -delete 2>/dev/null; \
+    find /opt/conda/envs -type f -name "*.pyc" -delete 2>/dev/null; \
+    find /opt/conda/envs -type f -name "*.pyo" -delete 2>/dev/null; \
+    find /opt/conda/envs -type f -name "*.la" -delete 2>/dev/null; \
+    find /opt/conda/envs -type d -name "include" -exec rm -rf {} + 2>/dev/null; \
+    find /opt/conda/envs -type d -name "share/doc" -exec rm -rf {} + 2>/dev/null; \
+    find /opt/conda/envs -type d -name "share/man" -exec rm -rf {} + 2>/dev/null; \
+    find /opt/conda/envs -type d -name "share/info" -exec rm -rf {} + 2>/dev/null; \
+    find /opt/conda/envs -type d -name "share/gtk-doc" -exec rm -rf {} + 2>/dev/null; \
+    # Strip base env too
+    find /opt/conda -maxdepth 5 -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null; \
+    rm -rf /opt/conda/pkgs /build
 
 # Install Python dependencies for the worker
 WORKDIR /app
