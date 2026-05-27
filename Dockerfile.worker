@@ -41,6 +41,9 @@ RUN chmod +x /build/install.sh && /build/install.sh -e && \
     find /opt/conda/envs -path "*/nvidia/cudnn*" -exec rm -rf {} + 2>/dev/null; \
     find /opt/conda/envs -path "*/nvidia/cusparselt*" -exec rm -rf {} + 2>/dev/null; \
     find /opt/conda/envs -path "*/site-packages/triton" -exec rm -rf {} + 2>/dev/null; \
+    # Strip GUI/visualization packages not needed server-side
+    find /opt/conda/envs -path "*/site-packages/PySide6" -exec rm -rf {} + 2>/dev/null; \
+    find /opt/conda/envs -path "*/site-packages/plotly" -exec rm -rf {} + 2>/dev/null; \
     # Strip base env too
     find /opt/conda -maxdepth 5 -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null; \
     rm -rf /opt/conda/pkgs /build
