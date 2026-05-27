@@ -173,9 +173,14 @@ else
 fi
 
 # medaka has strict htslib constraints — needs python=3.10
+# Install CPU-only PyTorch first to avoid pulling ~3GB of CUDA/GPU libs
 if ! mamba env list 2>/dev/null | grep -qE "^radar-medaka\s"; then
     echo -n "  ...   radar-medaka"
     if mamba create -n radar-medaka -y python=3.10 -c conda-forge > /tmp/radar_install_radar-medaka.log 2>&1 \
+        && conda run -n radar-medaka pip install --quiet \
+            torch --extra-index-url https://download.pytorch.org/whl/cpu \
+            >> /tmp/radar_install_radar-medaka.log 2>&1 \
+        && conda run -n radar-medaka pip install --quiet --no-deps medaka >> /tmp/radar_install_radar-medaka.log 2>&1 \
         && conda run -n radar-medaka pip install --quiet medaka >> /tmp/radar_install_radar-medaka.log 2>&1; then
         echo -e "\r  OK    radar-medaka"
     else
@@ -187,9 +192,11 @@ else
 fi
 
 # geNomad needs python=3.10
+# Install tensorflow-cpu first to avoid pulling ~1.5GB of GPU tensorflow
 if ! mamba env list 2>/dev/null | grep -qE "^radar-genomad\s"; then
     echo -n "  ...   radar-genomad"
     if mamba create -n radar-genomad -y python=3.10 -c conda-forge > /tmp/radar_install_radar-genomad.log 2>&1 \
+        && conda run -n radar-genomad pip install --quiet tensorflow-cpu >> /tmp/radar_install_radar-genomad.log 2>&1 \
         && conda run -n radar-genomad pip install --quiet genomad >> /tmp/radar_install_radar-genomad.log 2>&1; then
         echo -e "\r  OK    radar-genomad"
     else

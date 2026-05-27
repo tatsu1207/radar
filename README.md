@@ -8,7 +8,7 @@ A bioinformatics platform for whole-genome sequencing (WGS) based antimicrobial 
 
 ## Features
 
-- **24 bioinformatics tools** in isolated conda environments for reproducibility
+- **24 bioinformatics tools** in consolidated conda environments (CPU-only, no GPU required)
 - **Automated pipeline** with skip logic for re-runs, one-click execution, real-time progress tracking
 - **ML phenotype prediction** using 107 pre-trained Random Forest models across 5 species and up to 35 antibiotics per species
 - **Expression context analysis** -- goes beyond gene presence to analyze promoter strength (BPROM), ribosome binding site efficiency (OSTIR), and codon adaptation (CAI)
@@ -47,28 +47,31 @@ Also supports: `_1`/`_2` suffix convention, SRA accession fetch, BV-BRC genome i
 
 | Stage | Tools | Conda Env |
 |-------|-------|-----------|
-| QC | fastp, Filtlong | `radar-fastp`, `radar-filtlong` |
-| Assembly | SPAdes, Flye, Medaka, Polypolish | `radar-spades`, `radar-flye`, `radar-medaka`, `radar-polypolish` |
-| Assembly QC | QUAST, BUSCO | `radar-quast`, `radar-busco` |
-| Species ID | skani (ANI vs GTDB), 16S BLAST | `radar-skani`, `radar-blast` |
-| MLST | mlst | `radar-mlst` |
-| AMR detection | AMRFinderPlus (v4.2.7) | `radar-amrfinder` |
+| QC | fastp, Filtlong | `radar` |
+| Assembly | SPAdes, Flye, Polypolish | `radar` |
+| Assembly (polish) | Medaka | `radar-medaka` |
+| Assembly QC | QUAST, BUSCO | `radar` / `radar-busco` |
+| Species ID | skani (ANI vs GTDB), 16S BLAST | `radar` |
+| MLST | mlst | `radar` |
+| AMR detection | AMRFinderPlus (v4.2.7) | `radar` |
 | Plasmid typing | MOB-recon | `radar-mobsuite` |
 | IS elements | MobileElementFinder | `radar-mefinder` |
-| Integrons | IntegronFinder | `radar-integron` |
+| Integrons | IntegronFinder | `radar` |
 | Prophages | geNomad | `radar-genomad` |
-| Point mutations | PointFinder (via ResFinder) | `radar-resfinder` |
-| Serotyping | SISTR, Kleborate | `radar-serotype` |
-| cgMLST | chewBBACA | `radar-cgmlst` |
-| CRISPR | minced | `radar-crispr` |
-| Defense systems | DefenseFinder | `radar-defense` |
-| Biocide/metal | BacMet2 (blastp) | `radar-blast` |
-| Gene prediction | Prodigal | `radar-prodigal` |
+| Point mutations | PointFinder (via ResFinder) | `radar` |
+| Serotyping | SISTR, Kleborate | `radar` |
+| cgMLST | chewBBACA | `radar` |
+| CRISPR | minced | `radar` |
+| Defense systems | DefenseFinder | `radar` |
+| Biocide/metal | BacMet2 (blastp) | `radar` |
+| Gene prediction | Prodigal | `radar` |
 | Promoter | BPROM | binary |
-| RBS | OSTIR | `radar-ostir` |
-| sRNA | Infernal / Rfam | `radar-blast` |
+| RBS | OSTIR | `radar` |
+| sRNA | Infernal / Rfam | `radar` |
 | ML phenotype | scikit-learn Random Forest | `radar` (main env) |
 | Risk scoring | Composite algorithm | `radar` (main env) |
+
+> **Note:** RADAR runs entirely on CPU. No GPU is required. Tools like Medaka and geNomad use CPU-only builds of PyTorch and TensorFlow respectively.
 
 ## Quick Start
 
@@ -79,7 +82,7 @@ Also supports: `_1`/`_2` suffix convention, SRA accession fetch, BV-BRC genome i
 git clone https://github.com/tatsu1207/radar.git
 cd radar
 
-# Install all tools (24 conda environments + 8 databases)
+# Install all tools (6 conda environments + 8 databases, CPU-only)
 ./install.sh
 
 # Start all services
@@ -139,7 +142,7 @@ Pipeline Worker   Default Worker
 - **Backend**: Python 3.11, FastAPI, SQLAlchemy, Pydantic
 - **Workers**: Celery with Redis broker; pipeline queue (1 at a time) + default queue (parallel)
 - **Database**: PostgreSQL 16
-- **Tools**: 24 isolated conda environments (one tool per env via `install.sh`)
+- **Tools**: 6 conda environments (1 base + 5 separate for dependency conflicts, CPU-only, via `install.sh`)
 
 ## Project Structure
 
@@ -169,7 +172,7 @@ RADAR also provides standalone scripts for installation and analysis without the
 
 ### install.sh — Environment & Database Setup
 
-Installs all 24 conda environments (one bioinformatics tool per env) and downloads 8 reference databases. Safe to re-run: existing environments are skipped automatically.
+Installs 6 conda environments and downloads 8 reference databases. All tools are CPU-only (no GPU required). Safe to re-run: existing environments are skipped automatically.
 
 ```bash
 # Default: install everything in ./databases
@@ -180,11 +183,12 @@ Installs all 24 conda environments (one bioinformatics tool per env) and downloa
 ```
 
 **What it installs:**
-- **24 conda environments**: fastp, Filtlong, SPAdes, Flye, Medaka, Polypolish, QUAST, BUSCO, AMRFinderPlus (v4.2.7 binary), MOB-suite, MobileElementFinder, mlst, skani, IntegronFinder, geNomad, SISTR/Kleborate, chewBBACA, minced, DefenseFinder, BLAST, Prodigal, OSTIR, ResFinder, sra-tools
+- **Base env (`radar`)**: fastp, Filtlong, SPAdes, Flye, Polypolish, QUAST, AMRFinderPlus (v4.2.7 binary), mlst, skani, IntegronFinder, SISTR/Kleborate, chewBBACA, minced, DefenseFinder, BLAST, Prodigal, OSTIR, ResFinder, sra-tools, Infernal
+- **Separate envs**: `radar-mobsuite` (MOB-suite), `radar-mefinder` (MobileElementFinder), `radar-medaka` (Medaka, CPU-only PyTorch), `radar-genomad` (geNomad, CPU-only TensorFlow), `radar-busco` (BUSCO)
 - **8 databases**: AMRFinderPlus DB, geNomad DB (~3.5 GB), skani GTDB sketch (~1.5 GB), NCBI 16S rRNA, MOB-suite DB, PointFinder DB, ResFinder DB, Rfam CM, DefenseFinder models
 - **Optional**: BPROM binary (if found at `/tmp/bprom`)
 
-**Requirements**: mamba (Miniforge), ~10 GB disk for databases, ~5 GB for conda envs.
+**Requirements**: mamba (Miniforge), ~10 GB disk for databases, ~8 GB for conda envs. No GPU needed.
 
 ### pipeline.sh — Standalone Analysis Pipeline
 
