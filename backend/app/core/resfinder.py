@@ -9,7 +9,7 @@ from app.models.models import ResFinderResult
 
 logger = logging.getLogger(__name__)
 
-CONDA_RESFINDER = "radar-resfinder"
+CONDA_RESFINDER = "radar"
 RESFINDER_DB = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))))),

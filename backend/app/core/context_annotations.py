@@ -30,9 +30,9 @@ from app.models.models import ARGResult, MLSTResult, Sample
 
 logger = logging.getLogger(__name__)
 
-CONDA_PRODIGAL = "radar-prodigal"
-CONDA_MLST = "radar-mlst"
-CONDA_INTEGRON = "radar-integron"
+CONDA_PRODIGAL = "radar"
+CONDA_MLST = "radar"
+CONDA_INTEGRON = "radar"
 PROXIMITY_BP = 5000
 
 

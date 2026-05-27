@@ -7,7 +7,7 @@ from app.models.models import BaktaAnnotation
 
 logger = logging.getLogger(__name__)
 
-CONDA_BAKTA = "radar-bakta"
+CONDA_BAKTA = "radar"
 BAKTA_DB = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))))),

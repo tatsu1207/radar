@@ -9,9 +9,9 @@ from app.models.models import SpeciesResult
 
 logger = logging.getLogger(__name__)
 
-CONDA_BLAST = "radar-blast"
-CONDA_SKANI = "radar-skani"
-CONDA_GTDBTK = "radar-gtdbtk"
+CONDA_BLAST = "radar"
+CONDA_SKANI = "radar"
+CONDA_GTDBTK = "radar"
 
 DB_16S = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))), "databases", "16S", "16S_ribosomal_RNA")

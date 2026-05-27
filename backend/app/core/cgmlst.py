@@ -9,7 +9,7 @@ from app.models.models import CgMLSTResult, SpeciesResult
 
 logger = logging.getLogger(__name__)
 
-CONDA_CGMLST = "radar-cgmlst"
+CONDA_CGMLST = "radar"
 
 CGMLST_SCHEMAS = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(

@@ -9,7 +9,7 @@ from app.models.models import ARGResult, VirulenceResult
 
 logger = logging.getLogger(__name__)
 
-CONDA_AMRFINDER = "radar-amrfinder"
+CONDA_AMRFINDER = "radar"
 
 
 def run_amrfinderplus(sample_id: str, assembly_path: str, db, threads: int = 4) -> List[ARGResult]:

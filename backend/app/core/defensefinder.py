@@ -9,7 +9,7 @@ from app.models.models import DefenseFinderResult
 
 logger = logging.getLogger(__name__)
 
-CONDA_DEFENSE = "radar-defense"
+CONDA_DEFENSE = "radar"
 
 
 def run_defensefinder(
@@ -80,7 +80,7 @@ def _get_or_run_prodigal(sample_id: str, assembly_path: str, results_dir: str, t
     faa_path = os.path.join(prodigal_dir, "genes.faa")
 
     cmd = [
-        "conda", "run", "-n", "radar-prodigal",
+        "conda", "run", "-n", "radar",
         "prodigal",
         "-i", assembly_path,
         "-a", faa_path,

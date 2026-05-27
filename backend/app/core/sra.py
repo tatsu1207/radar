@@ -40,7 +40,7 @@ def download_sra(download_id: str):
         try:
             # Prefetch
             subprocess.run(
-                ["conda", "run", "-n", "radar-sra", "prefetch", accession],
+                ["conda", "run", "-n", "radar", "prefetch", accession],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -53,7 +53,7 @@ def download_sra(download_id: str):
             # Fasterq-dump
             subprocess.run(
                 [
-                    "conda", "run", "-n", "radar-sra",
+                    "conda", "run", "-n", "radar",
                     "fasterq-dump", accession,
                     "--outdir", output_dir,
                     "--split-files",

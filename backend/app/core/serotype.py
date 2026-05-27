@@ -9,7 +9,7 @@ from app.models.models import SerotypeResult, SpeciesResult
 
 logger = logging.getLogger(__name__)
 
-CONDA_SEROTYPE = "radar-serotype"
+CONDA_SEROTYPE = "radar"
 
 # Species patterns that trigger each serotyping tool
 ECOLI_PATTERNS = ["escherichia coli", "e. coli"]

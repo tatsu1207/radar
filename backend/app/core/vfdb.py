@@ -9,7 +9,7 @@ from app.models.models import VFDBResult
 
 logger = logging.getLogger(__name__)
 
-CONDA_BLAST = "radar-blast"  # ABRicate/BLAST tools
+CONDA_BLAST = "radar"  # ABRicate/BLAST tools
 
 
 def run_vfdb(

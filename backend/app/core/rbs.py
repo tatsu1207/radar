@@ -59,7 +59,7 @@ def run_ostir(sample_id: str, assembly_path: str, db, threads: int = 4):
         # Run OSTIR
         try:
             cmd = [
-                "conda", "run", "-n", "radar-ostir",
+                "conda", "run", "-n", "radar",
                 "ostir",
                 "-i", rbs_seq,
                 "-t", "string",

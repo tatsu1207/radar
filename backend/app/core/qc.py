@@ -9,7 +9,7 @@ from app.models.models import SampleFile, PairType
 
 logger = logging.getLogger(__name__)
 
-CONDA_FASTP = "radar-fastp"
+CONDA_FASTP = "radar"
 
 
 def run_fastp(sample_id: str, input_files: List[str], db=None, threads: int = 4) -> dict:

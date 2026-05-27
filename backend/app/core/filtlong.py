@@ -7,7 +7,7 @@ from app.models.models import SampleFile, PairType
 
 logger = logging.getLogger(__name__)
 
-CONDA_FILTLONG = "radar-filtlong"
+CONDA_FILTLONG = "radar"
 
 
 def run_filtlong(sample_id: str, input_files: list[str], db=None, threads: int = 4) -> dict:

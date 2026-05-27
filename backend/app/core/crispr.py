@@ -9,7 +9,7 @@ from app.models.models import CRISPRResult
 
 logger = logging.getLogger(__name__)
 
-CONDA_CRISPR = "radar-crispr"
+CONDA_CRISPR = "radar"
 
 
 def run_crisprcasfinder(

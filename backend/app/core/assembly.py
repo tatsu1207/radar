@@ -10,11 +10,11 @@ from app.models.models import SampleFile, PairType
 
 logger = logging.getLogger(__name__)
 
-CONDA_SPADES = "radar-spades"
-CONDA_FLYE = "radar-flye"
+CONDA_SPADES = "radar"
+CONDA_FLYE = "radar"
 CONDA_MEDAKA = "radar-medaka"
-CONDA_POLYPOLISH = "radar-polypolish"
-CONDA_QUAST = "radar-quast"
+CONDA_POLYPOLISH = "radar"
+CONDA_QUAST = "radar"
 CONDA_BUSCO = "radar-busco"
 
 

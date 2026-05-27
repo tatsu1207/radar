@@ -165,7 +165,7 @@ ASSEMBLY="${ASM_DIR}/assembly.fasta"
 # --- Step 1: fastp (Illumina QC) ---
 if [ -n "$R1" ]; then
     run_step "fastp (Illumina)" \
-        conda run -n radar-fastp \
+        conda run -n radar \
         fastp \
             -i "$R1" -I "$R2" \
             -o "$TRIMMED_R1" -O "$TRIMMED_R2" \
@@ -184,7 +184,7 @@ fi
 # --- Step 1b: fastp report-only (PacBio) ---
 if [ "$CASE" = "longread" ] && [ "$PLATFORM" = "pacbio" ]; then
     run_noncritical "fastp (PacBio QC report)" \
-        conda run -n radar-fastp \
+        conda run -n radar \
         fastp \
             -i "$LONG" \
             -o "${QC_DIR}/pacbio_passthrough.fastq.gz" \
@@ -203,7 +203,7 @@ if [ -n "$LONG" ] && [ "$PLATFORM" = "ont" ]; then
         FILTLONG_ARGS+=( -1 "$TRIMMED_R1" -2 "$TRIMMED_R2" )
     fi
     run_step "Filtlong (ONT)" \
-        bash -c "conda run -n radar-filtlong filtlong ${FILTLONG_ARGS[*]} '$LONG' | gzip > '$FILTERED_LONG'"
+        bash -c "conda run -n radar filtlong ${FILTLONG_ARGS[*]} '$LONG' | gzip > '$FILTERED_LONG'"
 fi
 
 # --- Step 2: Assembly ---
@@ -211,7 +211,7 @@ case "$CASE" in
     illumina)
         # SPAdes for short-read-only
         run_step "SPAdes assembly" \
-            conda run -n radar-spades \
+            conda run -n radar \
             spades.py \
                 --isolate \
                 -1 "$TRIMMED_R1" -2 "$TRIMMED_R2" \
@@ -231,7 +231,7 @@ case "$CASE" in
 
         # Flye
         run_step "Flye assembly" \
-            conda run -n radar-flye \
+            conda run -n radar \
             flye \
                 --nano-hq "$LONG_INPUT" \
                 --out-dir "${ASM_DIR}/flye_out" \
@@ -259,11 +259,11 @@ case "$CASE" in
         POLY_DIR="${ASM_DIR}/polypolish_out"
         mkdir -p "$POLY_DIR"
 
-        conda run -n radar-polypolish bwa index "$CURRENT_ASM" >> "$LOG" 2>&1
-        conda run -n radar-polypolish bwa mem -t "$THREADS" -a "$CURRENT_ASM" "$TRIMMED_R1" > "${POLY_DIR}/r1.sam" 2>> "$LOG"
-        conda run -n radar-polypolish bwa mem -t "$THREADS" -a "$CURRENT_ASM" "$TRIMMED_R2" > "${POLY_DIR}/r2.sam" 2>> "$LOG"
+        conda run -n radar bwa index "$CURRENT_ASM" >> "$LOG" 2>&1
+        conda run -n radar bwa mem -t "$THREADS" -a "$CURRENT_ASM" "$TRIMMED_R1" > "${POLY_DIR}/r1.sam" 2>> "$LOG"
+        conda run -n radar bwa mem -t "$THREADS" -a "$CURRENT_ASM" "$TRIMMED_R2" > "${POLY_DIR}/r2.sam" 2>> "$LOG"
 
-        conda run -n radar-polypolish \
+        conda run -n radar \
             polypolish filter \
                 --in1 "${POLY_DIR}/r1.sam" --in2 "${POLY_DIR}/r2.sam" \
                 --out1 "${POLY_DIR}/f1.sam" --out2 "${POLY_DIR}/f2.sam" >> "$LOG" 2>&1
@@ -272,7 +272,7 @@ case "$CASE" in
         F2="${POLY_DIR}/f2.sam"; [ ! -f "$F2" ] && F2="${POLY_DIR}/r2.sam"
 
         if run_noncritical "Polypolish" \
-            bash -c "conda run -n radar-polypolish polypolish polish '$CURRENT_ASM' '$F1' '$F2' > '${POLY_DIR}/polished.fasta'"; then
+            bash -c "conda run -n radar polypolish polish '$CURRENT_ASM' '$F1' '$F2' > '${POLY_DIR}/polished.fasta'"; then
             [ -s "${POLY_DIR}/polished.fasta" ] && CURRENT_ASM="${POLY_DIR}/polished.fasta"
         fi
 
@@ -290,7 +290,7 @@ case "$CASE" in
         fi
 
         run_step "Flye assembly" \
-            conda run -n radar-flye \
+            conda run -n radar \
             flye \
                 $FLYE_MODE "$LONG_INPUT" \
                 --out-dir "${ASM_DIR}/flye_out" \
@@ -303,7 +303,7 @@ log "Assembly: ${ASSEMBLY}"
 
 # --- Step 2b: Assembly QC ---
 run_noncritical "QUAST" \
-    conda run -n radar-quast \
+    conda run -n radar \
     quast "$ASSEMBLY" \
         -o "${ASM_DIR}/quast" \
         --min-contig 200 \
@@ -336,7 +336,7 @@ for d in "${DB_DIR}/skani" "${DB_DIR}/skani/skani-gtdb-r220-sketch" "${DB_DIR}"/
 done
 if [ -n "$SKANI_DB" ]; then
     run_noncritical "Species ID (skani)" \
-        conda run -n radar-skani \
+        conda run -n radar \
         skani search \
             -d "$SKANI_DB" \
             -q "$ASSEMBLY" \
@@ -348,7 +348,7 @@ fi
 
 if [ -f "${DB_DIR}/16S/16S_ribosomal_RNA.ndb" ]; then
     run_noncritical "16S BLAST" \
-        conda run -n radar-blast \
+        conda run -n radar \
         blastn \
             -query "$ASSEMBLY" \
             -db "${DB_DIR}/16S/16S_ribosomal_RNA" \
@@ -361,11 +361,11 @@ fi
 
 # --- MLST ---
 run_noncritical "MLST" \
-    bash -c "conda run -n radar-mlst env -u PERL5LIB -u PERL_LOCAL_LIB_ROOT mlst '$ASSEMBLY' --threads '$THREADS' > '${ANNOT_DIR}/mlst.tsv'"
+    bash -c "conda run -n radar env -u PERL5LIB -u PERL_LOCAL_LIB_ROOT mlst '$ASSEMBLY' --threads '$THREADS' > '${ANNOT_DIR}/mlst.tsv'"
 
 # --- Serotyping ---
 run_noncritical "Serotyping (SISTR)" \
-    conda run -n radar-serotype \
+    conda run -n radar \
     sistr \
         -i "$ASSEMBLY" "${SAMPLE}" \
         -o "${ANNOT_DIR}/sistr_results.tsv" \
@@ -385,7 +385,7 @@ if [ -d "${DB_DIR}/amrfinderplus" ]; then
 fi
 
 run_step "AMRFinderPlus" \
-    conda run -n radar-amrfinder \
+    conda run -n radar \
     amrfinder \
         --nucleotide "$ASSEMBLY" \
         --output "${ANNOT_DIR}/amrfinder.tsv" \
@@ -413,7 +413,7 @@ run_noncritical "MobileElementFinder" \
 
 # --- IntegronFinder ---
 run_noncritical "IntegronFinder" \
-    conda run -n radar-integron \
+    conda run -n radar \
     integron_finder \
         "$ASSEMBLY" \
         --outdir "${ANNOT_DIR}/integron_finder" \
@@ -440,7 +440,7 @@ if [ -d "${DB_DIR}/pointfinder_db" ]; then
     fi
     if [ -n "$PF_SPECIES" ] && [ -d "${DB_DIR}/pointfinder_db/${PF_SPECIES}" ]; then
         run_noncritical "PointFinder" \
-            conda run -n radar-resfinder \
+            conda run -n radar \
             python3 -m resfinder \
                 -ifa "$ASSEMBLY" \
                 --point \
@@ -454,7 +454,7 @@ fi
 
 # --- cgMLST (chewBBACA) ---
 run_noncritical "cgMLST (chewBBACA)" \
-    conda run -n radar-cgmlst \
+    conda run -n radar \
     chewBBACA.py AlleleCall \
         -i "$ASSEMBLY" \
         -g "${DB_DIR}/cgmlst_schemas" \
@@ -464,13 +464,13 @@ run_noncritical "cgMLST (chewBBACA)" \
 
 # --- CRISPR detection (minced) ---
 run_noncritical "CRISPR (minced)" \
-    bash -c "conda run -n radar-crispr minced '$ASSEMBLY' '${ANNOT_DIR}/crispr_minced.txt' '${ANNOT_DIR}/crispr_minced.gff'"
+    bash -c "conda run -n radar minced '$ASSEMBLY' '${ANNOT_DIR}/crispr_minced.txt' '${ANNOT_DIR}/crispr_minced.gff'"
 
 # --- DefenseFinder ---
 # Prodigal first (gene prediction for DefenseFinder input)
 PROTEINS="${ANNOT_DIR}/prodigal_proteins.faa"
 run_noncritical "Prodigal" \
-    conda run -n radar-prodigal \
+    conda run -n radar \
     prodigal \
         -i "$ASSEMBLY" \
         -a "$PROTEINS" \
@@ -480,7 +480,7 @@ run_noncritical "Prodigal" \
 
 if [ -f "$PROTEINS" ]; then
     run_noncritical "DefenseFinder" \
-        conda run -n radar-defense \
+        conda run -n radar \
         defense-finder run \
             "$PROTEINS" \
             -o "${ANNOT_DIR}/defensefinder" \
@@ -490,7 +490,7 @@ fi
 # --- ICEfinder (BLAST-based ICE detection) ---
 if [ -d "${DB_DIR}/iceberg_db" ]; then
     run_noncritical "ICEfinder" \
-        conda run -n radar-blast \
+        conda run -n radar \
         blastn \
             -query "$ASSEMBLY" \
             -db "${DB_DIR}/iceberg_db/ICEberg" \
@@ -501,7 +501,7 @@ if [ -d "${DB_DIR}/iceberg_db" ]; then
 fi
 
 # --- Promoter analysis (BPROM) ---
-if command -v bprom &>/dev/null || conda run -n radar-prodigal which bprom &>/dev/null 2>&1; then
+if command -v bprom &>/dev/null || conda run -n radar which bprom &>/dev/null 2>&1; then
     run_noncritical "BPROM (promoter analysis)" \
         bash -c "
             # Extract upstream regions of ARGs and run BPROM
@@ -525,7 +525,7 @@ fi
 # cmscan against full Rfam is very slow (~2h for a bacterial genome); use --rfam --cut_ga to speed up
 if [ -f "${DB_DIR}/Rfam.cm" ] && [ -f "$PROTEINS" ]; then
     run_noncritical "sRNA annotation (cmscan)" \
-        conda run -n radar-blast \
+        conda run -n radar \
         cmscan \
             --tblout "${ANNOT_DIR}/rfam_hits.tbl" \
             --noali \

@@ -10,7 +10,7 @@ from app.models.models import RGIResult
 
 logger = logging.getLogger(__name__)
 
-CONDA_RGI = "radar-rgi"
+CONDA_RGI = "radar"
 
 
 def run_rgi(

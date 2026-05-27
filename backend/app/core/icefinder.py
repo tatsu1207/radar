@@ -10,7 +10,7 @@ from app.models.models import ICEResult
 
 logger = logging.getLogger(__name__)
 
-CONDA_ICE = "radar-blast"
+CONDA_ICE = "radar"
 
 
 def run_icefinder(

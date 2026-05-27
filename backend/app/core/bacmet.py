@@ -18,7 +18,7 @@ from app.models.models import BacMetResult
 
 logger = logging.getLogger(__name__)
 
-CONDA_BLAST = "radar-blast"
+CONDA_BLAST = "radar"
 
 # Gene name patterns to compound mapping (common BacMet genes)
 GENE_COMPOUND_MAP = {
