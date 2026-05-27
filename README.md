@@ -100,6 +100,8 @@ cd radar
 docker compose up -d
 ```
 
+The first `docker compose up` pulls ~13 GB of images (the worker image contains all bioinformatics tools). Subsequent starts are instant. Reference databases (~10 GB) are stored in a Docker volume and downloaded on first pipeline run.
+
 ### Access
 
 Ports are derived from your UID for multi-user servers (see `data/ports.env`):
