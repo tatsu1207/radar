@@ -89,34 +89,42 @@ Based on the research methodology. For FASTQ input all steps run. For FASTA inpu
 
 ## Bioinformatics Tools
 
-**One tool per conda environment (installed via `install.sh`):**
+All tools run on CPU only (no GPU required). Installed via `install.sh` into 6 conda environments:
 
-| Conda Env | Tool | Purpose |
-|-----------|------|---------|
-| radar-fastp | fastp | Adapter trimming and quality filtering (Illumina) |
-| radar-filtlong | Filtlong | ONT long-read quality filtering |
-| radar-spades | SPAdes | Short-read genome assembly |
-| radar-flye | Flye | Long-read genome assembly (ONT/PacBio) |
-| radar-medaka | Medaka | Long-read polishing (pip) |
-| radar-polypolish | Polypolish + BWA | Short-read polishing for hybrid assembly |
-| radar-quast | QUAST | Assembly quality assessment |
-| radar-busco | BUSCO | Genome completeness assessment (pip from gitlab) |
-| radar-amrfinder | AMRFinderPlus | ARG detection (GitHub binary v4.2.7 + HMMER/BLAST) |
-| radar-mobsuite | MOB-suite | Plasmid reconstruction and typing (pip) |
-| radar-mefinder | MobileElementFinder | Insertion sequence detection (pip, CLI: `mefinder find`) |
-| radar-mlst | mlst | Multi-locus sequence typing |
-| radar-skani | skani | Species ID via ANI against GTDB |
-| radar-integron | IntegronFinder | Integron detection (pip) |
-| radar-genomad | geNomad | Prophage/plasmid detection (pip) |
-| radar-serotype | SISTR + Kleborate | In silico serotyping |
-| radar-cgmlst | chewBBACA | Core-genome MLST (pip) |
-| radar-crispr | minced | CRISPR array detection |
-| radar-defense | DefenseFinder | Bacterial defense system detection (pip) |
-| radar-blast | BLAST + Infernal | Nucleotide searches (16S, ICEberg, sRNA/Rfam) |
-| radar-prodigal | Prodigal | Gene prediction (used by DefenseFinder, context annotations) |
-| radar-ostir | OSTIR + ViennaRNA | RBS translation initiation rate prediction (pip) |
-| radar-resfinder | ResFinder | PointFinder point mutations (pip) |
-| radar-sra | sra-tools | Download FASTQ from SRA (prefetch + fasterq-dump) |
+**Base environment (`radar`) — Python 3.12:**
+
+| Tool | Purpose |
+|------|---------|
+| fastp | Adapter trimming and quality filtering (Illumina) |
+| Filtlong | ONT long-read quality filtering |
+| SPAdes | Short-read genome assembly |
+| Flye | Long-read genome assembly (ONT/PacBio) |
+| Polypolish + BWA | Short-read polishing for hybrid assembly |
+| QUAST | Assembly quality assessment |
+| AMRFinderPlus | ARG detection (GitHub binary v4.2.7 + HMMER/BLAST) |
+| mlst | Multi-locus sequence typing |
+| skani | Species ID via ANI against GTDB |
+| SISTR + Kleborate | In silico serotyping |
+| minced | CRISPR array detection |
+| Prodigal | Gene prediction (used by DefenseFinder, context annotations) |
+| BLAST + Infernal | Nucleotide searches (16S, ICEberg, sRNA/Rfam) |
+| sra-tools | Download FASTQ from SRA (prefetch + fasterq-dump) |
+| ViennaRNA | RNA structure (used by OSTIR) |
+| DefenseFinder | Bacterial defense system detection (pip) |
+| IntegronFinder | Integron detection (pip) |
+| chewBBACA | Core-genome MLST (pip) |
+| ResFinder | PointFinder point mutations (pip) |
+| OSTIR | RBS translation initiation rate prediction (pip) |
+
+**Separate environments (dependency conflicts):**
+
+| Conda Env | Tool | Python | Why separate |
+|-----------|------|--------|-------------|
+| radar-mobsuite | MOB-suite | 3.11 | Incompatible with Python 3.12 |
+| radar-mefinder | MobileElementFinder | 3.11 | Incompatible with Python 3.12 |
+| radar-medaka | Medaka | 3.10 | CPU-only PyTorch, strict htslib constraints |
+| radar-genomad | geNomad | 3.10 | CPU-only TensorFlow |
+| radar-busco | BUSCO | 3.10 | Complex deps (hmmer, prodigal, bbmap + pip from gitlab) |
 
 **Installed from binary (optional):**
 
