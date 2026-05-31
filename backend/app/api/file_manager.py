@@ -455,6 +455,110 @@ async def global_upload_files(
     return FileManagerResponse(samples=entries, total=len(entries))
 
 
+@router.post("/file-manager/server-paths", response_model=FileManagerResponse)
+def global_register_server_paths(
+    body: ServerPathRequest,
+    db: Session = Depends(get_db),
+):
+    """Register files from server paths (auto-creates default project)."""
+    project = _get_or_create_default_project(db)
+
+    expanded_paths = []
+    for p in body.paths:
+        p = p.strip()
+        if not p:
+            continue
+        if os.path.isdir(p):
+            for fname in sorted(os.listdir(p)):
+                fpath = os.path.join(p, fname)
+                if os.path.isfile(fpath) and not fname.startswith("."):
+                    expanded_paths.append(fpath)
+        else:
+            expanded_paths.append(p)
+
+    created_samples = {}
+
+    for src_path in expanded_paths:
+        if not os.path.isfile(src_path):
+            continue
+
+        filename = os.path.basename(src_path)
+        sample_name, pair_from_name, platform_from_name = _parse_filename(filename)
+        is_fasta = pair_from_name == PairType.assembly
+
+        if sample_name in created_samples:
+            sample = created_samples[sample_name]
+            if is_fasta and sample.input_type != InputType.fasta:
+                sample.input_type = InputType.fasta
+        else:
+            sample = (
+                db.query(Sample)
+                .filter(Sample.project_id == project.id, Sample.name == sample_name)
+                .first()
+            )
+            if not sample:
+                sample = Sample(
+                    project_id=project.id,
+                    name=sample_name,
+                    input_type=InputType.fasta if is_fasta else InputType.fastq,
+                    status=SampleStatus.pending,
+                )
+                db.add(sample)
+                db.flush()
+            elif is_fasta:
+                sample.input_type = InputType.fasta
+            created_samples[sample_name] = sample
+
+        upload_dir = os.path.join(settings.UPLOAD_DIR, str(sample.id))
+        os.makedirs(upload_dir, exist_ok=True)
+        dest_path = os.path.join(upload_dir, filename)
+
+        if os.path.exists(dest_path):
+            os.remove(dest_path)
+        try:
+            os.link(src_path, dest_path)
+        except OSError:
+            shutil.copy2(src_path, dest_path)
+
+        file_size = os.path.getsize(dest_path)
+
+        pair = pair_from_name
+        platform = platform_from_name
+        if pair == PairType.long_read and platform is None:
+            is_fastq = filename.lower().endswith(
+                (".fastq.gz", ".fq.gz", ".fastq", ".fq")
+            )
+            if is_fastq:
+                detected_platform, _ = _detect_platform_from_fastq(dest_path)
+                if detected_platform:
+                    platform = detected_platform
+
+        ext = os.path.splitext(filename)[1]
+        if filename.endswith(".gz"):
+            ext = os.path.splitext(filename[:-3])[1] + ".gz"
+
+        sf = SampleFile(
+            sample_id=sample.id,
+            file_path=dest_path,
+            file_type=ext,
+            pair=pair,
+            platform=platform,
+            source=FileSource.upload,
+            original_filename=filename,
+            file_size=file_size,
+        )
+        db.add(sf)
+
+    db.commit()
+
+    all_samples = db.query(Sample).order_by(Sample.created_at).all()
+    project_ids = {s.project_id for s in all_samples}
+    projects = db.query(Project).filter(Project.id.in_(project_ids)).all()
+    project_names = {p.id: p.name for p in projects}
+    entries = [_build_sample_entry(s, db, project_name=project_names.get(s.project_id)) for s in all_samples]
+    return FileManagerResponse(samples=entries, total=len(entries))
+
+
 @router.post("/file-manager/sra", response_model=List[SRADownloadRead])
 def global_start_sra_downloads(
     body: SRARequest,

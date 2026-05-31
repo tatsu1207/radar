@@ -3,13 +3,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Folder, FileText, ChevronUp, Check } from 'lucide-react';
 import Modal from '@/components/Modal';
-import { browseServerFiles, registerServerPaths } from '@/lib/api';
+import { browseServerFiles, registerServerPaths, globalRegisterServerPaths } from '@/lib/api';
 import type { FileBrowserEntry } from '@/lib/api';
 
 interface ServerPathDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  projectId: string;
+  projectId?: string;
   onSubmit: () => void;
 }
 
@@ -87,7 +87,11 @@ export default function ServerPathDialog({ isOpen, onClose, projectId, onSubmit 
     setSubmitting(true);
     setError(null);
     try {
-      await registerServerPaths(projectId, Array.from(selected));
+      if (projectId) {
+        await registerServerPaths(projectId, Array.from(selected));
+      } else {
+        await globalRegisterServerPaths(Array.from(selected));
+      }
       setSelected(new Set());
       onSubmit();
       onClose();

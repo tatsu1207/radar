@@ -97,20 +97,23 @@ cd radar
 ```bash
 git clone https://github.com/tatsu1207/radar.git
 cd radar
-docker compose up -d
+./docker-start.sh    # start (UID-based ports, multi-user safe)
+./docker-stop.sh     # stop
 ```
 
-The first `docker compose up` pulls ~13 GB of images (the worker image contains all bioinformatics tools). Subsequent starts are instant. Reference databases (~10 GB) are stored in a Docker volume and downloaded on first pipeline run.
+The first run pulls ~13 GB of images (the worker image contains all bioinformatics tools). Subsequent starts are instant. Reference databases (~10 GB) are stored in a Docker volume and downloaded on first pipeline run.
+
+**Multi-user isolation:** `docker-start.sh` assigns unique ports, container names, and volumes per user (based on UID), so multiple users on the same machine can run RADAR simultaneously without conflicts.
 
 ### Access
 
-Ports are derived from your UID for multi-user servers (see `data/ports.env`):
+Ports are derived from your UID for multi-user servers:
 
-| Service | Default Port |
-|---------|-------------|
-| Frontend | `http://localhost:<PORT_FRONTEND>` |
-| Backend API | `http://localhost:<PORT_BACKEND>` |
-| API Docs | `http://localhost:<PORT_BACKEND>/docs` |
+| Service | Port | Example (UID=1002) |
+|---------|------|--------------------|
+| Frontend | 7200 + UID | `http://localhost:8202` |
+| Backend API | 7210 + UID | `http://localhost:8212` |
+| API Docs | 7210 + UID | `http://localhost:8212/docs` |
 
 ### First Steps
 

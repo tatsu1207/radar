@@ -221,8 +221,11 @@ Known columns map to Metadata model fields; extra columns go into `custom_json`.
 
 **With Docker:**
 ```bash
-docker compose up
+./docker-start.sh    # start (UID-based ports, multi-user safe)
+./docker-stop.sh     # stop
 ```
+
+`docker-start.sh` generates `.env` with UID-based ports and a per-user `COMPOSE_PROJECT_NAME` (`radar-<username>`), so multiple users on the same machine get isolated containers, volumes, and ports.
 
 **Without Docker (bare-metal):**
 ```bash
@@ -231,4 +234,4 @@ docker compose up
 ./stop_dev.sh        # stop all services
 ```
 
-Ports are derived from UID for multi-user machines (defined in `data/ports.env`): frontend=7200+UID, backend=7210+UID, PostgreSQL=7220+UID, Redis=7230+UID.
+Ports are derived from UID for multi-user machines: frontend=7200+UID, backend=7210+UID, PostgreSQL=7220+UID, Redis=7230+UID.

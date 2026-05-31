@@ -833,6 +833,13 @@ export function globalUploadFiles(
   });
 }
 
+export async function globalRegisterServerPaths(paths: string[]): Promise<FileManagerResponse> {
+  return fetchAPI<FileManagerResponse>('/api/file-manager/server-paths', {
+    method: 'POST',
+    body: JSON.stringify({ paths }),
+  });
+}
+
 export async function globalSubmitSRA(accessions: string[]): Promise<SRADownload[]> {
   return fetchAPI<SRADownload[]>('/api/file-manager/sra', {
     method: 'POST',
