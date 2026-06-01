@@ -851,6 +851,10 @@ export async function globalGetSRADownloads(): Promise<SRADownload[]> {
   return fetchAPI<SRADownload[]>('/api/file-manager/sra');
 }
 
+export async function cancelSRADownload(downloadId: string): Promise<void> {
+  return fetchAPI<void>(`/api/file-manager/sra/${downloadId}`, { method: 'DELETE' });
+}
+
 // Pipeline
 export interface PipelineStatus {
   sample_id: string;

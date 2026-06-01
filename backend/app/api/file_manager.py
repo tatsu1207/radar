@@ -591,7 +591,8 @@ def global_start_sra_downloads(
         db.flush()
 
         results.append(dl)
-        celery_app.send_task("app.core.sra.download_sra", args=[str(dl.id)])
+        result = celery_app.send_task("app.core.sra.download_sra", args=[str(dl.id)])
+        dl.celery_task_id = result.id
 
     db.commit()
     for dl in results:
@@ -609,6 +610,32 @@ def global_list_sra_downloads(db: Session = Depends(get_db)):
         .all()
     )
     return [SRADownloadRead.model_validate(dl) for dl in downloads]
+
+
+@router.delete("/file-manager/sra/{download_id}")
+def cancel_sra_download(download_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Cancel an SRA download."""
+    dl = db.query(SRADownload).filter(SRADownload.id == download_id).first()
+    if not dl:
+        raise HTTPException(status_code=404, detail="SRA download not found")
+
+    if dl.status in (SRADownloadStatus.complete, SRADownloadStatus.failed):
+        raise HTTPException(status_code=400, detail="Download already finished")
+
+    # Revoke the Celery task
+    if dl.celery_task_id:
+        try:
+            from app.celery_app import celery_app as app
+            app.control.revoke(dl.celery_task_id, terminate=True, signal="SIGTERM")
+        except Exception:
+            pass
+
+    dl.status = SRADownloadStatus.failed
+    dl.error_message = "Cancelled by user"
+    dl.finished_at = datetime.utcnow()
+    db.commit()
+
+    return {"detail": "Download cancelled"}
 
 
 # ── GET file manager view ───────────────────────────────────────────────────
@@ -972,7 +999,8 @@ def start_sra_downloads(
         results.append(dl)
 
         # Dispatch Celery task
-        celery_app.send_task("app.core.sra.download_sra", args=[str(dl.id)])
+        result = celery_app.send_task("app.core.sra.download_sra", args=[str(dl.id)])
+        dl.celery_task_id = result.id
 
     db.commit()
     for dl in results:

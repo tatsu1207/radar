@@ -376,6 +376,7 @@ class SRADownload(Base):
     srr_accession = Column(String(20), nullable=False)
     status = Column(Enum(SRADownloadStatus), nullable=False, default=SRADownloadStatus.queued)
     progress = Column(Float, default=0.0)
+    celery_task_id = Column(String(255), nullable=True)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     finished_at = Column(DateTime, nullable=True)

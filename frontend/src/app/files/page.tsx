@@ -8,6 +8,7 @@ import {
   globalUploadFiles,
   globalSubmitSRA,
   globalGetSRADownloads,
+  cancelSRADownload,
   startPipeline,
   cancelJob,
 } from '@/lib/api';
@@ -208,6 +209,17 @@ export default function GlobalFilesPage() {
     }
   }
 
+  async function handleCancelSRA(downloadId: string) {
+    try {
+      await cancelSRADownload(downloadId);
+      setSraDownloads((prev) =>
+        prev.map((d) => (d.id === downloadId ? { ...d, status: 'failed' as const, error_message: 'Cancelled by user' } : d))
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to cancel download');
+    }
+  }
+
   const activeSRA = sraDownloads.filter((d) => d.status === 'queued' || d.status === 'downloading');
 
   if (loading) {
@@ -329,6 +341,13 @@ export default function GlobalFilesPage() {
                     </div>
                   )}
                   <SRAStatusBadge status={dl.status} />
+                  <button
+                    onClick={() => handleCancelSRA(dl.id)}
+                    className="p-1 rounded hover:bg-red-600/20 text-gray-400 hover:text-red-400 transition-colors"
+                    title="Stop download"
+                  >
+                    <Square className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
             ))}
