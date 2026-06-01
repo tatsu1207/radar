@@ -41,7 +41,10 @@ if ! ( [ -d "${DB_DIR}/amrfinderplus" ] && [ -f "${DB_DIR}/amrfinderplus/AMRProt
     echo "  AMRFinderPlus database..."
     if conda run -n radar amrfinder --update > /tmp/radar_db_amrfinder.log 2>&1; then
         AMRFINDER_BIN_DIR="$(conda run -n radar bash -c 'echo ${CONDA_PREFIX}/bin')"
-        ln -sfn "${AMRFINDER_BIN_DIR}/data/latest" "${DB_DIR}/amrfinderplus" 2>/dev/null
+        # Copy DB to persistent volume (not symlink — survives container recreate)
+        rm -rf "${DB_DIR}/amrfinderplus"
+        cp -rL "${AMRFINDER_BIN_DIR}/data/latest" "${DB_DIR}/amrfinderplus"
+        ln -sfn "${DB_DIR}/amrfinderplus" "${AMRFINDER_BIN_DIR}/data/latest" 2>/dev/null
         echo "    done"
     else
         echo "    amrfinder --update failed; downloading manually..."
