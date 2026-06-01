@@ -1,0 +1,1 @@
+docker compose exec worker pip install biopython && docker compose cp backend/download_databases.sh worker:/app/download_databases.sh && docker compose cp backend/app/core/pipeline.py worker:/app/app/core/pipeline.py

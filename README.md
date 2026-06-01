@@ -36,12 +36,22 @@ Other species are fully supported for annotation; ML predictions are available f
 | Input Type | Files | Pipeline |
 |-----------|-------|----------|
 | Illumina paired-end | `SAMPLE_R1.fastq.gz` + `SAMPLE_R2.fastq.gz` | fastp -> SPAdes -> annotation |
-| Hybrid (Illumina + ONT) | R1 + R2 + `SAMPLE.fastq.gz` | fastp + Filtlong -> Flye -> Medaka -> Polypolish -> annotation |
-| PacBio HiFi | `SAMPLE.fastq.gz` | fastp (report) -> Flye (--pacbio-hifi) -> annotation |
-| ONT only | `SAMPLE.fastq.gz` | Filtlong -> Flye -> annotation |
+| Hybrid (Illumina + ONT) | R1 + R2 + `SAMPLE_ONT.fastq.gz` | fastp + Filtlong -> Flye -> Medaka -> Polypolish -> annotation |
+| PacBio HiFi | `SAMPLE_PB.fastq.gz` | fastp (report) -> Flye (--pacbio-hifi) -> annotation |
+| ONT only | `SAMPLE_ONT.fastq.gz` | Filtlong -> Flye -> annotation |
 | Pre-assembled | `SAMPLE.fasta` | annotation only (skips QC + assembly) |
 
-Also supports: `_1`/`_2` suffix convention, SRA accession fetch, BV-BRC genome import.
+### Filename Conventions
+
+| Suffix | Platform | Example |
+|--------|----------|---------|
+| `_R1` or `_1` | Illumina read 1 | `SAMPLE_R1.fastq.gz` |
+| `_R2` or `_2` | Illumina read 2 | `SAMPLE_R2.fastq.gz` |
+| `_ONT` | ONT long read | `SAMPLE_ONT.fastq.gz` |
+| `_PB` | PacBio HiFi | `SAMPLE_PB.fastq.gz` |
+| *(no suffix)* | Auto-detected from FASTQ headers | `SAMPLE.fastq.gz` |
+
+Also supports SRA accession fetch and BV-BRC genome import.
 
 ## Pipeline
 
