@@ -73,6 +73,28 @@ def _parse_fasterq_progress(line: str):
     return None
 
 
+def _get_sra_platform(accession: str) -> SequencingPlatform | None:
+    """Query SRA metadata for sequencing platform."""
+    try:
+        result = subprocess.run(
+            ["conda", "run", "-n", "radar", "vdb-dump", "--info", accession],
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if line.startswith("platf"):
+                    platf = line.split(":", 1)[1].strip()
+                    if "PACBIO" in platf:
+                        return SequencingPlatform.pacbio
+                    elif "OXFORD" in platf or "NANOPORE" in platf:
+                        return SequencingPlatform.ont
+                    elif "ILLUMINA" in platf:
+                        return SequencingPlatform.illumina
+    except Exception:
+        pass
+    return None
+
+
 @celery_app.task(name="app.core.sra.download_sra")
 def download_sra(download_id: str):
     db = SessionLocal()
@@ -160,21 +182,25 @@ def download_sra(download_id: str):
             if len(gz_files) == 0:
                 raise RuntimeError("No output files produced by fasterq-dump")
 
-            # Auto-detect platform from FASTQ headers
+            # Detect platform: SRA metadata first, then FASTQ headers
             from app.api.file_manager import _detect_platform_from_fastq
+            sra_platform = _get_sra_platform(accession)
+            logger.info(f"SRA platform metadata for {accession}: {sra_platform}")
 
             if len(gz_files) >= 2:
                 # Paired-end
                 for i, gz_file in enumerate(gz_files[:2]):
                     pair = PairType.R1 if i == 0 else PairType.R2
                     file_size = os.path.getsize(gz_file)
-                    detected_platform, _ = _detect_platform_from_fastq(gz_file)
+                    if not sra_platform:
+                        detected_platform, _ = _detect_platform_from_fastq(gz_file)
+                        sra_platform = detected_platform
                     sf = SampleFile(
                         sample_id=dl.sample_id,
                         file_path=gz_file,
                         file_type=".fastq.gz",
                         pair=pair,
-                        platform=detected_platform or SequencingPlatform.illumina,
+                        platform=sra_platform or SequencingPlatform.illumina,
                         source=FileSource.sra,
                         original_filename=os.path.basename(gz_file),
                         file_size=file_size,
@@ -184,8 +210,10 @@ def download_sra(download_id: str):
                 # Single-end — could be PacBio, ONT, or Illumina single-end
                 gz_file = gz_files[0]
                 file_size = os.path.getsize(gz_file)
-                detected_platform, _ = _detect_platform_from_fastq(gz_file)
-                platform = detected_platform or SequencingPlatform.illumina
+                if not sra_platform:
+                    detected_platform, _ = _detect_platform_from_fastq(gz_file)
+                    sra_platform = detected_platform
+                platform = sra_platform or SequencingPlatform.illumina
                 # PacBio/ONT single files are long reads, not single-end Illumina
                 if platform in (SequencingPlatform.ont, SequencingPlatform.pacbio):
                     pair = PairType.long_read

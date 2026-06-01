@@ -373,7 +373,8 @@ export default function GlobalFilesPage() {
                   <th className="table-header">Type</th>
                   <th className="table-header">R1</th>
                   <th className="table-header">R2</th>
-                  <th className="table-header">ONT/PacBio</th>
+                  <th className="table-header">ONT</th>
+                  <th className="table-header">PacBio</th>
                   <th className="table-header">Pipeline</th>
                   <th className="table-header">Completeness</th>
                   <th className="table-header w-10"></th>
@@ -405,7 +406,10 @@ export default function GlobalFilesPage() {
                         <FileSlotCell file={sample.illumina_r2} isMissingPair={r2MissingPair} />
                       </td>
                       <td className="table-cell">
-                        <FileSlotCell file={sample.long_read} isMissingPair={false} />
+                        <FileSlotCell file={sample.long_read_platform !== 'pacbio' ? sample.long_read : null} isMissingPair={false} />
+                      </td>
+                      <td className="table-cell">
+                        <FileSlotCell file={sample.long_read_platform === 'pacbio' ? sample.long_read : null} isMissingPair={false} />
                       </td>
                       <td className="table-cell">
                         {sraInProgress ? (
