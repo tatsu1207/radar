@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Check, AlertTriangle, Minus, Trash2, Upload, Download, X, Play, Square, CheckCircle, XCircle, Loader2, HardDrive } from 'lucide-react';
+import { Check, AlertTriangle, Minus, Trash2, Upload, Download, X, Play, Square, CheckCircle, XCircle, Loader2, HardDrive, RotateCw } from 'lucide-react';
 import {
   getAllFileManager,
   deleteFileManagerSample,
@@ -9,6 +9,8 @@ import {
   globalSubmitSRA,
   globalGetSRADownloads,
   cancelSRADownload,
+  removeSRADownload,
+  retrySRADownload,
   startPipeline,
   cancelJob,
 } from '@/lib/api';
@@ -220,6 +222,27 @@ export default function GlobalFilesPage() {
     }
   }
 
+  async function handleRemoveSRA(downloadId: string) {
+    try {
+      await removeSRADownload(downloadId);
+      setSraDownloads((prev) => prev.filter((d) => d.id !== downloadId));
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove download');
+    }
+  }
+
+  async function handleRetrySRA(downloadId: string) {
+    try {
+      await retrySRADownload(downloadId);
+      setSraDownloads((prev) =>
+        prev.map((d) => (d.id === downloadId ? { ...d, status: 'queued' as const, progress: 0, error_message: null } : d))
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to retry download');
+    }
+  }
+
   const activeSRA = sraDownloads.filter((d) => d.status === 'queued' || d.status === 'downloading');
 
   if (loading) {
@@ -323,12 +346,12 @@ export default function GlobalFilesPage() {
         </div>
       )}
 
-      {/* Active SRA Downloads */}
-      {activeSRA.length > 0 && (
+      {/* SRA Downloads */}
+      {sraDownloads.length > 0 && (
         <div className="mb-4 card">
-          <h3 className="text-sm font-semibold text-gray-300 mb-3">SRA Downloads in Progress</h3>
+          <h3 className="text-sm font-semibold text-gray-300 mb-3">SRA Downloads</h3>
           <div className="space-y-2">
-            {activeSRA.map((dl) => (
+            {sraDownloads.map((dl) => (
               <div key={dl.id} className="flex items-center justify-between text-sm">
                 <span className="text-gray-200 font-mono">{dl.srr_accession}</span>
                 <div className="flex items-center gap-3">
@@ -341,12 +364,30 @@ export default function GlobalFilesPage() {
                     </div>
                   )}
                   <SRAStatusBadge status={dl.status} />
+                  {(dl.status === 'queued' || dl.status === 'downloading') && (
+                    <button
+                      onClick={() => handleCancelSRA(dl.id)}
+                      className="p-1 rounded hover:bg-red-600/20 text-gray-400 hover:text-red-400 transition-colors"
+                      title="Stop download"
+                    >
+                      <Square className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  {dl.status === 'failed' && (
+                    <button
+                      onClick={() => handleRetrySRA(dl.id)}
+                      className="p-1 rounded hover:bg-blue-600/20 text-gray-400 hover:text-blue-400 transition-colors"
+                      title="Retry download"
+                    >
+                      <RotateCw className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                   <button
-                    onClick={() => handleCancelSRA(dl.id)}
+                    onClick={() => handleRemoveSRA(dl.id)}
                     className="p-1 rounded hover:bg-red-600/20 text-gray-400 hover:text-red-400 transition-colors"
-                    title="Stop download"
+                    title="Remove"
                   >
-                    <Square className="w-3.5 h-3.5" />
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>

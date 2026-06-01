@@ -638,6 +638,59 @@ def cancel_sra_download(download_id: uuid.UUID, db: Session = Depends(get_db)):
     return {"detail": "Download cancelled"}
 
 
+@router.delete("/file-manager/sra/{download_id}/remove")
+def remove_sra_download(download_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Remove an SRA download record (and its sample if no files)."""
+    dl = db.query(SRADownload).filter(SRADownload.id == download_id).first()
+    if not dl:
+        raise HTTPException(status_code=404, detail="SRA download not found")
+
+    # Cancel if still running
+    if dl.status in (SRADownloadStatus.queued, SRADownloadStatus.downloading):
+        if dl.celery_task_id:
+            try:
+                from app.celery_app import celery_app as app
+                app.control.revoke(dl.celery_task_id, terminate=True, signal="SIGTERM")
+            except Exception:
+                pass
+
+    # Remove sample if it has no files
+    if dl.sample_id:
+        file_count = db.query(SampleFile).filter(SampleFile.sample_id == dl.sample_id).count()
+        if file_count == 0:
+            sample = db.query(Sample).filter(Sample.id == dl.sample_id).first()
+            if sample:
+                db.delete(sample)
+
+    db.delete(dl)
+    db.commit()
+    return {"detail": "Download record removed"}
+
+
+@router.post("/file-manager/sra/{download_id}/retry")
+def retry_sra_download(download_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Retry a failed SRA download."""
+    dl = db.query(SRADownload).filter(SRADownload.id == download_id).first()
+    if not dl:
+        raise HTTPException(status_code=404, detail="SRA download not found")
+
+    if dl.status not in (SRADownloadStatus.failed,):
+        raise HTTPException(status_code=400, detail="Can only retry failed downloads")
+
+    dl.status = SRADownloadStatus.queued
+    dl.progress = 0.0
+    dl.error_message = None
+    dl.finished_at = None
+    db.flush()
+
+    from app.celery_app import celery_app
+    result = celery_app.send_task("app.core.sra.download_sra", args=[str(dl.id)])
+    dl.celery_task_id = result.id
+    db.commit()
+
+    return {"detail": "Download retrying", "id": str(dl.id)}
+
+
 # ── GET file manager view ───────────────────────────────────────────────────
 
 @router.get("/projects/{project_id}/file-manager", response_model=FileManagerResponse)

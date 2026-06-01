@@ -1,6 +1,8 @@
 services:
   frontend:
     image: ghcr.io/tatsu1207/radar-frontend:latest
+    build:
+      context: ./frontend
     ports:
       - "${PORT_FRONTEND:-3000}:3000"
     environment:
