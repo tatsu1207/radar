@@ -373,7 +373,7 @@ export default function GlobalFilesPage() {
                   <th className="table-header">Type</th>
                   <th className="table-header">R1</th>
                   <th className="table-header">R2</th>
-                  <th className="table-header">ONT</th>
+                  <th className="table-header">ONT/PacBio</th>
                   <th className="table-header">Pipeline</th>
                   <th className="table-header">Completeness</th>
                   <th className="table-header w-10"></th>
