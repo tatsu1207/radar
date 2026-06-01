@@ -365,6 +365,9 @@ export default function GlobalFilesPage() {
                   const hasR1 = sample.illumina_r1 !== null;
                   const hasR2 = sample.illumina_r2 !== null;
                   const r2MissingPair = hasR1 && !hasR2;
+                  const sraInProgress = sraDownloads.some(
+                    (d) => d.sample_id === sample.sample_id && (d.status === 'queued' || d.status === 'downloading')
+                  );
 
                   return (
                     <tr key={sample.sample_id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
@@ -386,7 +389,12 @@ export default function GlobalFilesPage() {
                         <FileSlotCell file={sample.long_read} isMissingPair={false} />
                       </td>
                       <td className="table-cell">
-                        {sample.pipeline_status === 'complete' ? (
+                        {sraInProgress ? (
+                          <div className="flex items-center gap-1.5">
+                            <Download className="w-4 h-4 text-yellow-400 animate-pulse" />
+                            <span className="text-xs text-yellow-400">Downloading...</span>
+                          </div>
+                        ) : sample.pipeline_status === 'complete' ? (
                           <div className="flex items-center gap-1.5">
                             <CheckCircle className="w-4 h-4 text-green-400" />
                             <button

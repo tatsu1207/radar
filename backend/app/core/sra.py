@@ -1,8 +1,11 @@
+import logging
 import os
 import glob
 import gzip
+import re
 import shutil
 import subprocess
+import threading
 import uuid
 from datetime import datetime
 
@@ -18,6 +21,56 @@ from app.models.models import (
     SequencingPlatform,
     FileSource,
 )
+
+logger = logging.getLogger(__name__)
+
+# Progress ranges for each phase (0-100 overall)
+PREFETCH_RANGE = (0, 45)       # 0-45%
+FASTERQ_RANGE = (45, 75)      # 45-75%
+COMPRESS_RANGE = (75, 95)     # 75-95%
+# 95-100% = register files
+
+
+def _map_progress(phase_pct: float, phase_range: tuple) -> float:
+    """Map a 0-100 phase percentage to the overall progress range."""
+    lo, hi = phase_range
+    return lo + (hi - lo) * phase_pct / 100.0
+
+
+def _stream_progress(proc, dl_id: str, phase_range: tuple, parse_fn):
+    """Read stderr from a subprocess line-by-line, parse progress, update DB."""
+    db = SessionLocal()
+    try:
+        for line in proc.stderr:
+            pct = parse_fn(line)
+            if pct is not None:
+                overall = _map_progress(pct, phase_range)
+                dl = db.query(SRADownload).filter(SRADownload.id == uuid.UUID(dl_id)).first()
+                if dl:
+                    dl.progress = round(overall, 1)
+                    db.commit()
+    except Exception:
+        pass
+    finally:
+        db.close()
+
+
+def _parse_prefetch_progress(line: str):
+    """Parse prefetch stderr for progress percentage."""
+    # prefetch outputs lines like: "SRR10971019 ( 234.5 MB / 1.2 GB ) 19%"
+    m = re.search(r'(\d+)%', line)
+    if m:
+        return float(m.group(1))
+    return None
+
+
+def _parse_fasterq_progress(line: str):
+    """Parse fasterq-dump stderr for progress percentage."""
+    # fasterq-dump outputs: "spots read: 1,234,567" or progress like "25%"
+    m = re.search(r'(\d+)%', line)
+    if m:
+        return float(m.group(1))
+    return None
 
 
 @celery_app.task(name="app.core.sra.download_sra")
@@ -38,77 +91,112 @@ def download_sra(download_id: str):
         os.makedirs(output_dir, exist_ok=True)
 
         try:
-            # Prefetch
-            subprocess.run(
-                ["conda", "run", "-n", "radar", "prefetch", accession],
-                check=True,
-                capture_output=True,
+            # Phase 1: Prefetch (0-45%)
+            proc = subprocess.Popen(
+                ["conda", "run", "-n", "radar", "prefetch", "--progress", accession],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=3600,
             )
+            monitor = threading.Thread(
+                target=_stream_progress,
+                args=(proc, download_id, PREFETCH_RANGE, _parse_prefetch_progress),
+                daemon=True,
+            )
+            monitor.start()
+            stdout, stderr = proc.communicate(timeout=3600)
+            monitor.join(timeout=5)
+            if proc.returncode != 0:
+                raise subprocess.CalledProcessError(proc.returncode, "prefetch", stderr)
 
-            dl.progress = 50.0
+            dl.progress = PREFETCH_RANGE[1]
             db.commit()
 
-            # Fasterq-dump
-            subprocess.run(
+            # Phase 2: Fasterq-dump (45-75%)
+            proc = subprocess.Popen(
                 [
                     "conda", "run", "-n", "radar",
                     "fasterq-dump", accession,
                     "--outdir", output_dir,
                     "--split-files",
+                    "--progress",
                 ],
-                check=True,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=7200,
             )
+            monitor = threading.Thread(
+                target=_stream_progress,
+                args=(proc, download_id, FASTERQ_RANGE, _parse_fasterq_progress),
+                daemon=True,
+            )
+            monitor.start()
+            stdout, stderr = proc.communicate(timeout=7200)
+            monitor.join(timeout=5)
+            if proc.returncode != 0:
+                raise subprocess.CalledProcessError(proc.returncode, "fasterq-dump", stderr)
 
-            dl.progress = 80.0
+            dl.progress = FASTERQ_RANGE[1]
             db.commit()
 
-            # Compress output fastq files with gzip
+            # Phase 3: Compress (75-95%)
             fastq_files = sorted(glob.glob(os.path.join(output_dir, f"{accession}*.fastq")))
-            for fq in fastq_files:
+            for i, fq in enumerate(fastq_files):
                 gz_path = fq + ".gz"
                 with open(fq, "rb") as f_in:
                     with gzip.open(gz_path, "wb") as f_out:
                         shutil.copyfileobj(f_in, f_out)
                 os.remove(fq)
+                pct = _map_progress((i + 1) / len(fastq_files) * 100, COMPRESS_RANGE)
+                dl.progress = round(pct, 1)
+                db.commit()
 
-            # Find compressed files
+            # Phase 4: Register files (95-100%)
+            dl.progress = 95.0
+            db.commit()
+
             gz_files = sorted(glob.glob(os.path.join(output_dir, f"{accession}*.fastq.gz")))
 
             if len(gz_files) == 0:
                 raise RuntimeError("No output files produced by fasterq-dump")
 
-            # Auto-detect paired vs single
+            # Auto-detect platform from FASTQ headers
+            from app.api.file_manager import _detect_platform_from_fastq
+
             if len(gz_files) >= 2:
                 # Paired-end
                 for i, gz_file in enumerate(gz_files[:2]):
                     pair = PairType.R1 if i == 0 else PairType.R2
                     file_size = os.path.getsize(gz_file)
+                    detected_platform, _ = _detect_platform_from_fastq(gz_file)
                     sf = SampleFile(
                         sample_id=dl.sample_id,
                         file_path=gz_file,
                         file_type=".fastq.gz",
                         pair=pair,
-                        platform=SequencingPlatform.illumina,
+                        platform=detected_platform or SequencingPlatform.illumina,
                         source=FileSource.sra,
                         original_filename=os.path.basename(gz_file),
                         file_size=file_size,
                     )
                     db.add(sf)
             else:
-                # Single-end
+                # Single-end — could be PacBio, ONT, or Illumina single-end
                 gz_file = gz_files[0]
                 file_size = os.path.getsize(gz_file)
+                detected_platform, _ = _detect_platform_from_fastq(gz_file)
+                platform = detected_platform or SequencingPlatform.illumina
+                # PacBio/ONT single files are long reads, not single-end Illumina
+                if platform in (SequencingPlatform.ont, SequencingPlatform.pacbio):
+                    pair = PairType.long_read
+                else:
+                    pair = PairType.single
                 sf = SampleFile(
                     sample_id=dl.sample_id,
                     file_path=gz_file,
                     file_type=".fastq.gz",
-                    pair=PairType.single,
-                    platform=SequencingPlatform.illumina,
+                    pair=pair,
+                    platform=platform,
                     source=FileSource.sra,
                     original_filename=os.path.basename(gz_file),
                     file_size=file_size,
