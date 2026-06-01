@@ -5,7 +5,7 @@ services:
       - "${PORT_FRONTEND:-3000}:3000"
     environment:
       - NEXT_PUBLIC_BACKEND_HOST=backend
-      - NEXT_PUBLIC_BACKEND_PORT=${PORT_BACKEND:-7000}
+      - NEXT_PUBLIC_BACKEND_PORT=8000
     depends_on:
       - backend
 
