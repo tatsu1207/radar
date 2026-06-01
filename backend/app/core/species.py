@@ -48,7 +48,7 @@ def _run_skani(sample_id, assembly_path, results_dir, db, threads) -> Optional[S
     skani_db = os.environ.get("RADAR_SKANI_DB", DB_SKANI)
     # Find the sketch directory
     sketch_dir = None
-    for candidate in [skani_db, os.path.join(skani_db, "skani-gtdb-r220-sketch")]:
+    for candidate in [skani_db, os.path.join(skani_db, "skani-gtdb-r220-sketch"), os.path.join(skani_db, "skani_gtdb_r226-v0.3")]:
         if os.path.isdir(candidate):
             sketch_dir = candidate
             break

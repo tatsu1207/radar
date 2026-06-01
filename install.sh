@@ -295,21 +295,13 @@ else
     fi
 fi
 
-# skani GTDB sketch database (~1.5 GB)
-echo -n "  skani GTDB database..."
-if [ -d "${DB_DIR}/skani" ]; then
-    echo " exists"
-else
-    mkdir -p "${DB_DIR}/skani"
-    if curl -sL -o "${DB_DIR}/skani/skani-gtdb.tar.gz" \
-        "https://zenodo.org/records/10890155/files/skani-gtdb-r220-sketch.tar.gz" \
-        && tar xzf "${DB_DIR}/skani/skani-gtdb.tar.gz" -C "${DB_DIR}/skani" \
-        && rm "${DB_DIR}/skani/skani-gtdb.tar.gz"; then
-        echo " done"
-    else
-        echo " FAILED"
-    fi
-fi
+# skani GTDB sketch database (~30 GB compressed, ~50 GB uncompressed)
+# Skipped by default — too large for auto-download. 16S BLAST is used as fallback.
+# To install manually:
+#   mkdir -p ${DB_DIR}/skani
+#   curl -L -o ${DB_DIR}/skani/skani_gtdb_r226-v0.3.tar.gz http://faust.compbio.cs.cmu.edu/skani-files/skani_gtdb_r226-v0.3.tar.gz
+#   tar xzf ${DB_DIR}/skani/skani_gtdb_r226-v0.3.tar.gz -C ${DB_DIR}/skani && rm ${DB_DIR}/skani/skani_gtdb_r226-v0.3.tar.gz
+echo "  skani GTDB database... skipped (30 GB, optional — see install.sh for manual instructions)"
 
 # NCBI 16S rRNA BLAST database
 echo -n "  16S rRNA BLAST database..."

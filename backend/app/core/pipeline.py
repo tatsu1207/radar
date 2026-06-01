@@ -611,8 +611,8 @@ def _ensure_databases(job, db):
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
         "databases",
     )
-    # Quick check: skip if a key database already exists
-    if os.path.isdir(os.path.join(db_dir, "skani")) and os.path.isdir(os.path.join(db_dir, "genomad_db")):
+    # Quick check: skip if key databases already exist
+    if os.path.isdir(os.path.join(db_dir, "genomad_db")) and os.path.isfile(os.path.join(db_dir, "16S", "16S_ribosomal_RNA.ndb")):
         return
     job.log += "Downloading reference databases (first run)...\n"
     db.commit()

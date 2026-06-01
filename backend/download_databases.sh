@@ -21,10 +21,9 @@ echo $$ > "$LOCK"
 
 NEEDED=0
 
-# Check which databases are missing
+# Check which databases are missing (skani excluded — 30 GB, 16S BLAST is used as fallback)
 [ -d "${DB_DIR}/amrfinderplus" ] && [ -f "${DB_DIR}/amrfinderplus/AMRProt" -o -f "${DB_DIR}/amrfinderplus/AMRProt.fa" ] || NEEDED=1
 [ -d "${DB_DIR}/genomad_db" ] || NEEDED=1
-[ -d "${DB_DIR}/skani" ] || NEEDED=1
 [ -f "${DB_DIR}/16S/16S_ribosomal_RNA.ndb" ] || NEEDED=1
 [ -d "${DB_DIR}/pointfinder_db" ] || NEEDED=1
 [ -d "${DB_DIR}/resfinder_db" ] || NEEDED=1
@@ -80,19 +79,11 @@ if [ ! -d "${DB_DIR}/genomad_db" ]; then
     fi
 fi
 
-# skani GTDB sketch database (~1.5 GB)
-if [ ! -d "${DB_DIR}/skani" ]; then
-    echo "  skani GTDB database..."
-    mkdir -p "${DB_DIR}/skani"
-    if curl -sL -o "${DB_DIR}/skani/skani-gtdb.tar.gz" \
-        "https://zenodo.org/records/10890155/files/skani-gtdb-r220-sketch.tar.gz" \
-        && tar xzf "${DB_DIR}/skani/skani-gtdb.tar.gz" -C "${DB_DIR}/skani" \
-        && rm "${DB_DIR}/skani/skani-gtdb.tar.gz"; then
-        echo "    done"
-    else
-        echo "    FAILED"
-    fi
-fi
+# skani GTDB sketch database (~30 GB compressed, ~50 GB uncompressed)
+# Skipped by default — 16S BLAST is used as fallback for species ID.
+# To install manually:
+#   curl -L -o skani_gtdb_r226-v0.3.tar.gz http://faust.compbio.cs.cmu.edu/skani-files/skani_gtdb_r226-v0.3.tar.gz
+#   tar xzf skani_gtdb_r226-v0.3.tar.gz -C /databases/skani && rm skani_gtdb_r226-v0.3.tar.gz
 
 # NCBI 16S rRNA BLAST database
 if [ ! -f "${DB_DIR}/16S/16S_ribosomal_RNA.ndb" ]; then
