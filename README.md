@@ -113,6 +113,18 @@ cd radar
 
 The first run pulls ~13 GB of images (the worker image contains all bioinformatics tools). Subsequent starts are instant. Reference databases (~10 GB) are stored in a Docker volume and downloaded on first pipeline run.
 
+**Optional: skani GTDB database** — For more accurate species identification via ANI (instead of 16S BLAST fallback), install the skani GTDB sketch database (~30 GB compressed, ~50 GB uncompressed):
+
+```bash
+docker compose exec worker bash -c "
+  mkdir -p /databases/skani &&
+  curl -L -o /databases/skani/skani_gtdb_r226-v0.3.tar.gz \
+    http://faust.compbio.cs.cmu.edu/skani-files/skani_gtdb_r226-v0.3.tar.gz &&
+  tar xzf /databases/skani/skani_gtdb_r226-v0.3.tar.gz -C /databases/skani &&
+  rm /databases/skani/skani_gtdb_r226-v0.3.tar.gz
+"
+```
+
 **Multi-user isolation:** `docker-start.sh` assigns unique ports, container names, and volumes per user (based on UID), so multiple users on the same machine can run RADAR simultaneously without conflicts.
 
 ### Access
