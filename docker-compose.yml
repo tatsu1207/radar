@@ -11,6 +11,8 @@ services:
 
   backend:
     image: ghcr.io/tatsu1207/radar-backend:latest
+    build:
+      context: ./backend
     ports:
       - "${PORT_BACKEND:-7000}:8000"
     environment:

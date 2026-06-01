@@ -595,6 +595,40 @@ def _has_results(db, model_class, sample_id) -> bool:
     return db.query(model_class).filter(model_class.sample_id == sample_id).first() is not None
 
 
+def _ensure_databases(job, db):
+    """Download reference databases if missing (first run)."""
+    import subprocess, os
+    # backend/ is 3 dirs up from app/core/pipeline.py
+    script = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "download_databases.sh",
+    )
+    if not os.path.exists(script):
+        logger.warning(f"download_databases.sh not found at {script}")
+        return
+    # Resolve database dir (same as core modules: 4 dirs up from app/core/X.py → /databases)
+    db_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+        "databases",
+    )
+    # Quick check: skip if a key database already exists
+    if os.path.isdir(os.path.join(db_dir, "skani")) and os.path.isdir(os.path.join(db_dir, "genomad_db")):
+        return
+    job.log += "Downloading reference databases (first run)...\n"
+    db.commit()
+    logger.info(f"Downloading databases to {db_dir}")
+    result = subprocess.run(
+        ["bash", script, db_dir],
+        capture_output=True, text=True, timeout=7200,
+    )
+    if result.returncode != 0:
+        logger.warning(f"Database download had errors: {result.stderr[-500:]}")
+        job.log += f"  Database download warnings: {result.stderr[-200:]}\n"
+    else:
+        job.log += "  Databases ready.\n"
+    db.commit()
+
+
 def _run_annotation_phase(sample_id: str, assembly_path: str, job, db, threads: int):
     """Phase 2: All annotation steps on the assembly. Skips steps with existing results."""
     from app.models.models import (
@@ -603,6 +637,8 @@ def _run_annotation_phase(sample_id: str, assembly_path: str, job, db, threads: 
         CgMLSTResult, CRISPRResult, DefenseFinderResult, ICEResult,
         BacMetResult, RiskScore, MLPhenotypePrediction,
     )
+
+    _ensure_databases(job, db)
 
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     sample.status = SampleStatus.annotating
