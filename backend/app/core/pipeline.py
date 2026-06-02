@@ -795,7 +795,8 @@ def _run_annotation_phase(sample_id: str, assembly_path: str, job, db, threads: 
 
     # Promoter analysis (BPROM) — per-ARG upstream promoter prediction
     from app.models.models import PromoterResult
-    if not _has_results(db, PromoterResult, sample_id):
+    has_promoter = db.query(PromoterResult).join(ARGResult).filter(ARGResult.sample_id == sample_id).first() is not None
+    if not has_promoter:
         from app.core.promoter import run_bprom
         _run_noncritical(db, job, "Promoter (BPROM)", lambda: run_bprom(sample_id, assembly_path, db, threads=threads))
     else:
@@ -804,7 +805,8 @@ def _run_annotation_phase(sample_id: str, assembly_path: str, job, db, threads: 
 
     # RBS analysis (OSTIR) — per-ARG ribosome binding site prediction
     from app.models.models import RBSResult
-    if not _has_results(db, RBSResult, sample_id):
+    has_rbs = db.query(RBSResult).join(ARGResult).filter(ARGResult.sample_id == sample_id).first() is not None
+    if not has_rbs:
         from app.core.rbs import run_ostir
         _run_noncritical(db, job, "RBS (OSTIR)", lambda: run_ostir(sample_id, assembly_path, db, threads=threads))
     else:
