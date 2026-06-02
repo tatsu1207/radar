@@ -63,4 +63,5 @@ COPY backend/ .
 # (matches resolved path from backend/app/core/*.py: 4 dirs up from app/core/X.py → /)
 VOLUME ["/databases"]
 
+ENTRYPOINT ["bash", "entrypoint.sh"]
 CMD ["celery", "-A", "app.celery_app", "worker", "--loglevel=info", "-Q", "pipeline,celery"]
