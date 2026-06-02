@@ -50,7 +50,7 @@ def run_mefinder(sample_id: str, assembly_path: str, db) -> List[MobilityResult]
 
     results_dir = os.path.join(settings.RESULTS_DIR, str(sample_id), "mobility")
     os.makedirs(results_dir, exist_ok=True)
-    output_path = os.path.join(results_dir, "mefinder_output.csv")
+    output_path = os.path.join(results_dir, "mefinder_output")
 
     temp_dir = os.path.join(results_dir, "tmp")
     os.makedirs(temp_dir, exist_ok=True)
@@ -72,9 +72,10 @@ def run_mefinder(sample_id: str, assembly_path: str, db) -> List[MobilityResult]
     arg_results = db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
     results = []
 
-    # mefinder outputs CSV
-    if os.path.exists(output_path):
-        with open(output_path) as f:
+    # mefinder appends .csv to the output path
+    csv_path = output_path + ".csv"
+    if os.path.exists(csv_path):
+        with open(csv_path) as f:
             reader = csv.DictReader(f)
             for row in reader:
                 contig = row.get("contig", "")
