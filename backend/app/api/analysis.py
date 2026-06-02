@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -313,6 +313,32 @@ def download_qc_report(sample_id: uuid.UUID, db: Session = Depends(get_db)):
         content=report,
         headers={"Content-Disposition": f"attachment; filename={sample.name}_qc_report.txt"},
     )
+
+
+@router.get("/pipeline/qc/{sample_id}/fastp")
+def get_fastp_report(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Serve fastp HTML report."""
+    sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    report_path = os.path.join(settings.RESULTS_DIR, str(sample_id), "qc", "fastp_report.html")
+    if not os.path.exists(report_path):
+        raise HTTPException(status_code=404, detail="fastp report not found")
+    with open(report_path) as f:
+        return HTMLResponse(content=f.read())
+
+
+@router.get("/pipeline/qc/{sample_id}/quast")
+def get_quast_report(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Serve QUAST HTML report."""
+    sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    report_path = os.path.join(settings.RESULTS_DIR, str(sample_id), "assembly", "quast", "report.html")
+    if not os.path.exists(report_path):
+        raise HTTPException(status_code=404, detail="QUAST report not found")
+    with open(report_path) as f:
+        return HTMLResponse(content=f.read())
 
 
 class PipelineStartRequest(BaseModel):

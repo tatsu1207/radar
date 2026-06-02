@@ -198,9 +198,36 @@ export default function SampleDetailPage() {
       {/* ── Summary tab ── */}
       {tab === 'Summary' && (
         <div className="space-y-6">
+          {/* Read QC */}
+          <div className="card">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-100">Read QC (fastp)</h2>
+              <a
+                href={`/api/pipeline/qc/${sampleId}/fastp`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary text-xs flex items-center gap-1.5"
+              >
+                View Report
+              </a>
+            </div>
+          </div>
+
           {/* Assembly QC */}
           <div className="card">
-            <h2 className="text-lg font-semibold text-gray-100 mb-4">Assembly Quality</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-100">Assembly Quality</h2>
+              {summary?.quast && (
+                <a
+                  href={`/api/pipeline/qc/${sampleId}/quast`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-secondary text-xs flex items-center gap-1.5"
+                >
+                  View QUAST Report
+                </a>
+              )}
+            </div>
             {summary?.quast ? (
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <div className="p-3 bg-gray-800/50 rounded-lg text-center">
