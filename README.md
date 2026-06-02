@@ -31,6 +31,35 @@ A bioinformatics platform for whole-genome sequencing (WGS) based antimicrobial 
 
 Other species are fully supported for annotation; ML predictions are available for the 5 species above.
 
+### Prediction Bias Warnings
+
+The ML models are trained on clinical/surveillance isolates from NCBI BioSample. Predictions may be unreliable in the following cases:
+
+**Low-performance models (F1 < 0.70)** — grayed out in the UI, should not be used:
+
+| Species | Antibiotic | F1 | Notes |
+|---------|-----------|-----|-------|
+| *E. coli* | nitrofurantoin | 0.07 | Too few resistant samples |
+| *E. coli* | piperacillin-tazobactam | 0.47 | |
+| *E. coli* | doripenem | 0.50 | Small training set |
+| *E. coli* | cefepime | 0.62 | |
+| *K. pneumoniae* | tigecycline | 0.48 | |
+| *K. pneumoniae* | fosfomycin | 0.67 | Small training set |
+| *S. aureus* | linezolid | 0.57 | |
+| *S. aureus* | doxycycline | 0.62 | Small training set |
+
+**High R-bias models (≥70% resistant in training)** — may over-predict resistance, shown with warning icon:
+
+| Species | Antibiotic | R% in training |
+|---------|-----------|----------------|
+| *A. baumannii* | ceftriaxone, ciprofloxacin, ceftazidime, gentamicin, TMP-SMX, levofloxacin, tetracycline | 74–94% |
+| *K. pneumoniae* | colistin, nitrofurantoin, chloramphenicol, cefotaxime, ciprofloxacin, doripenem | 71–81% |
+| *E. coli* | cefazolin, trimethoprim, sulfonamides | 79–90% |
+| *S. aureus* | penicillin | 90% |
+| *S. enterica* | colistin | 77% |
+
+Predictions for these antibiotics should be interpreted with caution, especially for non-clinical (environmental, commensal, or laboratory) isolates. The UI displays F1 scores, training data size, and bias warnings alongside each prediction.
+
 ## Supported Input
 
 | Input Type | Files | Pipeline |
