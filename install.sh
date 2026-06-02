@@ -147,7 +147,7 @@ echo "  --- Separate environments (conflicting deps) ---"
 # mob_suite needs python<=3.11
 if ! mamba env list 2>/dev/null | grep -qE "^radar-mobsuite\s"; then
     echo -n "  ...   radar-mobsuite"
-    if mamba create -n radar-mobsuite -y python=3.11 -c conda-forge > /tmp/radar_install_radar-mobsuite.log 2>&1 \
+    if mamba create -n radar-mobsuite -y python=3.11 blast -c conda-forge -c bioconda > /tmp/radar_install_radar-mobsuite.log 2>&1 \
         && conda run -n radar-mobsuite pip install --quiet mob_suite >> /tmp/radar_install_radar-mobsuite.log 2>&1; then
         echo -e "\r  OK    radar-mobsuite"
     else
@@ -161,7 +161,7 @@ fi
 # MobileElementFinder needs setuptools<81 and python<=3.11
 if ! mamba env list 2>/dev/null | grep -qE "^radar-mefinder\s"; then
     echo -n "  ...   radar-mefinder"
-    if mamba create -n radar-mefinder -y python=3.11 -c conda-forge > /tmp/radar_install_radar-mefinder.log 2>&1 \
+    if mamba create -n radar-mefinder -y python=3.11 blast -c conda-forge -c bioconda > /tmp/radar_install_radar-mefinder.log 2>&1 \
         && conda run -n radar-mefinder pip install --quiet "setuptools<81" MobileElementFinder >> /tmp/radar_install_radar-mefinder.log 2>&1; then
         echo -e "\r  OK    radar-mefinder"
     else
@@ -195,7 +195,7 @@ fi
 # Install tensorflow-cpu first to avoid pulling ~1.5GB of GPU tensorflow
 if ! mamba env list 2>/dev/null | grep -qE "^radar-genomad\s"; then
     echo -n "  ...   radar-genomad"
-    if mamba create -n radar-genomad -y python=3.10 -c conda-forge > /tmp/radar_install_radar-genomad.log 2>&1 \
+    if mamba create -n radar-genomad -y python=3.10 mmseqs2 -c conda-forge -c bioconda > /tmp/radar_install_radar-genomad.log 2>&1 \
         && conda run -n radar-genomad pip install --quiet tensorflow-cpu >> /tmp/radar_install_radar-genomad.log 2>&1 \
         && conda run -n radar-genomad pip install --quiet genomad >> /tmp/radar_install_radar-genomad.log 2>&1; then
         echo -e "\r  OK    radar-genomad"
