@@ -315,6 +315,20 @@ def download_qc_report(sample_id: uuid.UUID, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/pipeline/assembly/{sample_id}")
+def download_assembly(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Download assembled genome FASTA."""
+    from fastapi.responses import FileResponse
+    sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    assembly_path = os.path.join(settings.RESULTS_DIR, str(sample_id), "assembly", "assembly.fasta")
+    if not os.path.exists(assembly_path):
+        raise HTTPException(status_code=404, detail="Assembly not found")
+    filename = f"{sample.name}_assembly.fasta"
+    return FileResponse(assembly_path, media_type="application/octet-stream", filename=filename)
+
+
 @router.get("/pipeline/qc/{sample_id}/fastp")
 def get_fastp_report(sample_id: uuid.UUID, db: Session = Depends(get_db)):
     """Serve fastp HTML report."""

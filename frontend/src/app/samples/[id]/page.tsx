@@ -217,16 +217,27 @@ export default function SampleDetailPage() {
           <div className="card">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-100">Assembly Quality</h2>
-              {summary?.quast && (
-                <a
-                  href={`/api/pipeline/qc/${sampleId}/quast`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-secondary text-xs flex items-center gap-1.5"
-                >
-                  View QUAST Report
-                </a>
-              )}
+              <div className="flex items-center gap-2">
+                {summary?.quast && (
+                  <a
+                    href={`/api/pipeline/qc/${sampleId}/quast`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-secondary text-xs flex items-center gap-1.5"
+                  >
+                    View QUAST Report
+                  </a>
+                )}
+                {summary?.quast && (
+                  <a
+                    href={`/api/pipeline/assembly/${sampleId}`}
+                    className="btn-secondary text-xs flex items-center gap-1.5"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Download FASTA
+                  </a>
+                )}
+              </div>
             </div>
             {summary?.quast ? (
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
