@@ -48,6 +48,9 @@ RUN chmod +x /build/install.sh && /build/install.sh -e && \
     find /opt/conda -maxdepth 5 -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null; \
     rm -rf /opt/conda/pkgs /build
 
+# Initialize MOB-suite databases (baked into image, ~200 MB)
+RUN conda run -n radar-mobsuite mob_init || true
+
 # Install Python dependencies for the worker
 WORKDIR /app
 COPY backend/requirements.txt .

@@ -321,7 +321,7 @@ fi
 
 # MOB-suite database
 echo -n "  MOB-suite database..."
-if conda run -n radar mob_init > /tmp/radar_db_mobsuite.log 2>&1; then
+if conda run -n radar-mobsuite mob_init > /tmp/radar_db_mobsuite.log 2>&1; then
     echo " done"
 else
     echo " FAILED (will auto-download on first run)"
