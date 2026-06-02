@@ -94,7 +94,7 @@ function PhenotypePredictionTool() {
   function downloadPredictions() {
     if (!data || !filtered.length) return;
     const sampleName = samples.find((s) => s.id === selectedSample)?.name || 'sample';
-    const headers = ['Antibiotic', 'Drug Class', 'Prediction', 'Probability', 'Confidence', 'Key Genes', 'Key Mutations'];
+    const headers = ['Antibiotic', 'Drug Class', 'Prediction', 'P(Resistant)', 'Confidence', 'Key Genes', 'Key Mutations'];
     const rows = filtered.map((p) => [
       p.antibiotic, p.drug_class, p.prediction,
       p.probability.toFixed(3), p.confidence,
@@ -271,7 +271,7 @@ function PhenotypePredictionTool() {
                     <th className="text-left py-2 px-3 text-gray-400 font-medium">Antibiotic</th>
                     <th className="text-left py-2 px-3 text-gray-400 font-medium">Drug Class</th>
                     <th className="text-center py-2 px-3 text-gray-400 font-medium">Prediction</th>
-                    <th className="text-center py-2 px-3 text-gray-400 font-medium">Probability</th>
+                    <th className="text-center py-2 px-3 text-gray-400 font-medium" title="Probability of resistance (0-100%)">P(Resistant)</th>
                     <th className="text-center py-2 px-3 text-gray-400 font-medium">Confidence</th>
                     <th className="text-left py-2 px-3 text-gray-400 font-medium">Key Genes</th>
                   </tr>
