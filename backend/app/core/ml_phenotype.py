@@ -120,20 +120,39 @@ def _resolve_species(sample_id: str, db) -> Optional[str]:
     return None
 
 
-def _extract_features_from_db(sample_id: str, db) -> dict:
-    """Extract ML features from RADAR's existing annotation results."""
+def _extract_features_for_antibiotic(sample_id: str, antibiotic: str, drug_class: str, all_args, db) -> dict:
+    """Extract ML features for a specific antibiotic.
+
+    Target features (target_*) are computed only from ARGs that confer resistance
+    to this specific antibiotic (using substrate mapping for beta-lactams, etc.).
+    Genome features (genome_*, n_amr_genes, point mutations) are global.
+    """
+    from app.core.substrate_mapping import gene_confers_resistance
+
     features = {}
 
-    args = db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
-    if not args:
-        features["has_target_arg"] = 0
-        features["n_target_args"] = 0
-        features["n_amr_genes"] = 0
-        return features
+    # Filter target ARGs: must match antibiotic's drug class AND pass substrate check
+    # Exclude intrinsic/housekeeping: EFFLUX, STRESS, NA, ACID, ARSENIC, METAL
+    INTRINSIC_CLASSES = {"EFFLUX", "STRESS", "NA", "ACID", "ARSENIC", "ARSENATE", "METAL"}
+    target_args = []
+    for a in all_args:
+        if not a.drug_class:
+            continue
+        gene_classes = {c.strip().upper() for c in (a.drug_class or "").split(";")}
+        # Skip intrinsic/housekeeping genes
+        if gene_classes.issubset(INTRINSIC_CLASSES):
+            continue
+        # Gene's drug class must match the antibiotic's drug class
+        if drug_class.upper() not in gene_classes:
+            continue
+        # For beta-lactams/aminoglycosides, use substrate-specific mapping
+        if not gene_confers_resistance(a.gene or "", antibiotic, drug_class):
+            continue
+        target_args.append(a)
 
-    features["has_target_arg"] = 1
-    features["n_target_args"] = len(args)
-    features["n_amr_genes"] = len(args)
+    features["n_amr_genes"] = len(all_args)
+    features["has_target_arg"] = 1 if target_args else 0
+    features["n_target_args"] = len(target_args)
 
     # Helper for aggregate stats
     def _agg(vals, prefix):
@@ -143,119 +162,100 @@ def _extract_features_from_db(sample_id: str, db) -> dict:
         features[f"{prefix}_mean"] = sum(vals) / len(vals)
         features[f"{prefix}_min"] = min(vals)
 
-    # Aggregate per-ARG features from ARGResult
-    identity_vals = [a.identity for a in args if a.identity is not None]
-    coverage_vals = [a.coverage for a in args if a.coverage is not None]
-    cai_vals = [a.cai for a in args if a.cai is not None]
-    rare_pct_vals = [a.rare_codon_pct for a in args if a.rare_codon_pct is not None]
-    rare_cluster_vals = [float(a.rare_codon_clusters) for a in args if a.rare_codon_clusters is not None]
-    gc_vals = [a.gene_gc for a in args if a.gene_gc is not None]
-    gc_dev_vals = [a.gc_deviation for a in args if a.gc_deviation is not None]
-    copies_vals = [a.gene_copies for a in args if a.gene_copies is not None]
+    # Target-level features: only from drug-class-matching ARGs
+    if target_args:
+        _agg([a.identity for a in target_args if a.identity is not None], "target_identity")
+        _agg([a.coverage for a in target_args if a.coverage is not None], "target_coverage")
+        _agg([a.cai for a in target_args if a.cai is not None], "target_cai")
+        _agg([a.rare_codon_pct for a in target_args if a.rare_codon_pct is not None], "target_rare_codon_pct")
+        _agg([float(a.rare_codon_clusters) for a in target_args if a.rare_codon_clusters is not None], "target_rare_codon_clusters")
+        _agg([a.gene_gc for a in target_args if a.gene_gc is not None], "target_gene_gc")
 
-    _agg(identity_vals, "target_identity")
-    _agg(coverage_vals, "target_coverage")
-    _agg(cai_vals, "target_cai")
-    _agg(rare_pct_vals, "target_rare_codon_pct")
-    _agg(rare_cluster_vals, "target_rare_codon_clusters")
-    _agg(gc_vals, "target_gene_gc")
+        gc_dev_vals = [a.gc_deviation for a in target_args if a.gc_deviation is not None]
+        if gc_dev_vals:
+            features["target_gc_deviation_max"] = max(gc_dev_vals, key=abs)
+            features["target_gc_deviation_mean"] = sum(gc_dev_vals) / len(gc_dev_vals)
 
-    if gc_dev_vals:
-        features["target_gc_deviation_max"] = max(gc_dev_vals, key=abs)
-        features["target_gc_deviation_mean"] = sum(gc_dev_vals) / len(gc_dev_vals)
-    if copies_vals:
-        features["target_gene_copies_max"] = max(copies_vals)
-        features["target_gene_copies_mean"] = sum(copies_vals) / len(copies_vals)
-        features["genome_gene_copies_sum"] = sum(copies_vals)
-        features["genome_gene_copies_max"] = max(copies_vals)
+        copies_vals = [a.gene_copies for a in target_args if a.gene_copies is not None]
+        if copies_vals:
+            features["target_gene_copies_max"] = max(copies_vals)
+            features["target_gene_copies_mean"] = sum(copies_vals) / len(copies_vals)
 
-    # Genome GC from first ARG
-    for a in args:
+        # Promoter features from target ARGs only
+        ldf_vals, tf_vals, dist_vals, at_vals = [], [], [], []
+        for a in target_args:
+            pr = db.query(PromoterResult).filter(PromoterResult.arg_result_id == a.id).first()
+            if not pr:
+                continue
+            if pr.ldf_score is not None: ldf_vals.append(pr.ldf_score)
+            if pr.tf_binding_sites is not None: tf_vals.append(float(pr.tf_binding_sites))
+            if pr.promoter_distance is not None: dist_vals.append(float(pr.promoter_distance))
+            if pr.up_element_at_ratio is not None: at_vals.append(pr.up_element_at_ratio)
+        _agg(ldf_vals, "target_promoter_ldf")
+        _agg(tf_vals, "target_promoter_tf_sites")
+        _agg(dist_vals, "target_promoter_distance")
+        _agg(at_vals, "target_promoter_up_at_ratio")
+
+        # RBS features from target ARGs only
+        rbs_expr, rbs_dg, rbs_mrna = [], [], []
+        for a in target_args:
+            rbs = db.query(RBSResult).filter(RBSResult.arg_result_id == a.id).first()
+            if not rbs:
+                continue
+            if rbs.expression is not None: rbs_expr.append(rbs.expression)
+            if rbs.dg_total is not None: rbs_dg.append(rbs.dg_total)
+            if rbs.dg_mrna is not None: rbs_mrna.append(rbs.dg_mrna)
+        _agg(rbs_expr, "target_rbs_expression")
+        _agg(rbs_dg, "target_rbs_dg_total")
+        _agg(rbs_mrna, "target_rbs_dg_mrna")
+
+        # Functionality flags — target ARGs only
+        features["arg_low_rbs"] = 1 if rbs_expr and any(v < 1.0 for v in rbs_expr) else 0
+        features["arg_low_promoter"] = 1 if not ldf_vals else 0
+        features["arg_truncated"] = 1 if any(a.coverage is not None and a.coverage < 80.0 for a in target_args) else 0
+        features["arg_poor_adaptation"] = 1 if any(a.cai is not None and a.cai < 0.2 for a in target_args) else 0
+
+        # Functional score — target ARGs only
+        scores = []
+        for a in target_args:
+            s = 0.25
+            pr = db.query(PromoterResult).filter(PromoterResult.arg_result_id == a.id).first()
+            rbs = db.query(RBSResult).filter(RBSResult.arg_result_id == a.id).first()
+            if pr and pr.ldf_score is not None and pr.ldf_score > 2.0: s += 0.25
+            if rbs and rbs.expression is not None and rbs.expression > 1.0: s += 0.25
+            if a.cai is not None and a.cai > 0.3: s += 0.15
+            if a.coverage is not None and a.coverage >= 95.0: s += 0.10
+            scores.append(s)
+        features["arg_functional_score"] = max(scores) if scores else 0.0
+
+        # Plasmid features — target ARGs
+        n_plasmid = sum(1 for a in target_args if a.on_plasmid)
+        features["target_any_on_plasmid"] = 1 if n_plasmid > 0 else 0
+        features["target_n_plasmid"] = n_plasmid
+    else:
+        # No target ARGs — set zero/absent flags
+        features["arg_low_rbs"] = 0
+        features["arg_low_promoter"] = 0
+        features["arg_truncated"] = 0
+        features["arg_poor_adaptation"] = 0
+        features["arg_functional_score"] = 0.0
+        features["target_any_on_plasmid"] = 0
+        features["target_n_plasmid"] = 0
+
+    # Genome-level features (always global)
+    all_copies = [a.gene_copies for a in all_args if a.gene_copies is not None]
+    if all_copies:
+        features["genome_gene_copies_sum"] = sum(all_copies)
+        features["genome_gene_copies_max"] = max(all_copies)
+
+    for a in all_args:
         if a.genome_gc is not None:
             features["genome_gc"] = a.genome_gc
             break
 
-    # Promoter features from PromoterResult (LDF, TF sites, distance, UP AT ratio)
-    ldf_vals = []
-    tf_sites_vals = []
-    prom_dist_vals = []
-    up_at_vals = []
-    for a in args:
-        pr = db.query(PromoterResult).filter(PromoterResult.arg_result_id == a.id).first()
-        if not pr:
-            continue
-        if pr.ldf_score is not None:
-            ldf_vals.append(pr.ldf_score)
-        if pr.tf_binding_sites is not None:
-            tf_sites_vals.append(float(pr.tf_binding_sites))
-        if pr.promoter_distance is not None:
-            prom_dist_vals.append(float(pr.promoter_distance))
-        if pr.up_element_at_ratio is not None:
-            up_at_vals.append(pr.up_element_at_ratio)
-
-    _agg(ldf_vals, "target_promoter_ldf")
-    _agg(tf_sites_vals, "target_promoter_tf_sites")
-    _agg(prom_dist_vals, "target_promoter_distance")
-    _agg(up_at_vals, "target_promoter_up_at_ratio")
-
-    # RBS features from RBSResult (expression, dG_total, dG_mRNA)
-    rbs_expr_vals = []
-    rbs_dg_total_vals = []
-    rbs_dg_mrna_vals = []
-    for a in args:
-        rbs = db.query(RBSResult).filter(RBSResult.arg_result_id == a.id).first()
-        if not rbs:
-            continue
-        if rbs.expression is not None:
-            rbs_expr_vals.append(rbs.expression)
-        if rbs.dg_total is not None:
-            rbs_dg_total_vals.append(rbs.dg_total)
-        if rbs.dg_mrna is not None:
-            rbs_dg_mrna_vals.append(rbs.dg_mrna)
-
-    _agg(rbs_expr_vals, "target_rbs_expression")
-    _agg(rbs_dg_total_vals, "target_rbs_dg_total")
-    _agg(rbs_dg_mrna_vals, "target_rbs_dg_mrna")
-
-    # Functionality flags
-    low_rbs = sum(1 for v in rbs_expr_vals if v < 1.0) if rbs_expr_vals else 0
-    features["arg_low_rbs"] = 1 if low_rbs > 0 else 0
-    features["arg_low_promoter"] = 1 if not ldf_vals else 0
-
-    # Truncation flag: coverage < 80% suggests truncated gene
-    truncated = any(a.coverage is not None and a.coverage < 80.0 for a in args)
-    features["arg_truncated"] = 1 if truncated else 0
-
-    # Poor adaptation flag: CAI < 0.2 suggests poorly adapted to host
-    poor_adapt = any(a.cai is not None and a.cai < 0.2 for a in args)
-    features["arg_poor_adaptation"] = 1 if poor_adapt else 0
-
-    # Functional score: composite of expression context (0-1)
-    # High promoter + high RBS + good CAI + not truncated = likely functional
-    scores = []
-    for a in args:
-        s = 0.25  # base score for presence
-        pr = db.query(PromoterResult).filter(PromoterResult.arg_result_id == a.id).first()
-        rbs = db.query(RBSResult).filter(RBSResult.arg_result_id == a.id).first()
-        if pr and pr.ldf_score is not None and pr.ldf_score > 2.0:
-            s += 0.25
-        if rbs and rbs.expression is not None and rbs.expression > 1.0:
-            s += 0.25
-        if a.cai is not None and a.cai > 0.3:
-            s += 0.15
-        if a.coverage is not None and a.coverage >= 95.0:
-            s += 0.10
-        scores.append(s)
-    features["arg_functional_score"] = max(scores) if scores else 0.0
-
-    # Plasmid features
-    n_plasmid = sum(1 for a in args if a.on_plasmid)
-    features["target_any_on_plasmid"] = 1 if n_plasmid > 0 else 0
-    features["target_n_plasmid"] = n_plasmid
-
-    # Point mutation features
+    # Point mutation features (global)
     all_mutations = []
-    for a in args:
+    for a in all_args:
         if a.point_mutations:
             all_mutations.extend(a.point_mutations.split("; "))
 
@@ -273,7 +273,7 @@ def _extract_features_from_db(sample_id: str, db) -> dict:
     features["pf_n_quinolone_mutations"] = len(quinolone_muts)
     features["pf_has_gyrA_Ser83Leu"] = 1 if any("s83l" in m.lower() for m in all_mutations) else 0
 
-    # MLST features
+    # MLST
     mlst = db.query(MLSTResult).filter(MLSTResult.sample_id == sample_id).first()
     features["mlst_st"] = mlst.sequence_type if mlst and mlst.sequence_type else "unknown"
 
@@ -324,15 +324,14 @@ def run_ml_phenotype(sample_id: str, db) -> List[MLPhenotypePrediction]:
     ).delete()
     db.commit()
 
-    # Extract features from DB
-    feature_data = _extract_features_from_db(sample_id, db)
-    mlst_st = feature_data.get("mlst_st", "unknown")
-
-    # Load AMR results for key gene identification
+    # Load all ARGs once (reused per antibiotic)
     args = db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
     amr_results = _build_amr_results(args)
 
-    # Run predictions
+    mlst = db.query(MLSTResult).filter(MLSTResult.sample_id == sample_id).first()
+    mlst_st = mlst.sequence_type if mlst and mlst.sequence_type else "unknown"
+
+    # Run predictions — extract features per antibiotic (drug-class-specific)
     species_models = _models[species]
     predictions = []
 
@@ -342,6 +341,9 @@ def run_ml_phenotype(sample_id: str, db) -> List[MLPhenotypePrediction]:
         feature_cols = meta.get("feature_columns", [])
         medians = meta.get("median_values", {})
         drug_class = meta.get("drug_class", "Unknown")
+
+        # Extract features specific to this antibiotic
+        feature_data = _extract_features_for_antibiotic(sample_id, abx, drug_class, args, db)
 
         # Build feature vector
         X = np.array([feature_data.get(col, medians.get(col, 0.0)) for col in feature_cols])
