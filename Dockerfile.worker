@@ -12,7 +12,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     procps \
+    libc6-i386 lib32gcc-s1 \
     && rm -rf /var/lib/apt/lists/*
+
+# BPROM binary (32-bit) and data files for promoter prediction
+COPY bin/bprom /opt/bprom/bprom
+COPY bin/bprom_data/ /opt/bprom/data/
+RUN chmod +x /opt/bprom/bprom
 
 # Install all radar-* conda environments (envs only, no databases)
 COPY install.sh /build/install.sh

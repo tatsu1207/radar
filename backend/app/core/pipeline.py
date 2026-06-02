@@ -793,6 +793,24 @@ def _run_annotation_phase(sample_id: str, assembly_path: str, job, db, threads: 
         job.log += "  Context annotations — skipped\n"
         db.commit()
 
+    # Promoter analysis (BPROM) — per-ARG upstream promoter prediction
+    from app.models.models import PromoterResult
+    if not _has_results(db, PromoterResult, sample_id):
+        from app.core.promoter import run_bprom
+        _run_noncritical(db, job, "Promoter (BPROM)", lambda: run_bprom(sample_id, assembly_path, db, threads=threads))
+    else:
+        job.log += "  Promoter (BPROM) — skipped\n"
+        db.commit()
+
+    # RBS analysis (OSTIR) — per-ARG ribosome binding site prediction
+    from app.models.models import RBSResult
+    if not _has_results(db, RBSResult, sample_id):
+        from app.core.rbs import run_ostir
+        _run_noncritical(db, job, "RBS (OSTIR)", lambda: run_ostir(sample_id, assembly_path, db, threads=threads))
+    else:
+        job.log += "  RBS (OSTIR) — skipped\n"
+        db.commit()
+
     # BacMet2 (biocide/metal resistance — needs Prodigal proteins)
     if not _has_results(db, BacMetResult, sample_id):
         from app.core.bacmet import run_bacmet

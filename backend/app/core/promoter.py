@@ -73,19 +73,22 @@ def run_bprom(sample_id: str, assembly_path: str, db, threads: int = 4):
         temp_out = os.path.join(results_dir, f"bprom_{arg.id}.txt")
         try:
             env = os.environ.copy()
+            # Find BPROM binary: check PATH, then /opt/bprom/
+            bprom_bin = "bprom"
+            bprom_check = subprocess.run(["which", "bprom"], capture_output=True, text=True).stdout.strip()
+            if not bprom_check and os.path.exists("/opt/bprom/bprom"):
+                bprom_bin = "/opt/bprom/bprom"
             # TSS_DATA must point to directory containing bs.list, five.mat, ldfb.tss
             if "TSS_DATA" not in env:
-                bprom_path = subprocess.run(
-                    ["which", "bprom"], capture_output=True, text=True
-                ).stdout.strip()
-                if bprom_path:
-                    bprom_dir = os.path.dirname(bprom_path)
-                    # Check if data files are in the same dir as binary
+                if os.path.exists("/opt/bprom/data/ldfb.tss"):
+                    env["TSS_DATA"] = "/opt/bprom/data"
+                elif bprom_check:
+                    bprom_dir = os.path.dirname(bprom_check)
                     if os.path.exists(os.path.join(bprom_dir, "ldfb.tss")):
                         env["TSS_DATA"] = bprom_dir
 
             result = subprocess.run(
-                ["bprom", temp_fasta, temp_out],
+                [bprom_bin, temp_fasta, temp_out],
                 capture_output=True, text=True, timeout=60, env=env
             )
             # BPROM writes to the output file; also capture stdout/stderr
