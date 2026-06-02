@@ -76,7 +76,10 @@ def run_mefinder(sample_id: str, assembly_path: str, db) -> List[MobilityResult]
     csv_path = output_path + ".csv"
     if os.path.exists(csv_path):
         with open(csv_path) as f:
-            reader = csv.DictReader(f)
+            # Skip comment lines starting with #
+            lines = [line for line in f if not line.startswith("#")]
+        reader = csv.DictReader(lines)
+        if lines:
             for row in reader:
                 contig = row.get("contig", "")
                 start = _safe_int(row.get("start", ""))

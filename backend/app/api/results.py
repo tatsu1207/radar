@@ -271,7 +271,10 @@ def get_is_elements(
     flanking: int = Query(default=5000, ge=0, le=50000, description="Flanking distance in bp"),
     db: Session = Depends(get_db),
 ):
-    """Return IS elements from MOB-recon with ARG associations within flanking distance."""
+    """Return IS elements with ARG associations within flanking distance.
+
+    Sources: MobileElementFinder (MobilityResult DB) and MOB-recon (mge.report.txt file).
+    """
     import os
     from app.config import settings
 
@@ -279,11 +282,27 @@ def get_is_elements(
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
 
+    is_elements = []
+
+    # Source 1: MobileElementFinder results from DB
+    mef_results = db.query(MobilityResult).filter(MobilityResult.sample_id == sample_id).all()
+    for m in mef_results:
+        contig_id = m.contig.split()[0] if m.contig else ""
+        if not m.start or not m.end:
+            continue
+        is_elements.append({
+            "contig": contig_id,
+            "start": min(m.start, m.end),
+            "end": max(m.start, m.end),
+            "is_name": m.element_type or "",
+            "is_family": m.family or "",
+            "molecule_type": "",
+            "plasmid_id": "",
+        })
+
+    # Source 2: MOB-recon mge.report.txt (additional IS elements from plasmid analysis)
     mob_dir = os.path.join(settings.RESULTS_DIR, str(sample_id), "plasmid", "mob_recon_out")
     mge_report = os.path.join(mob_dir, "mge.report.txt")
-
-    # Parse all IS elements (exclude rRNA)
-    is_elements = []
     if os.path.exists(mge_report):
         with open(mge_report) as f:
             header = f.readline().strip().split("\t")
@@ -301,6 +320,9 @@ def get_is_elements(
                     start = int(row.get("contig_start", 0))
                     end = int(row.get("contig_end", 0))
                 except (ValueError, TypeError):
+                    continue
+                # Skip duplicates already found by MobileElementFinder
+                if any(e["contig"] == contig_id and abs(e["start"] - min(start, end)) < 10 for e in is_elements):
                     continue
                 mol_type = row.get("molecule_type", "")
                 is_elements.append({

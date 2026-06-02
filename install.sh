@@ -147,7 +147,7 @@ echo "  --- Separate environments (conflicting deps) ---"
 # mob_suite needs python<=3.11
 if ! mamba env list 2>/dev/null | grep -qE "^radar-mobsuite\s"; then
     echo -n "  ...   radar-mobsuite"
-    if mamba create -n radar-mobsuite -y python=3.11 blast -c conda-forge -c bioconda > /tmp/radar_install_radar-mobsuite.log 2>&1 \
+    if mamba create -n radar-mobsuite -y python=3.11 blast mash -c conda-forge -c bioconda > /tmp/radar_install_radar-mobsuite.log 2>&1 \
         && conda run -n radar-mobsuite pip install --quiet mob_suite >> /tmp/radar_install_radar-mobsuite.log 2>&1; then
         echo -e "\r  OK    radar-mobsuite"
     else
