@@ -159,18 +159,6 @@ function buildCGViewJSON(data: PlasmidMapData) {
         items: legendItems,
       },
       captions: [
-        {
-          name: data.plasmid_id,
-          position: 'middle-center',
-          font: 'sans-serif, bold, 16',
-          fontColor: '#111827',
-        },
-        ...(data.replicon !== '-' ? [{
-          name: data.replicon,
-          position: 'middle-center',
-          font: 'sans-serif, plain, 10',
-          fontColor: '#6B7280',
-        }] : []),
         ...(mobilityLabel ? [{
           name: mobilityLabel,
           position: 'top-center',
