@@ -102,6 +102,12 @@ def run_mefinder(sample_id: str, assembly_path: str, db) -> List[MobilityResult]
 
     db.commit()
     logger.info(f"MobileElementFinder found {len(results)} elements for sample {sample_id}")
+
+    # Clean up temp directory
+    import shutil
+    if os.path.isdir(temp_dir):
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
     return results
 
 
