@@ -91,6 +91,24 @@ function PhenotypePredictionTool() {
 
   const drugClasses = Array.from(new Set(data?.predictions.map((p) => p.drug_class).filter(Boolean) || [])).sort();
 
+  function downloadPredictions() {
+    if (!data || !filtered.length) return;
+    const sampleName = samples.find((s) => s.id === selectedSample)?.name || 'sample';
+    const headers = ['Antibiotic', 'Drug Class', 'Prediction', 'Probability', 'Confidence', 'Key Genes', 'Key Mutations'];
+    const rows = filtered.map((p) => [
+      p.antibiotic, p.drug_class, p.prediction,
+      p.probability.toFixed(3), p.confidence,
+      p.key_genes.join('; '), p.key_mutations.join('; '),
+    ]);
+    const tsv = [headers.join('\t'), ...rows.map((r) => r.join('\t'))].join('\n');
+    const blob = new Blob([tsv], { type: 'text/tab-separated-values' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${sampleName}_phenotype_prediction.tsv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
   const filtered = data?.predictions.filter((p) => {
     if (filter === 'resistant' && p.prediction !== 'Resistant') return false;
     if (filter === 'susceptible' && p.prediction !== 'Susceptible') return false;
@@ -212,8 +230,16 @@ function PhenotypePredictionTool() {
                   className="text-xs text-gray-500 hover:text-gray-300"
                 >Clear all</button>
               )}
-              {/* Result count */}
+              {/* Result count + download */}
               <span className="text-xs text-gray-500 ml-auto">{filtered.length} of {data.predictions.length}</span>
+              <button
+                onClick={downloadPredictions}
+                className="btn-secondary text-xs flex items-center gap-1.5"
+                title="Download predictions as TSV"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Download TSV
+              </button>
             </div>
             {/* Drug class chips */}
             {drugClasses.length > 0 && (
