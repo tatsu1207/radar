@@ -611,6 +611,18 @@ def _ensure_databases(job, db):
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
         "databases",
     )
+    # Ensure AMRFinderPlus symlink exists (lost on container recreate)
+    amrfinder_db = os.path.join(db_dir, "amrfinderplus")
+    amrfinder_link = os.path.join(
+        subprocess.run(["conda", "run", "-n", "radar", "bash", "-c", "echo $CONDA_PREFIX"],
+                       capture_output=True, text=True, timeout=30).stdout.strip(),
+        "bin", "data", "latest",
+    ) if os.path.isdir(amrfinder_db) else None
+    if amrfinder_link and not os.path.exists(amrfinder_link):
+        os.makedirs(os.path.dirname(amrfinder_link), exist_ok=True)
+        os.symlink(amrfinder_db, amrfinder_link)
+        logger.info(f"Restored AMRFinderPlus symlink: {amrfinder_link} -> {amrfinder_db}")
+
     # Quick check: skip if key databases already exist
     if os.path.isdir(os.path.join(db_dir, "genomad_db")) and os.path.isfile(os.path.join(db_dir, "16S", "16S_ribosomal_RNA.ndb")):
         return
