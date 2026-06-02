@@ -58,12 +58,14 @@ def run_ostir(sample_id: str, assembly_path: str, db, threads: int = 4):
 
         # Run OSTIR
         try:
+            import csv as _csv
+            temp_csv = os.path.join(results_dir, f"ostir_{arg.id}.csv")
             cmd = [
                 "conda", "run", "-n", "radar",
                 "ostir",
                 "-i", rbs_seq,
                 "-t", "string",
-                "-p",
+                "-o", temp_csv,
             ]
 
             result = subprocess.run(
@@ -74,36 +76,32 @@ def run_ostir(sample_id: str, assembly_path: str, db, threads: int = 4):
                 logger.warning(f"OSTIR failed for ARG {arg.gene}: {result.stderr[-500:]}")
                 continue
 
-            # Parse tab-separated output
+            # Parse CSV output
             try:
-                lines = result.stdout.strip().splitlines()
-                header = None
-                data_line = None
-                for line in lines:
-                    fields = line.split()
-                    if len(fields) >= 5 and "expression" in line.lower():
-                        header = fields
-                    elif header and len(fields) >= len(header) and fields[0] in ("ATG", "GTG", "TTG"):
-                        data_line = fields
-                        break  # take the first (highest expression) start codon
+                if os.path.exists(temp_csv):
+                    with open(temp_csv) as f:
+                        reader = _csv.DictReader(f)
+                        for row in reader:
+                            # Take the first start codon (highest expression)
+                            expression = float(row.get("expression", 0))
+                            dg_total = float(row.get("dG_total", 0))
+                            dg_mrna = float(row.get("dG_mRNA", 0))
 
-                if header and data_line:
-                    col_map = {h.lower(): i for i, h in enumerate(header)}
-                    expression = float(data_line[col_map.get("expression", 2)])
-                    dg_total = float(data_line[col_map.get("dg_total", 4)])
-                    dg_mrna = float(data_line[col_map.get("dg_mrna", 6)])
-
-                    rr = RBSResult(
-                        arg_result_id=arg.id,
-                        expression=expression,
-                        dg_total=dg_total,
-                        dg_mrna=dg_mrna,
-                    )
-                    db.add(rr)
-                    results.append(rr)
+                            rr = RBSResult(
+                                arg_result_id=arg.id,
+                                expression=expression,
+                                dg_total=dg_total,
+                                dg_mrna=dg_mrna,
+                            )
+                            db.add(rr)
+                            results.append(rr)
+                            break  # first row only
 
             except (ValueError, IndexError, KeyError) as e:
                 logger.warning(f"Failed to parse OSTIR output for ARG {arg.gene}: {e}")
+            finally:
+                if os.path.exists(temp_csv):
+                    os.remove(temp_csv)
 
         except subprocess.TimeoutExpired:
             logger.warning(f"OSTIR timed out for ARG {arg.gene}")
