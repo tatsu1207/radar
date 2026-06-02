@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Download } from 'lucide-react';
+import { Download, AlertTriangle, Info } from 'lucide-react';
 
 // ─── Main Page ───
 export default function ToolsPage() {
@@ -28,6 +28,12 @@ export default function ToolsPage() {
 }
 
 // ─── Phenotype Prediction Tool ───
+interface ModelQuality {
+  n_samples: number;
+  r_percent: number;
+  cv_f1: number;
+}
+
 interface MLPrediction {
   id: string;
   antibiotic: string;
@@ -37,6 +43,7 @@ interface MLPrediction {
   confidence: string;
   key_genes: string[];
   key_mutations: string[];
+  model_quality: ModelQuality | null;
 }
 
 interface MLPredictionResponse {
@@ -274,56 +281,103 @@ function PhenotypePredictionTool() {
                     <th className="text-center py-2 px-3 text-gray-400 font-medium" title="Probability of resistance (0-100%)">P(Resistant)</th>
                     <th className="text-center py-2 px-3 text-gray-400 font-medium">Confidence</th>
                     <th className="text-left py-2 px-3 text-gray-400 font-medium">Key Genes</th>
+                    <th className="text-center py-2 px-3 text-gray-400 font-medium" title="Model quality: F1, training size, R%">Model</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-800/50">
-                  {filtered.map((p) => (
-                    <tr key={p.id} className="hover:bg-gray-800/30">
-                      <td className="py-2 px-3 font-medium text-gray-200 capitalize">
-                        {p.antibiotic.replace(/_/g, ' ')}
-                      </td>
-                      <td className="py-2 px-3 text-gray-400 text-xs">{p.drug_class}</td>
-                      <td className="py-2 px-3 text-center">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                          p.prediction === 'Resistant'
-                            ? 'bg-red-600/20 text-red-400 border border-red-500/30'
-                            : 'bg-green-600/20 text-green-400 border border-green-500/30'
-                        }`}>
-                          {p.prediction === 'Resistant' ? 'R' : 'S'}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 text-center">
-                        <div className="flex items-center justify-center gap-2">
-                          <div className="w-16 bg-gray-800 rounded-full h-1.5">
-                            <div
-                              className={`h-1.5 rounded-full ${p.prediction === 'Resistant' ? 'bg-red-500' : 'bg-green-500'}`}
-                              style={{ width: `${Math.round(p.probability * 100)}%` }}
-                            />
+                  {filtered.map((p) => {
+                    const q = p.model_quality;
+                    const lowF1 = q && q.cv_f1 < 0.70;
+                    const highRBias = q && q.r_percent >= 70;
+                    const rowClass = lowF1
+                      ? 'opacity-40 hover:opacity-70'
+                      : 'hover:bg-gray-800/30';
+
+                    return (
+                      <tr key={p.id} className={rowClass}>
+                        <td className="py-2 px-3 font-medium text-gray-200 capitalize">
+                          <div className="flex items-center gap-1.5">
+                            {p.antibiotic.replace(/_/g, ' ')}
+                            {lowF1 && (
+                              <span className="text-red-400" title={`Low model performance (F1=${q!.cv_f1.toFixed(2)}). Prediction unreliable.`}>
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                              </span>
+                            )}
+                            {!lowF1 && highRBias && (
+                              <span className="text-yellow-400" title={`Training data bias: ${q!.r_percent}% resistant. May over-predict resistance.`}>
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                              </span>
+                            )}
                           </div>
-                          <span className="text-xs text-gray-400 font-mono w-10">
-                            {(p.probability * 100).toFixed(0)}%
+                        </td>
+                        <td className="py-2 px-3 text-gray-400 text-xs">{p.drug_class}</td>
+                        <td className="py-2 px-3 text-center">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                            lowF1
+                              ? 'bg-gray-700/30 text-gray-500 border border-gray-600/30'
+                              : p.prediction === 'Resistant'
+                              ? 'bg-red-600/20 text-red-400 border border-red-500/30'
+                              : 'bg-green-600/20 text-green-400 border border-green-500/30'
+                          }`}>
+                            {p.prediction === 'Resistant' ? 'R' : 'S'}
                           </span>
-                        </div>
-                      </td>
-                      <td className="py-2 px-3 text-center">
-                        <span className={`text-xs ${
-                          p.confidence === 'High' ? 'text-green-400' : p.confidence === 'Moderate' ? 'text-yellow-400' : 'text-gray-500'
-                        }`}>
-                          {p.confidence}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3">
-                        <div className="flex flex-wrap gap-1">
-                          {p.key_genes.map((g, i) => (
-                            <span key={i} className="px-1.5 py-0.5 bg-gray-800 rounded text-xs text-gray-300 font-mono">{g}</span>
-                          ))}
-                          {p.key_mutations.map((m, i) => (
-                            <span key={`m${i}`} className="px-1.5 py-0.5 bg-orange-900/30 rounded text-xs text-orange-300 font-mono">{m}</span>
-                          ))}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            <div className="w-16 bg-gray-800 rounded-full h-1.5">
+                              <div
+                                className={`h-1.5 rounded-full ${lowF1 ? 'bg-gray-600' : p.prediction === 'Resistant' ? 'bg-red-500' : 'bg-green-500'}`}
+                                style={{ width: `${Math.round(p.probability * 100)}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-gray-400 font-mono w-10">
+                              {(p.probability * 100).toFixed(0)}%
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <span className={`text-xs ${
+                            lowF1 ? 'text-gray-600' :
+                            p.confidence === 'High' ? 'text-green-400' : p.confidence === 'Moderate' ? 'text-yellow-400' : 'text-gray-500'
+                          }`}>
+                            {p.confidence}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3">
+                          <div className="flex flex-wrap gap-1">
+                            {p.key_genes.map((g, i) => (
+                              <span key={i} className="px-1.5 py-0.5 bg-gray-800 rounded text-xs text-gray-300 font-mono">{g}</span>
+                            ))}
+                            {p.key_mutations.map((m, i) => (
+                              <span key={`m${i}`} className="px-1.5 py-0.5 bg-orange-900/30 rounded text-xs text-orange-300 font-mono">{m}</span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          {q ? (
+                            <div className="group relative inline-flex items-center gap-1">
+                              <span className={`text-xs font-mono ${
+                                lowF1 ? 'text-red-400' : q.cv_f1 >= 0.90 ? 'text-green-400' : q.cv_f1 >= 0.80 ? 'text-yellow-400' : 'text-gray-400'
+                              }`}>
+                                {q.cv_f1.toFixed(2)}
+                              </span>
+                              <Info className="w-3 h-3 text-gray-600" />
+                              <div className="absolute bottom-full right-0 mb-1 hidden group-hover:block z-10 w-48 p-2 bg-gray-900 border border-gray-700 rounded-lg shadow-lg text-xs">
+                                <div className="text-gray-300 mb-1 font-medium">Model Info</div>
+                                <div className="text-gray-400">F1 score: <span className="text-gray-200">{q.cv_f1.toFixed(3)}</span></div>
+                                <div className="text-gray-400">Training: <span className="text-gray-200">n={q.n_samples.toLocaleString()}</span></div>
+                                <div className="text-gray-400">R% in training: <span className={q.r_percent >= 70 ? 'text-yellow-400' : 'text-gray-200'}>{q.r_percent}%</span></div>
+                                {lowF1 && <div className="text-red-400 mt-1">Unreliable — low F1</div>}
+                                {!lowF1 && highRBias && <div className="text-yellow-400 mt-1">R-biased training data</div>}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-gray-600 text-xs">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

@@ -22,6 +22,7 @@ services:
       - RADAR_REDIS_URL=redis://redis:6379/0
       - RADAR_UPLOAD_DIR=/data/uploads
       - RADAR_RESULTS_DIR=/data/results
+      - RADAR_ML_MODELS_DIR=/data/ml_models
     volumes:
       - radar-data:/data
     depends_on:

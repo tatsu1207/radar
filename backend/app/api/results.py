@@ -1466,6 +1466,38 @@ def get_ml_predictions(sample_id: uuid.UUID, db: Session = Depends(get_db)):
 
     n_r = sum(1 for p in preds if p.prediction == "Resistant")
 
+    # Load model quality metadata from meta files
+    model_meta = {}
+    if species:
+        import json as _json
+        MODELS_DIR = os.environ.get("RADAR_ML_MODELS_DIR", "/data/ml_models")
+        species_map = {
+            "Escherichia coli": "Escherichia_coli",
+            "Salmonella enterica": "Salmonella_enterica",
+            "Klebsiella pneumoniae": "Klebsiella_pneumoniae",
+            "Staphylococcus aureus": "Staphylococcus_aureus",
+            "Acinetobacter baumannii": "Acinetobacter_baumannii",
+        }
+        sp_dir = os.path.join(MODELS_DIR, species_map.get(species.species, ""))
+        if os.path.isdir(sp_dir):
+            for p in preds:
+                meta_path = os.path.join(sp_dir, f"{p.antibiotic}_meta.json")
+                if os.path.exists(meta_path):
+                    try:
+                        with open(meta_path) as f:
+                            meta = _json.load(f)
+                        n_total = meta.get("n_samples", 0)
+                        n_res = meta.get("n_resistant", 0)
+                        r_pct = round(n_res / n_total * 100, 1) if n_total > 0 else 0
+                        f1 = meta.get("cv_f1", 0)
+                        model_meta[p.antibiotic] = {
+                            "n_samples": n_total,
+                            "r_percent": r_pct,
+                            "cv_f1": round(f1, 3) if f1 else 0,
+                        }
+                    except Exception:
+                        pass
+
     return {
         "species": species.species if species else None,
         "mlst_st": mlst.sequence_type if mlst else None,
@@ -1482,6 +1514,7 @@ def get_ml_predictions(sample_id: uuid.UUID, db: Session = Depends(get_db)):
                 "confidence": p.confidence,
                 "key_genes": p.key_genes or [],
                 "key_mutations": p.key_mutations or [],
+                "model_quality": model_meta.get(p.antibiotic),
             }
             for p in preds
         ],
