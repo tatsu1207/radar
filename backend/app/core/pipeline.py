@@ -578,7 +578,8 @@ def _reconcile_species_with_mlst(sample_id: str, job, db):
     current = sr.species.lower() if sr.species else ""
     mlst_lower = mlst_species.lower()
     # If they already agree (e.g. both say E. coli), do nothing
-    if mlst_lower.split()[0] in current:
+    # Compare full species name (genus + species), not just genus
+    if mlst_lower == current or mlst_lower in current:
         return
 
     # MLST disagrees with 16S/skani — MLST is more reliable for these cases
