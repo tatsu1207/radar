@@ -37,11 +37,10 @@ def run_filtlong(sample_id: str, input_files: list[str], db=None, threads: int =
 
     output_path = os.path.join(results_dir, "filtered_long.fastq.gz")
 
-    # gunzip | chopper | gzip — pipefail catches failures in any stage
+    # chopper -i reads gzip natively; pipe output through gzip
     full_cmd = (
         f"set -o pipefail; "
-        f"gunzip -c {long_file} "
-        f"| conda run -n {CONDA_ENV} chopper -q 10 --minlength 1000 --threads {threads} "
+        f"conda run -n {CONDA_ENV} chopper -q 10 --minlength 1000 --threads {threads} -i {long_file} "
         f"| gzip > {output_path}"
     )
 

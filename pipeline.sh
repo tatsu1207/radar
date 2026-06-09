@@ -199,7 +199,7 @@ fi
 # --- Step 1c: Chopper (ONT QC) ---
 if [ -n "$LONG" ] && [ "$PLATFORM" = "ont" ]; then
     run_step "Chopper (ONT)" \
-        bash -c "gunzip -c '$LONG' | conda run -n radar chopper -q 10 --minlength 1000 --threads $THREADS | gzip > '$FILTERED_LONG'"
+        bash -c "conda run -n radar chopper -q 10 --minlength 1000 --threads $THREADS -i '$LONG' | gzip > '$FILTERED_LONG'"
 fi
 
 # --- Step 2: Assembly ---
