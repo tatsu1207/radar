@@ -14,7 +14,7 @@ CONDA_SPADES = "radar"
 CONDA_FLYE = "radar"
 CONDA_MEDAKA = "radar-medaka"
 CONDA_POLYPOLISH = "radar"
-CONDA_QUAST = "radar"
+CONDA_QUAST = "radar-quast"
 CONDA_BUSCO = "radar-busco"
 
 
