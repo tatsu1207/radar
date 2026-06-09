@@ -2,44 +2,51 @@ import logging
 import re
 from typing import Dict, List, Optional
 
-from app.models.models import ARGResult, ASTResult
+from app.models.models import ARGResult, ASTResult, MLPhenotypePrediction
 
 logger = logging.getLogger(__name__)
 
-# Maps gene name patterns to predicted drug resistances
-PHENOTYPE_RULES: Dict[str, List[str]] = {
-    "blaTEM": ["ampicillin", "amoxicillin"],
-    "blaSHV": ["ampicillin", "amoxicillin"],
-    "blaCTX": ["cefotaxime", "ceftriaxone", "ceftazidime"],
-    "blaNDM": ["carbapenems", "imipenem", "meropenem", "ertapenem"],
-    "blaKPC": ["carbapenems", "imipenem", "meropenem", "ertapenem"],
-    "blaOXA-48": ["carbapenems", "imipenem", "meropenem"],
-    "blaOXA": ["ampicillin", "amoxicillin"],
-    "mecA": ["methicillin", "oxacillin"],
-    "mecC": ["methicillin", "oxacillin"],
-    "vanA": ["vancomycin"],
-    "vanB": ["vancomycin"],
-    "mcr": ["colistin"],
-    "tet": ["tetracycline", "doxycycline"],
-    "ermB": ["erythromycin", "clindamycin"],
-    "ermC": ["erythromycin", "clindamycin"],
-    "ermA": ["erythromycin", "clindamycin"],
-    "sul1": ["sulfamethoxazole"],
-    "sul2": ["sulfamethoxazole"],
-    "dfrA": ["trimethoprim"],
-    "dfrB": ["trimethoprim"],
-    "aac": ["aminoglycosides", "gentamicin", "tobramycin"],
-    "aph": ["aminoglycosides", "kanamycin"],
-    "ant": ["aminoglycosides", "streptomycin"],
-    "qnr": ["fluoroquinolones", "ciprofloxacin"],
-    "cfr": ["linezolid", "chloramphenicol"],
-    "catA": ["chloramphenicol"],
-    "catB": ["chloramphenicol"],
-    "floR": ["florfenicol", "chloramphenicol"],
-    "fosA": ["fosfomycin"],
-    "mph": ["macrolides", "azithromycin"],
-    "arr": ["rifampicin"],
+# Maps gene name patterns to (drug_class, [antibiotics])
+PHENOTYPE_RULES: Dict[str, tuple] = {
+    "blaTEM": ("BETA-LACTAM", ["ampicillin", "amoxicillin"]),
+    "blaSHV": ("BETA-LACTAM", ["ampicillin", "amoxicillin"]),
+    "blaCTX": ("CEPHALOSPORIN", ["cefotaxime", "ceftriaxone", "ceftazidime"]),
+    "blaNDM": ("CARBAPENEM", ["imipenem", "meropenem", "ertapenem"]),
+    "blaKPC": ("CARBAPENEM", ["imipenem", "meropenem", "ertapenem"]),
+    "blaOXA-48": ("CARBAPENEM", ["imipenem", "meropenem"]),
+    "blaOXA": ("BETA-LACTAM", ["ampicillin", "amoxicillin"]),
+    "mecA": ("BETA-LACTAM", ["methicillin", "oxacillin"]),
+    "mecC": ("BETA-LACTAM", ["methicillin", "oxacillin"]),
+    "vanA": ("GLYCOPEPTIDE", ["vancomycin"]),
+    "vanB": ("GLYCOPEPTIDE", ["vancomycin"]),
+    "mcr": ("POLYMYXIN", ["colistin"]),
+    "tet": ("TETRACYCLINE", ["tetracycline", "doxycycline"]),
+    "ermB": ("MACROLIDE", ["erythromycin", "clindamycin"]),
+    "ermC": ("MACROLIDE", ["erythromycin", "clindamycin"]),
+    "ermA": ("MACROLIDE", ["erythromycin", "clindamycin"]),
+    "sul1": ("SULFONAMIDE", ["sulfamethoxazole"]),
+    "sul2": ("SULFONAMIDE", ["sulfamethoxazole"]),
+    "dfrA": ("DIAMINOPYRIMIDINE", ["trimethoprim"]),
+    "dfrB": ("DIAMINOPYRIMIDINE", ["trimethoprim"]),
+    "aac": ("AMINOGLYCOSIDE", ["gentamicin", "tobramycin"]),
+    "aph": ("AMINOGLYCOSIDE", ["kanamycin"]),
+    "ant": ("AMINOGLYCOSIDE", ["streptomycin"]),
+    "qnr": ("QUINOLONE", ["ciprofloxacin"]),
+    "cfr": ("PHENICOL", ["linezolid", "chloramphenicol"]),
+    "catA": ("PHENICOL", ["chloramphenicol"]),
+    "catB": ("PHENICOL", ["chloramphenicol"]),
+    "floR": ("PHENICOL", ["florfenicol", "chloramphenicol"]),
+    "fosA": ("FOSFOMYCIN", ["fosfomycin"]),
+    "mph": ("MACROLIDE", ["azithromycin"]),
+    "arr": ("RIFAMYCIN", ["rifampicin"]),
 }
+
+# Drug class lookup for each antibiotic (derived from rules)
+ANTIBIOTIC_TO_CLASS: Dict[str, str] = {}
+for _pattern, (_dc, _drugs) in PHENOTYPE_RULES.items():
+    for _drug in _drugs:
+        if _drug not in ANTIBIOTIC_TO_CLASS:
+            ANTIBIOTIC_TO_CLASS[_drug] = _dc
 
 
 def predict_phenotype(sample_id: str, db) -> Dict[str, str]:
@@ -47,6 +54,9 @@ def predict_phenotype(sample_id: str, db) -> Dict[str, str]:
 
     Uses gene name pattern matching against PHENOTYPE_RULES to predict
     which antibiotics the sample is likely resistant to.
+
+    If ML models have not produced predictions for this sample, saves
+    rule-based results to MLPhenotypePrediction table as fallback.
 
     Args:
         sample_id: UUID of the sample
@@ -59,19 +69,23 @@ def predict_phenotype(sample_id: str, db) -> Dict[str, str]:
 
     arg_results = db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
 
-    # Collect all antibiotics that have a resistance gene
+    # Collect resistant antibiotics and their matching genes
     resistant_antibiotics: set = set()
+    antibiotic_genes: Dict[str, List[str]] = {}
 
     for arg in arg_results:
         gene_name = arg.gene
-        for pattern, drugs in PHENOTYPE_RULES.items():
+        for pattern, (drug_class, drugs) in PHENOTYPE_RULES.items():
             if re.search(re.escape(pattern), gene_name, re.IGNORECASE):
                 resistant_antibiotics.update(drugs)
+                for drug in drugs:
+                    antibiotic_genes.setdefault(drug, [])
+                    if gene_name not in antibiotic_genes[drug]:
+                        antibiotic_genes[drug].append(gene_name)
 
     # Build prediction dict
-    # All antibiotics in the rules that were NOT matched are predicted susceptible
     all_antibiotics: set = set()
-    for drugs in PHENOTYPE_RULES.values():
+    for _dc, drugs in PHENOTYPE_RULES.values():
         all_antibiotics.update(drugs)
 
     predictions: Dict[str, str] = {}
@@ -83,6 +97,27 @@ def predict_phenotype(sample_id: str, db) -> Dict[str, str]:
         f"{sum(1 for v in predictions.values() if v == 'R')} resistant, "
         f"{sum(1 for v in predictions.values() if v == 'S')} susceptible"
     )
+
+    # Save to MLPhenotypePrediction as fallback if ML models didn't run
+    existing_ml = db.query(MLPhenotypePrediction).filter(
+        MLPhenotypePrediction.sample_id == sample_id
+    ).first()
+    if not existing_ml:
+        logger.info(f"No ML predictions found, saving rule-based predictions to DB")
+        for ab, sir in predictions.items():
+            is_resistant = sir == "R"
+            pred = MLPhenotypePrediction(
+                sample_id=sample_id,
+                antibiotic=ab,
+                drug_class=ANTIBIOTIC_TO_CLASS.get(ab, "Unknown"),
+                prediction="Resistant" if is_resistant else "Susceptible",
+                probability=1.0 if is_resistant else 0.0,
+                confidence="High" if is_resistant else "Moderate",
+                key_genes=antibiotic_genes.get(ab, []),
+                key_mutations=[],
+            )
+            db.add(pred)
+        db.commit()
 
     return predictions
 

@@ -25,6 +25,9 @@ out/
 .env.local
 .env.production
 
+# ML models (binary, bundled in Docker image)
+/models/
+
 # Data & results
 /data/
 /databases/

@@ -62,6 +62,9 @@ WORKDIR /app
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy ML phenotype models (pre-trained Random Forest, ~140 MB)
+COPY models/ /opt/ml_models/
+
 # Copy backend source
 COPY backend/ .
 

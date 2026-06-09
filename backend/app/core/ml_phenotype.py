@@ -24,11 +24,12 @@ from app.models.models import (
 
 logger = logging.getLogger(__name__)
 
-# Path to pre-trained models (from ../AMR/models/)
+# Path to pre-trained models (bundled in Docker at /opt/ml_models, or ../AMR/models for dev)
+_dev_fallback = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))))), "..", "AMR", "models")
 MODELS_DIR = os.environ.get(
     "RADAR_ML_MODELS_DIR",
-    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.abspath(__file__))))), "..", "AMR", "models"),
+    _dev_fallback if os.path.isdir(_dev_fallback) else "/opt/ml_models",
 )
 
 MLST_SCHEME_TO_SPECIES = {
