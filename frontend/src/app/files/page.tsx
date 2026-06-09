@@ -155,15 +155,16 @@ export default function GlobalFilesPage() {
   }
 
   async function handleSRASubmit() {
-    const accessions = sraInput
-      .split(/[\s,;]+/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-    if (accessions.length === 0) return;
+    // Each line = one sample; multiple accessions on the same line = hybrid
+    const groups = sraInput
+      .split(/\n/)
+      .map((line) => line.split(/[\s,;]+/).map((s) => s.trim()).filter((s) => s.length > 0))
+      .filter((group) => group.length > 0);
+    if (groups.length === 0) return;
     setSraSubmitting(true);
     setError(null);
     try {
-      const newDownloads = await globalSubmitSRA(accessions);
+      const newDownloads = await globalSubmitSRA([], groups);
       setSraDownloads((prev) => [...newDownloads, ...prev]);
       setSraInput('');
       setShowSRA(false);
@@ -355,12 +356,13 @@ export default function GlobalFilesPage() {
               </button>
             </div>
             <p className="text-sm text-gray-400 mb-4">
-              Enter one or more SRR accession numbers (separated by commas, spaces, or newlines).
+              Enter SRR accession numbers. Each line = one sample.<br />
+              For hybrid samples, put Illumina and ONT accessions on the same line.
             </p>
             <textarea
               value={sraInput}
               onChange={(e) => setSraInput(e.target.value)}
-              placeholder="SRR1234567, SRR1234568..."
+              placeholder={"SRR1111111 SRR2222222   ← hybrid (Illumina + ONT)\nSRR3333333              ← single platform"}
               rows={4}
               className="input w-full resize-none mb-4"
               autoFocus

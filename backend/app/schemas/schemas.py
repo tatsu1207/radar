@@ -293,7 +293,8 @@ class ServerPathRequest(BaseModel):
 
 
 class SRARequest(BaseModel):
-    accessions: List[str]
+    accessions: List[str] = []
+    groups: Optional[List[List[str]]] = None  # grouped accessions: each inner list = one sample
 
 
 class SRADownloadRead(BaseModel):

@@ -763,10 +763,10 @@ export async function registerServerPaths(projectId: string, paths: string[]): P
   });
 }
 
-export async function submitSRA(projectId: string, accessions: string[]): Promise<SRADownload[]> {
+export async function submitSRA(projectId: string, accessions: string[], groups?: string[][]): Promise<SRADownload[]> {
   return fetchAPI<SRADownload[]>(`/api/projects/${projectId}/file-manager/sra`, {
     method: 'POST',
-    body: JSON.stringify({ accessions }),
+    body: JSON.stringify(groups ? { groups } : { accessions }),
   });
 }
 
@@ -840,10 +840,10 @@ export async function globalRegisterServerPaths(paths: string[]): Promise<FileMa
   });
 }
 
-export async function globalSubmitSRA(accessions: string[]): Promise<SRADownload[]> {
+export async function globalSubmitSRA(accessions: string[], groups?: string[][]): Promise<SRADownload[]> {
   return fetchAPI<SRADownload[]>('/api/file-manager/sra', {
     method: 'POST',
-    body: JSON.stringify({ accessions }),
+    body: JSON.stringify(groups ? { groups } : { accessions }),
   });
 }
 

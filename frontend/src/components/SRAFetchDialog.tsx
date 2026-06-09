@@ -16,23 +16,26 @@ export default function SRAFetchDialog({ isOpen, onClose, projectId, onSubmit }:
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function parseAccessions(input: string): string[] {
-    const items = input
-      .split(/[,\n]+/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-    return Array.from(new Set(items));
+  function parseGroups(input: string): string[][] {
+    return input
+      .split(/\n/)
+      .map((line) => line.split(/[\s,;]+/).map((s) => s.trim()).filter((s) => s.length > 0))
+      .filter((group) => group.length > 0);
+  }
+
+  function countSamples(input: string): number {
+    return parseGroups(input).length;
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const accessions = parseAccessions(text);
-    if (accessions.length === 0) return;
+    const groups = parseGroups(text);
+    if (groups.length === 0) return;
 
     setSubmitting(true);
     setError(null);
     try {
-      await submitSRA(projectId, accessions);
+      await submitSRA(projectId, [], groups);
       setText('');
       onSubmit();
       onClose();
@@ -58,11 +61,11 @@ export default function SRAFetchDialog({ isOpen, onClose, projectId, onSubmit }:
             onChange={(e) => setText(e.target.value)}
             rows={6}
             className="input w-full resize-none font-mono text-sm"
-            placeholder={"SRR12345678\nSRR12345679\nSRR12345680"}
+            placeholder={"SRR1111111 SRR2222222   ← hybrid (Illumina + ONT)\nSRR3333333              ← single platform"}
             autoFocus
           />
           <p className="text-xs text-gray-500 mt-1">
-            Enter SRR accession numbers, one per line (e.g., SRR12345678)
+            Each line = one sample. For hybrid samples, put Illumina and ONT accessions on the same line.
           </p>
         </div>
         <div className="flex justify-end gap-3 pt-2">
@@ -71,10 +74,10 @@ export default function SRAFetchDialog({ isOpen, onClose, projectId, onSubmit }:
           </button>
           <button
             type="submit"
-            disabled={submitting || parseAccessions(text).length === 0}
+            disabled={submitting || countSamples(text) === 0}
             className="btn-primary"
           >
-            {submitting ? 'Submitting...' : `Fetch ${parseAccessions(text).length || ''} Accession${parseAccessions(text).length !== 1 ? 's' : ''}`}
+            {submitting ? 'Submitting...' : `Fetch ${countSamples(text) || ''} Sample${countSamples(text) !== 1 ? 's' : ''}`}
           </button>
         </div>
       </form>

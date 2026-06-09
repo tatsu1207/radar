@@ -564,35 +564,52 @@ def global_start_sra_downloads(
     body: SRARequest,
     db: Session = Depends(get_db),
 ):
-    """Submit SRA accessions for download (auto-creates default project)."""
+    """Submit SRA accessions for download (auto-creates default project).
+
+    Supports two formats:
+    - `accessions`: flat list, each accession = one sample
+    - `groups`: list of lists, each inner list = accessions merged into one sample
+      e.g. [["SRR111", "SRR222"], ["SRR333"]] → 2 samples, first is hybrid
+    """
     project = _get_or_create_default_project(db)
     results = []
-    for accession in body.accessions:
-        accession = accession.strip()
-        if not accession:
+
+    # Build groups: either from explicit groups or from flat accessions (one per group)
+    acc_groups = []
+    if body.groups:
+        acc_groups = body.groups
+    else:
+        acc_groups = [[a] for a in body.accessions]
+
+    for group in acc_groups:
+        clean = [a.strip() for a in group if a.strip()]
+        if not clean:
             continue
 
+        # One sample per group, named after first accession (or joined)
+        sample_name = "+".join(clean) if len(clean) > 1 else clean[0]
         sample = Sample(
             project_id=project.id,
-            name=accession,
+            name=sample_name,
             input_type=InputType.fastq,
             status=SampleStatus.pending,
         )
         db.add(sample)
         db.flush()
 
-        dl = SRADownload(
-            project_id=project.id,
-            sample_id=sample.id,
-            srr_accession=accession,
-            status=SRADownloadStatus.queued,
-        )
-        db.add(dl)
-        db.flush()
+        for accession in clean:
+            dl = SRADownload(
+                project_id=project.id,
+                sample_id=sample.id,
+                srr_accession=accession,
+                status=SRADownloadStatus.queued,
+            )
+            db.add(dl)
+            db.flush()
 
-        results.append(dl)
-        result = celery_app.send_task("app.core.sra.download_sra", args=[str(dl.id)])
-        dl.celery_task_id = result.id
+            results.append(dl)
+            result = celery_app.send_task("app.core.sra.download_sra", args=[str(dl.id)])
+            dl.celery_task_id = result.id
 
     db.commit()
     for dl in results:
@@ -1024,36 +1041,42 @@ def start_sra_downloads(
     db: Session = Depends(get_db),
 ):
     results = []
-    for accession in body.accessions:
-        accession = accession.strip()
-        if not accession:
+
+    # Build groups: either from explicit groups or from flat accessions (one per group)
+    acc_groups = []
+    if body.groups:
+        acc_groups = body.groups
+    else:
+        acc_groups = [[a] for a in body.accessions]
+
+    for group in acc_groups:
+        clean = [a.strip() for a in group if a.strip()]
+        if not clean:
             continue
 
-        # Create sample
+        sample_name = "+".join(clean) if len(clean) > 1 else clean[0]
         sample = Sample(
             project_id=project_id,
-            name=accession,
+            name=sample_name,
             input_type=InputType.fastq,
             status=SampleStatus.pending,
         )
         db.add(sample)
         db.flush()
 
-        # Create download record
-        dl = SRADownload(
-            project_id=project_id,
-            sample_id=sample.id,
-            srr_accession=accession,
-            status=SRADownloadStatus.queued,
-        )
-        db.add(dl)
-        db.flush()
+        for accession in clean:
+            dl = SRADownload(
+                project_id=project_id,
+                sample_id=sample.id,
+                srr_accession=accession,
+                status=SRADownloadStatus.queued,
+            )
+            db.add(dl)
+            db.flush()
 
-        results.append(dl)
-
-        # Dispatch Celery task
-        result = celery_app.send_task("app.core.sra.download_sra", args=[str(dl.id)])
-        dl.celery_task_id = result.id
+            results.append(dl)
+            result = celery_app.send_task("app.core.sra.download_sra", args=[str(dl.id)])
+            dl.celery_task_id = result.id
 
     db.commit()
     for dl in results:
