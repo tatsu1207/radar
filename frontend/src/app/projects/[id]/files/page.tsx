@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Upload, Download, Database, FileSpreadsheet, HardDrive } from 'lucide-react';
+import { ArrowLeft, Upload, Download, Database, FileSpreadsheet, HardDrive, Play } from 'lucide-react';
 import {
   getProject,
   getFileManager,
@@ -13,6 +13,7 @@ import {
   uploadMetadataTSV,
   deleteFileManagerFile,
   deleteFileManagerSample,
+  startPipeline,
 } from '@/lib/api';
 import type { Project, FileManagerSample, SRADownload, BVBRCFetch } from '@/lib/api';
 import FileManagerTable from '@/components/FileManagerTable';
@@ -36,6 +37,8 @@ export default function FileManagerPage() {
   const [showSRA, setShowSRA] = useState(false);
   const [showBVBRC, setShowBVBRC] = useState(false);
   const [showServerPath, setShowServerPath] = useState(false);
+  const [selectedSamples, setSelectedSamples] = useState<Set<string>>(new Set());
+  const [startingPipeline, setStartingPipeline] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const metadataInputRef = useRef<HTMLInputElement>(null);
@@ -141,6 +144,37 @@ export default function FileManagerPage() {
       await loadFileManager();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete file');
+    }
+  }
+
+  function toggleSampleSelect(id: string) {
+    setSelectedSamples((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllSamples() {
+    setSelectedSamples((prev) => {
+      if (prev.size === samples.length) return new Set();
+      return new Set(samples.map((s) => s.sample_id));
+    });
+  }
+
+  async function handleStartSelected() {
+    if (selectedSamples.size === 0) return;
+    setStartingPipeline(true);
+    setError(null);
+    try {
+      const promises = Array.from(selectedSamples).map((id) => startPipeline(id));
+      await Promise.all(promises);
+      setSelectedSamples(new Set());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start pipeline');
+    } finally {
+      setStartingPipeline(false);
     }
   }
 
@@ -285,10 +319,32 @@ export default function FileManagerPage() {
 
       {/* File Manager Table */}
       <div className="card mb-6">
+        {samples.length > 0 && (
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-sm text-gray-400">
+              {selectedSamples.size > 0
+                ? `${selectedSamples.size} sample${selectedSamples.size !== 1 ? 's' : ''} selected`
+                : `${samples.length} sample${samples.length !== 1 ? 's' : ''}`}
+            </span>
+            <button
+              onClick={handleStartSelected}
+              disabled={selectedSamples.size === 0 || startingPipeline}
+              className="btn-primary flex items-center gap-2 text-sm disabled:opacity-50"
+            >
+              <Play className="w-4 h-4" />
+              {startingPipeline
+                ? 'Starting...'
+                : `Start Pipeline${selectedSamples.size > 0 ? ` (${selectedSamples.size})` : ''}`}
+            </button>
+          </div>
+        )}
         <FileManagerTable
           samples={samples}
           onDeleteSample={handleDeleteSample}
           onDeleteFile={handleDeleteFile}
+          selectedIds={selectedSamples}
+          onToggleSelect={toggleSampleSelect}
+          onToggleAll={toggleAllSamples}
         />
       </div>
 

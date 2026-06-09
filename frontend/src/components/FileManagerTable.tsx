@@ -7,6 +7,9 @@ interface FileManagerTableProps {
   samples: FileManagerSample[];
   onDeleteSample: (id: string) => void;
   onDeleteFile: (id: string) => void;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
+  onToggleAll?: () => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -65,7 +68,10 @@ function SourceBadge({ source }: { source: string }) {
   );
 }
 
-export default function FileManagerTable({ samples, onDeleteSample, onDeleteFile }: FileManagerTableProps) {
+export default function FileManagerTable({ samples, onDeleteSample, onDeleteFile, selectedIds, onToggleSelect, onToggleAll }: FileManagerTableProps) {
+  const hasSelection = selectedIds && onToggleSelect && onToggleAll;
+  const allSelected = hasSelection && samples.length > 0 && samples.every((s) => selectedIds.has(s.sample_id));
+
   if (samples.length === 0) {
     return (
       <div className="flex items-center justify-center py-12 text-gray-500 border border-dashed border-gray-700 rounded-lg">
@@ -79,6 +85,20 @@ export default function FileManagerTable({ samples, onDeleteSample, onDeleteFile
       <table className="w-full">
         <thead>
           <tr className="border-b border-gray-800">
+            {hasSelection && (
+              <th className="w-8 px-2 py-2 text-left">
+                <button
+                  onClick={onToggleAll}
+                  className={`w-4 h-4 rounded border flex items-center justify-center ${
+                    allSelected
+                      ? 'bg-blue-500 border-blue-500'
+                      : 'border-gray-600 hover:border-gray-400'
+                  }`}
+                >
+                  {allSelected && <Check className="w-3 h-3 text-white" />}
+                </button>
+              </th>
+            )}
             <th className="table-header">Sample ID</th>
             <th className="table-header">Illumina R1</th>
             <th className="table-header">Illumina R2</th>
@@ -93,9 +113,24 @@ export default function FileManagerTable({ samples, onDeleteSample, onDeleteFile
             const hasR1 = sample.illumina_r1 !== null;
             const hasR2 = sample.illumina_r2 !== null;
             const r2MissingPair = hasR1 && !hasR2;
+            const isSelected = hasSelection && selectedIds.has(sample.sample_id);
 
             return (
               <tr key={sample.sample_id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
+                {hasSelection && (
+                  <td className="px-2 py-1.5">
+                    <button
+                      onClick={() => onToggleSelect(sample.sample_id)}
+                      className={`w-4 h-4 rounded border flex items-center justify-center ${
+                        isSelected
+                          ? 'bg-blue-500 border-blue-500'
+                          : 'border-gray-600'
+                      }`}
+                    >
+                      {isSelected && <Check className="w-3 h-3 text-white" />}
+                    </button>
+                  </td>
+                )}
                 <td className="table-cell">
                   <div>
                     <span className="text-gray-100 font-medium">{sample.name}</span>
