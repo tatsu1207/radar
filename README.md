@@ -65,9 +65,9 @@ Predictions for these antibiotics should be interpreted with caution, especially
 | Input Type | Files | Pipeline |
 |-----------|-------|----------|
 | Illumina paired-end | `SAMPLE_R1.fastq.gz` + `SAMPLE_R2.fastq.gz` | fastp -> SPAdes -> annotation |
-| Hybrid (Illumina + ONT) | R1 + R2 + `SAMPLE_ONT.fastq.gz` | fastp + Filtlong -> Flye -> Medaka -> Polypolish -> annotation |
+| Hybrid (Illumina + ONT) | R1 + R2 + `SAMPLE_ONT.fastq.gz` | fastp + Chopper -> Flye -> Medaka -> Polypolish -> annotation |
 | PacBio HiFi | `SAMPLE_PB.fastq.gz` | Flye (--pacbio-hifi) -> annotation |
-| ONT only | `SAMPLE_ONT.fastq.gz` | Filtlong -> Flye -> annotation |
+| ONT only | `SAMPLE_ONT.fastq.gz` | Chopper -> Flye -> annotation |
 | Pre-assembled | `SAMPLE.fasta` | annotation only (skips QC + assembly) |
 
 ### Filename Conventions
@@ -86,10 +86,10 @@ Also supports SRA accession fetch and BV-BRC genome import.
 
 | Stage | Tools | Conda Env |
 |-------|-------|-----------|
-| QC | fastp, Filtlong | `radar` |
+| QC | fastp, Chopper | `radar` |
 | Assembly | SPAdes, Flye, Polypolish | `radar` |
 | Assembly (polish) | Medaka | `radar-medaka` |
-| Assembly QC | QUAST, BUSCO | `radar` / `radar-busco` |
+| Assembly QC | QUAST, BUSCO | `radar-quast` / `radar-busco` |
 | Species ID | skani (ANI vs GTDB), 16S BLAST | `radar` |
 | MLST | mlst | `radar` |
 | AMR detection | AMRFinderPlus (v4.2.7) | `radar` |
@@ -98,7 +98,7 @@ Also supports SRA accession fetch and BV-BRC genome import.
 | Integrons | IntegronFinder | `radar` |
 | Prophages | geNomad | `radar-genomad` |
 | Point mutations | PointFinder (via ResFinder) | `radar` |
-| Serotyping | SISTR, Kleborate | `radar` |
+| Serotyping | SISTR, Kleborate | `radar-sistr` |
 | cgMLST | chewBBACA | `radar` |
 | CRISPR | minced | `radar` |
 | Defense systems | DefenseFinder | `radar` |
@@ -198,7 +198,7 @@ Pipeline Worker   Default Worker
 - **Backend**: Python 3.11, FastAPI, SQLAlchemy, Pydantic
 - **Workers**: Celery with Redis broker; pipeline queue (1 at a time) + default queue (parallel)
 - **Database**: PostgreSQL 16
-- **Tools**: 6 conda environments (1 base + 5 separate for dependency conflicts, CPU-only, via `install.sh`)
+- **Tools**: 9 conda environments (1 base + 8 separate for dependency conflicts, CPU-only, via `install.sh`)
 
 ## Project Structure
 
@@ -228,7 +228,7 @@ RADAR also provides standalone scripts for installation and analysis without the
 
 ### install.sh — Environment & Database Setup
 
-Installs 6 conda environments and downloads 8 reference databases. All tools are CPU-only (no GPU required). Safe to re-run: existing environments are skipped automatically.
+Installs 9 conda environments and downloads 8 reference databases. All tools are CPU-only (no GPU required). Safe to re-run: existing environments are skipped automatically.
 
 ```bash
 # Default: install everything in ./databases
@@ -239,8 +239,8 @@ Installs 6 conda environments and downloads 8 reference databases. All tools are
 ```
 
 **What it installs:**
-- **Base env (`radar`)**: fastp, Filtlong, SPAdes, Flye, Polypolish, QUAST, AMRFinderPlus (v4.2.7 binary), mlst, skani, IntegronFinder, SISTR/Kleborate, chewBBACA, minced, DefenseFinder, BLAST, Prodigal, OSTIR, ResFinder, sra-tools, Infernal
-- **Separate envs**: `radar-mobsuite` (MOB-suite), `radar-mefinder` (MobileElementFinder), `radar-medaka` (Medaka, CPU-only PyTorch), `radar-genomad` (geNomad, CPU-only TensorFlow), `radar-busco` (BUSCO)
+- **Base env (`radar`)**: fastp, Chopper, SPAdes, Flye, Polypolish, AMRFinderPlus (v4.2.7 binary), mlst, skani, IntegronFinder, chewBBACA, minced, DefenseFinder, BLAST, Prodigal, OSTIR, ResFinder, sra-tools, Infernal
+- **Separate envs**: `radar-sistr` (SISTR/Kleborate), `radar-quast` (QUAST), `radar-mobsuite` (MOB-suite), `radar-mefinder` (MobileElementFinder), `radar-medaka` (Medaka, CPU-only PyTorch), `radar-genomad` (geNomad, CPU-only TensorFlow), `radar-busco` (BUSCO)
 - **8 databases**: AMRFinderPlus DB, geNomad DB (~3.5 GB), skani GTDB sketch (~1.5 GB), NCBI 16S rRNA, MOB-suite DB, PointFinder DB, ResFinder DB, Rfam CM, DefenseFinder models
 - **Optional**: BPROM binary (if found at `/tmp/bprom`)
 
@@ -273,7 +273,7 @@ Runs the full annotation pipeline from the command line. Supports Illumina, hybr
 | `-d` | Database directory (default: `./databases`) |
 
 **Pipeline flow:**
-1. **QC**: fastp (Illumina) / Filtlong (ONT)
+1. **QC**: fastp (Illumina) / Chopper (ONT)
 2. **Assembly**: SPAdes (Illumina) / Flye + Medaka + Polypolish (hybrid) / Flye (long-read)
 3. **Assembly QC**: QUAST + BUSCO
 4. **Annotation**: AMRFinderPlus, MOB-recon, MobileElementFinder, IntegronFinder, geNomad, species ID, MLST, serotyping, CRISPR, DefenseFinder, BacMet2, promoter/RBS analysis
