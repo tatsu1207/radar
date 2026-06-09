@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Check, AlertTriangle, Minus, Trash2, Upload, Download, X, Play, Square, CheckCircle, XCircle, Loader2, HardDrive, RotateCw } from 'lucide-react';
+import { Check, AlertTriangle, Minus, Trash2, Upload, Download, X, Play, Square, CheckCircle, XCircle, Loader2, RotateCw } from 'lucide-react';
 import {
   getAllFileManager,
   deleteFileManagerSample,
@@ -15,7 +15,7 @@ import {
   cancelJob,
 } from '@/lib/api';
 import type { FileManagerSample, SRADownload } from '@/lib/api';
-import ServerPathDialog from '@/components/ServerPathDialog';
+
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -80,7 +80,7 @@ export default function GlobalFilesPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showSRA, setShowSRA] = useState(false);
-  const [showServerPath, setShowServerPath] = useState(false);
+
   const [sraInput, setSraInput] = useState('');
   const [sraSubmitting, setSraSubmitting] = useState(false);
   const [pipelineStarting, setPipelineStarting] = useState<string | null>(null);
@@ -258,13 +258,6 @@ export default function GlobalFilesPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-white">Files</h1>
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowServerPath(true)}
-            className="btn-secondary flex items-center gap-2 text-sm"
-          >
-            <HardDrive className="w-4 h-4" />
-            Add from Server
-          </button>
           <button
             onClick={() => setShowSRA(true)}
             className="btn-secondary flex items-center gap-2 text-sm"
@@ -557,11 +550,7 @@ export default function GlobalFilesPage() {
         </div>
       )}
 
-      <ServerPathDialog
-        isOpen={showServerPath}
-        onClose={() => setShowServerPath(false)}
-        onSubmit={() => loadData()}
-      />
+
     </div>
   );
 }

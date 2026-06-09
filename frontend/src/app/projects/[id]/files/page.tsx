@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Upload, Download, Database, FileSpreadsheet, HardDrive } from 'lucide-react';
+import { ArrowLeft, Upload, Download, Database, FileSpreadsheet } from 'lucide-react';
 import {
   getProject,
   getFileManager,
@@ -18,7 +18,7 @@ import type { Project, FileManagerSample, SRADownload, BVBRCFetch } from '@/lib/
 import FileManagerTable from '@/components/FileManagerTable';
 import SRAFetchDialog from '@/components/SRAFetchDialog';
 import BVBRCFetchDialog from '@/components/BVBRCFetchDialog';
-import ServerPathDialog from '@/components/ServerPathDialog';
+
 
 export default function FileManagerPage() {
   const params = useParams();
@@ -35,7 +35,7 @@ export default function FileManagerPage() {
 
   const [showSRA, setShowSRA] = useState(false);
   const [showBVBRC, setShowBVBRC] = useState(false);
-  const [showServerPath, setShowServerPath] = useState(false);
+
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const metadataInputRef = useRef<HTMLInputElement>(null);
@@ -244,14 +244,6 @@ export default function FileManagerPage() {
         />
 
         <button
-          onClick={() => setShowServerPath(true)}
-          className="btn-secondary flex items-center gap-2 text-sm"
-        >
-          <HardDrive className="w-4 h-4" />
-          Add from Server
-        </button>
-
-        <button
           onClick={() => setShowSRA(true)}
           className="btn-secondary flex items-center gap-2 text-sm"
         >
@@ -380,12 +372,7 @@ export default function FileManagerPage() {
         projectId={projectId}
         onSubmit={handleBVBRCSubmit}
       />
-      <ServerPathDialog
-        isOpen={showServerPath}
-        onClose={() => setShowServerPath(false)}
-        projectId={projectId}
-        onSubmit={() => loadFileManager()}
-      />
+
     </div>
   );
 }
