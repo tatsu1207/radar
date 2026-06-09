@@ -81,6 +81,8 @@ export default function GlobalFilesPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showSRA, setShowSRA] = useState(false);
   const [showServerPath, setShowServerPath] = useState(false);
+  const [selectedSamples, setSelectedSamples] = useState<Set<string>>(new Set());
+  const [startingSelected, setStartingSelected] = useState(false);
 
   const [sraInput, setSraInput] = useState('');
   const [sraSubmitting, setSraSubmitting] = useState(false);
@@ -209,6 +211,38 @@ export default function GlobalFilesPage() {
       setError(err instanceof Error ? err.message : 'Failed to cancel pipeline');
     } finally {
       setPipelineCancelling(null);
+    }
+  }
+
+  function toggleSampleSelect(id: string) {
+    setSelectedSamples((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllSamples() {
+    setSelectedSamples((prev) => {
+      if (prev.size === samples.length) return new Set();
+      return new Set(samples.map((s) => s.sample_id));
+    });
+  }
+
+  async function handleStartSelected() {
+    if (selectedSamples.size === 0) return;
+    setStartingSelected(true);
+    setError(null);
+    try {
+      const promises = Array.from(selectedSamples).map((id) => startPipeline(id, 12));
+      await Promise.all(promises);
+      setSelectedSamples(new Set());
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start pipeline');
+    } finally {
+      setStartingSelected(false);
     }
   }
 
@@ -397,8 +431,24 @@ export default function GlobalFilesPage() {
         </div>
       )}
 
-      <div className="mb-4 text-sm text-gray-400">
-        {samples.length} sample{samples.length !== 1 ? 's' : ''}
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-sm text-gray-400">
+          {selectedSamples.size > 0
+            ? `${selectedSamples.size} of ${samples.length} sample${samples.length !== 1 ? 's' : ''} selected`
+            : `${samples.length} sample${samples.length !== 1 ? 's' : ''}`}
+        </span>
+        {samples.length > 0 && (
+          <button
+            onClick={handleStartSelected}
+            disabled={selectedSamples.size === 0 || startingSelected}
+            className="btn-primary flex items-center gap-2 text-sm disabled:opacity-50"
+          >
+            <Play className="w-4 h-4" />
+            {startingSelected
+              ? 'Starting...'
+              : `Start Pipeline${selectedSamples.size > 0 ? ` (${selectedSamples.size})` : ''}`}
+          </button>
+        )}
       </div>
 
       {samples.length === 0 ? (
@@ -411,6 +461,18 @@ export default function GlobalFilesPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-800">
+                  <th className="w-8 px-2 py-2 text-left">
+                    <button
+                      onClick={toggleAllSamples}
+                      className={`w-4 h-4 rounded border flex items-center justify-center ${
+                        samples.length > 0 && selectedSamples.size === samples.length
+                          ? 'bg-blue-500 border-blue-500'
+                          : 'border-gray-600 hover:border-gray-400'
+                      }`}
+                    >
+                      {samples.length > 0 && selectedSamples.size === samples.length && <Check className="w-3 h-3 text-white" />}
+                    </button>
+                  </th>
                   <th className="table-header">Sample</th>
                   <th className="table-header">Type</th>
                   <th className="table-header">R1</th>
@@ -433,6 +495,18 @@ export default function GlobalFilesPage() {
 
                   return (
                     <tr key={sample.sample_id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
+                      <td className="px-2 py-1.5">
+                        <button
+                          onClick={() => toggleSampleSelect(sample.sample_id)}
+                          className={`w-4 h-4 rounded border flex items-center justify-center ${
+                            selectedSamples.has(sample.sample_id)
+                              ? 'bg-blue-500 border-blue-500'
+                              : 'border-gray-600'
+                          }`}
+                        >
+                          {selectedSamples.has(sample.sample_id) && <Check className="w-3 h-3 text-white" />}
+                        </button>
+                      </td>
                       <td className="table-cell">
                         <span className="text-gray-100 font-medium">{sample.name}</span>
                       </td>
