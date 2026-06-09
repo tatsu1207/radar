@@ -1,7 +1,0 @@
-services:
-  backend:
-    volumes:
-      - /data:/host-data:ro
-  worker:
-    volumes:
-      - /data:/host-data
