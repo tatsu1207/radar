@@ -390,6 +390,7 @@ def _run_assembly_phase(sample_id: str, job, db, threads: int) -> str:
     For FASTA input, returns the FASTA path directly (no QC/assembly).
     """
     import os
+    import subprocess
 
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     input_files = db.query(SampleFile).filter(SampleFile.sample_id == sample_id).all()
@@ -462,6 +463,14 @@ def _run_assembly_phase(sample_id: str, job, db, threads: int) -> str:
 
     # Filtlong for ONT reads only (not PacBio — HiFi reads don't need filtering)
     filtered_long = os.path.join(qc_dir, "filtered_long.fastq.gz")
+    # Check if existing filtered file is valid; remove if corrupt
+    if has_long_read and long_read_platform == "ont" and os.path.exists(filtered_long):
+        verify = subprocess.run(["gzip", "-t", filtered_long], capture_output=True, text=True)
+        if verify.returncode != 0:
+            job.log += "  Filtlong — removing corrupt output, will re-run\n"
+            db.commit()
+            os.remove(filtered_long)
+
     if has_long_read and long_read_platform == "ont" and not os.path.exists(filtered_long):
         sample.status = SampleStatus.qc
         db.commit()

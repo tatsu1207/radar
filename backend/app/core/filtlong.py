@@ -60,16 +60,28 @@ def run_filtlong(sample_id: str, input_files: list[str], db=None, threads: int =
         long_file,
     ])
 
-    # Pipe through gzip
-    full_cmd = " ".join(cmd) + f" | gzip > {output_path}"
+    # Pipe through gzip; use pipefail so filtlong failures are caught
+    full_cmd = "set -o pipefail; " + " ".join(cmd) + f" | gzip > {output_path}"
 
     logger.info(f"Filtlong command: {full_cmd}")
     result = subprocess.run(
-        full_cmd, shell=True, capture_output=True, text=True, timeout=7200
+        full_cmd, shell=True, capture_output=True, text=True, timeout=7200,
+        executable="/bin/bash",
     )
 
     if result.returncode != 0:
+        # Remove potentially corrupt output
+        if os.path.exists(output_path):
+            os.remove(output_path)
         raise RuntimeError(f"Filtlong failed: {result.stderr[-2000:]}")
+
+    # Verify the gzip file is valid
+    verify = subprocess.run(
+        ["gzip", "-t", output_path], capture_output=True, text=True
+    )
+    if verify.returncode != 0:
+        os.remove(output_path)
+        raise RuntimeError(f"Filtlong output is corrupt gzip: {verify.stderr}")
 
     if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
         raise RuntimeError("Filtlong produced empty output")
