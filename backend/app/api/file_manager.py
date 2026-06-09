@@ -150,7 +150,7 @@ def _estimate_progress(log: str) -> int:
         ("Pipeline started", 2),
         ("Phase 1", 3),
         ("fastp", 5),
-        ("Filtlong", 8),
+        ("Chopper", 8),
         ("Genome assembly", 10),
         ("Assembly complete", 30),
         ("Assembly — skipped", 30),

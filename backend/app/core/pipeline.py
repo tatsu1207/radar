@@ -53,7 +53,7 @@ def _append_master_log(db, master_job_id: str, message: str):
 def run_pipeline(self, sample_id: str, master_job_id: str = None, threads: int = 4):
     """Main pipeline orchestration task.
 
-    For FASTQ input: QC (fastp/Filtlong) -> Assembly (SPAdes/Flye+Medaka+Polypolish) -> QUAST/BUSCO -> Annotation
+    For FASTQ input: QC (fastp/Chopper) -> Assembly (SPAdes/Flye+Medaka+Polypolish) -> QUAST/BUSCO -> Annotation
     For FASTA input: Annotation directly
     """
     db = SessionLocal()
@@ -461,36 +461,36 @@ def _run_assembly_phase(sample_id: str, job, db, threads: int) -> str:
             job.log += f"    fastp report failed (non-critical): {e}\n"
             db.commit()
 
-    # Filtlong for ONT reads only (not PacBio — HiFi reads don't need filtering)
+    # Chopper for ONT reads only (not PacBio — HiFi reads don't need filtering)
     filtered_long = os.path.join(qc_dir, "filtered_long.fastq.gz")
     # Check if existing filtered file is valid; remove if corrupt
     if has_long_read and long_read_platform == "ont" and os.path.exists(filtered_long):
         verify = subprocess.run(["gzip", "-t", filtered_long], capture_output=True, text=True)
         if verify.returncode != 0:
-            job.log += "  Filtlong — removing corrupt output, will re-run\n"
+            job.log += "  Chopper — removing corrupt output, will re-run\n"
             db.commit()
             os.remove(filtered_long)
 
     if has_long_read and long_read_platform == "ont" and not os.path.exists(filtered_long):
         sample.status = SampleStatus.qc
         db.commit()
-        job.log += "  Running Filtlong (ONT filtering)...\n"
+        job.log += "  Running Chopper (ONT filtering)...\n"
         db.commit()
 
         from app.core.filtlong import run_filtlong
         try:
             run_filtlong(sample_id, file_paths, db, threads=threads)
-            job.log += "    Filtlong complete\n"
+            job.log += "    Chopper complete\n"
             db.commit()
         except Exception as e:
-            job.log += f"    Filtlong FAILED: {e}\n"
+            job.log += f"    Chopper FAILED: {e}\n"
             db.commit()
             raise
     elif has_long_read and long_read_platform == "ont":
-        job.log += "  Filtlong — skipped (filtered file exists)\n"
+        job.log += "  Chopper — skipped (filtered file exists)\n"
         db.commit()
     elif has_long_read and long_read_platform == "pacbio":
-        job.log += "  Filtlong — skipped (PacBio HiFi reads)\n"
+        job.log += "  Chopper — skipped (PacBio HiFi reads)\n"
         db.commit()
 
     # Genome assembly

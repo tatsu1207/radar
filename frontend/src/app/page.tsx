@@ -12,7 +12,7 @@ export default function IntroductionPage() {
   const pipelineSteps = [
     { category: 'Quality Control', tools: [
       { name: 'fastp', desc: 'Adapter trimming & quality filtering (Illumina)' },
-      { name: 'Filtlong', desc: 'Long-read quality filtering (ONT)' },
+      { name: 'Chopper', desc: 'Long-read quality filtering & trimming (ONT)' },
     ]},
     { category: 'Assembly', tools: [
       { name: 'SPAdes', desc: 'Short-read de novo assembly' },

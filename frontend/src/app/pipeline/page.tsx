@@ -139,7 +139,7 @@ export default function PipelinePage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Pipeline</h1>
           <p className="text-sm text-gray-400 mt-1">
-            QC (fastp + Filtlong) and assembly (SPAdes / Flye)
+            QC (fastp + Chopper) and assembly (SPAdes / Flye)
           </p>
         </div>
         <div className="flex items-center gap-3">

@@ -89,7 +89,7 @@ def run_fastp(sample_id: str, input_files: List[str], db=None, threads: int = 4)
         trimmed_files = [r1_out, r2_out]
 
     elif long_files:
-        # Long-read QC report only (no trimming for long reads — Filtlong handles that)
+        # Long-read QC report only (no trimming for long reads — Chopper handles that)
         lr_out = os.path.join(results_dir, "pacbio_passthrough.fastq.gz")
 
         cmd = [

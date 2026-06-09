@@ -196,14 +196,10 @@ if [ "$CASE" = "longread" ] && [ "$PLATFORM" = "pacbio" ]; then
             --thread "$THREADS"
 fi
 
-# --- Step 1c: Filtlong (ONT QC) ---
+# --- Step 1c: Chopper (ONT QC) ---
 if [ -n "$LONG" ] && [ "$PLATFORM" = "ont" ]; then
-    FILTLONG_ARGS=( --min_length 1000 --keep_percent 90 )
-    if [ -n "$R1" ]; then
-        FILTLONG_ARGS+=( -1 "$TRIMMED_R1" -2 "$TRIMMED_R2" )
-    fi
-    run_step "Filtlong (ONT)" \
-        bash -c "conda run -n radar filtlong ${FILTLONG_ARGS[*]} '$LONG' | gzip > '$FILTERED_LONG'"
+    run_step "Chopper (ONT)" \
+        bash -c "gunzip -c '$LONG' | conda run -n radar chopper -q 10 --minlength 1000 --threads $THREADS | gzip > '$FILTERED_LONG'"
 fi
 
 # --- Step 2: Assembly ---
@@ -303,7 +299,7 @@ log "Assembly: ${ASSEMBLY}"
 
 # --- Step 2b: Assembly QC ---
 run_noncritical "QUAST" \
-    conda run -n radar \
+    conda run -n radar-quast \
     quast "$ASSEMBLY" \
         -o "${ASM_DIR}/quast" \
         --min-contig 200 \
@@ -365,7 +361,7 @@ run_noncritical "MLST" \
 
 # --- Serotyping ---
 run_noncritical "Serotyping (SISTR)" \
-    conda run -n radar \
+    conda run -n radar-sistr \
     sistr \
         -i "$ASSEMBLY" "${SAMPLE}" \
         -o "${ANNOT_DIR}/sistr_results.tsv" \

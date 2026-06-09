@@ -365,7 +365,7 @@ def start_preprocessing(
     payload: PipelineStartRequest = None,
     db: Session = Depends(get_db),
 ):
-    """Start the preprocessing pipeline (fastp + Filtlong + SPAdes/Flye) for a sample."""
+    """Start the preprocessing pipeline (fastp + Chopper + SPAdes/Flye) for a sample."""
     threads = payload.threads if payload else 12
 
     sample = db.query(Sample).filter(Sample.id == sample_id).first()

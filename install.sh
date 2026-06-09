@@ -78,10 +78,9 @@ if ! mamba env list 2>/dev/null | grep -qE "^radar\s"; then
     echo -n "  ...   radar"
     if mamba create -n radar -y -c bioconda -c conda-forge \
         "python>=3.11,<3.13" \
-        fastp filtlong flye spades polypolish bwa \
-        hmmer blast quast \
+        fastp chopper flye spades polypolish bwa \
+        hmmer blast \
         mlst skani minced prodigal \
-        sistr_cmd kleborate \
         sra-tools viennarna infernal \
         > /tmp/radar_install_radar.log 2>&1; then
         echo -e "\r  OK    radar"
@@ -114,6 +113,35 @@ pip_install_one "integron_finder" integron_finder
 pip_install_one "chewbbaca" chewbbaca
 pip_install_one "resfinder" resfinder
 pip_install_one "OSTIR" OSTIR
+
+# sistr_cmd + kleborate: need separate env due to pytables/hdf5/libcurl conflicts
+echo ""
+echo "  --- sistr_cmd + kleborate environment ---"
+if ! mamba env list 2>/dev/null | grep -qE "^radar-sistr\s"; then
+    echo -n "  ...   radar-sistr"
+    if mamba create -n radar-sistr -y python=3.10 sistr_cmd kleborate -c bioconda -c conda-forge --channel-priority flexible > /tmp/radar_install_radar-sistr.log 2>&1 \
+        && conda run -n radar-sistr pip install --quiet "setuptools<81" >> /tmp/radar_install_radar-sistr.log 2>&1; then
+        echo -e "\r  OK    radar-sistr"
+    else
+        echo -e "\r  FAIL  radar-sistr (see /tmp/radar_install_radar-sistr.log)"
+        FAIL=1
+    fi
+else
+    echo "  SKIP  radar-sistr (already exists)"
+fi
+
+# quast: has complex boost/blast/simplejson conflicts with python>=3.11
+if ! mamba env list 2>/dev/null | grep -qE "^radar-quast\s"; then
+    echo -n "  ...   radar-quast"
+    if mamba create -n radar-quast -y python=3.10 quast -c bioconda -c conda-forge --channel-priority flexible > /tmp/radar_install_radar-quast.log 2>&1; then
+        echo -e "\r  OK    radar-quast"
+    else
+        echo -e "\r  FAIL  radar-quast (see /tmp/radar_install_radar-quast.log)"
+        FAIL=1
+    fi
+else
+    echo "  SKIP  radar-quast (already exists)"
+fi
 
 # AMRFinderPlus: install binaries from GitHub release into base env
 echo ""
@@ -406,13 +434,13 @@ echo ""
 echo "  Databases: ${DB_DIR}"
 echo ""
 echo "  Conda environments installed:"
-echo "    Base:     radar (fastp, filtlong, flye, spades, polypolish, bwa,"
-echo "              hmmer, blast, quast, mlst, skani, minced, prodigal,"
-echo "              sistr_cmd, kleborate, sra-tools, viennarna, infernal,"
+echo "    Base:     radar (fastp, chopper, flye, spades, polypolish, bwa,"
+echo "              hmmer, blast, mlst, skani, minced, prodigal,"
+echo "              sra-tools, viennarna, infernal,"
 echo "              defense-finder, integron_finder, chewbbaca, resfinder,"
 echo "              OSTIR, AMRFinderPlus)"
-echo "    Separate: radar-mobsuite, radar-mefinder, radar-medaka,"
-echo "              radar-genomad, radar-busco"
+echo "    Separate: radar-sistr, radar-quast, radar-mobsuite,"
+echo "              radar-mefinder, radar-medaka, radar-genomad, radar-busco"
 echo ""
 echo "  Run the pipeline:"
 echo "    ./pipeline.sh -1 sample_R1.fastq.gz -2 sample_R2.fastq.gz -o results/"
