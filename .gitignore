@@ -24,6 +24,7 @@ out/
 .env
 .env.local
 .env.production
+docker-compose.override.yml
 
 # Data & results
 /data/
