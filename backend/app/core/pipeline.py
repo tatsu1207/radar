@@ -846,6 +846,7 @@ def _run_noncritical(db, job, name, func):
         job.log += f"  {name} complete\n"
         db.commit()
     except Exception as e:
+        db.rollback()
         job.log += f"  {name} failed (non-critical): {e}\n"
         db.commit()
 

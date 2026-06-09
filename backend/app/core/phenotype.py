@@ -7,38 +7,77 @@ from app.models.models import ARGResult, ASTResult, MLPhenotypePrediction
 logger = logging.getLogger(__name__)
 
 # Maps gene name patterns to (drug_class, [antibiotics])
+# Patterns are matched with re.search, so "bla" matches "blaEC", "blaTEM", etc.
+# More specific patterns (e.g. "blaOXA-48") must come before generic ones ("blaOXA")
 PHENOTYPE_RULES: Dict[str, tuple] = {
-    "blaTEM": ("BETA-LACTAM", ["ampicillin", "amoxicillin"]),
-    "blaSHV": ("BETA-LACTAM", ["ampicillin", "amoxicillin"]),
+    # Beta-lactamases — specific first
     "blaCTX": ("CEPHALOSPORIN", ["cefotaxime", "ceftriaxone", "ceftazidime"]),
+    "blaCMY": ("CEPHALOSPORIN", ["cefoxitin", "ceftriaxone", "ceftazidime"]),
+    "blaDHA": ("CEPHALOSPORIN", ["cefoxitin", "ceftriaxone"]),
     "blaNDM": ("CARBAPENEM", ["imipenem", "meropenem", "ertapenem"]),
     "blaKPC": ("CARBAPENEM", ["imipenem", "meropenem", "ertapenem"]),
+    "blaVIM": ("CARBAPENEM", ["imipenem", "meropenem", "ertapenem"]),
+    "blaIMP": ("CARBAPENEM", ["imipenem", "meropenem", "ertapenem"]),
     "blaOXA-48": ("CARBAPENEM", ["imipenem", "meropenem"]),
+    "blaOXA-23": ("CARBAPENEM", ["imipenem", "meropenem"]),
     "blaOXA": ("BETA-LACTAM", ["ampicillin", "amoxicillin"]),
+    "blaTEM": ("BETA-LACTAM", ["ampicillin", "amoxicillin"]),
+    "blaSHV": ("BETA-LACTAM", ["ampicillin", "amoxicillin"]),
+    "blaEC": ("BETA-LACTAM", ["ampicillin"]),
+    "ampC": ("CEPHALOSPORIN", ["cefoxitin", "ceftriaxone"]),
+    "bla": ("BETA-LACTAM", ["ampicillin"]),
+    # Methicillin resistance
     "mecA": ("BETA-LACTAM", ["methicillin", "oxacillin"]),
     "mecC": ("BETA-LACTAM", ["methicillin", "oxacillin"]),
+    # Glycopeptides
     "vanA": ("GLYCOPEPTIDE", ["vancomycin"]),
     "vanB": ("GLYCOPEPTIDE", ["vancomycin"]),
+    # Polymyxins
     "mcr": ("POLYMYXIN", ["colistin"]),
+    # Tetracyclines
     "tet": ("TETRACYCLINE", ["tetracycline", "doxycycline"]),
+    # Macrolides/Lincosamides
     "ermB": ("MACROLIDE", ["erythromycin", "clindamycin"]),
     "ermC": ("MACROLIDE", ["erythromycin", "clindamycin"]),
     "ermA": ("MACROLIDE", ["erythromycin", "clindamycin"]),
+    "mef": ("MACROLIDE", ["erythromycin", "azithromycin"]),
+    "mph": ("MACROLIDE", ["azithromycin"]),
+    "lnu": ("LINCOSAMIDE", ["clindamycin"]),
+    # Sulfonamides
     "sul1": ("SULFONAMIDE", ["sulfamethoxazole"]),
     "sul2": ("SULFONAMIDE", ["sulfamethoxazole"]),
+    "sul3": ("SULFONAMIDE", ["sulfamethoxazole"]),
+    # Trimethoprim
     "dfrA": ("DIAMINOPYRIMIDINE", ["trimethoprim"]),
     "dfrB": ("DIAMINOPYRIMIDINE", ["trimethoprim"]),
+    # Aminoglycosides
     "aac": ("AMINOGLYCOSIDE", ["gentamicin", "tobramycin"]),
     "aph": ("AMINOGLYCOSIDE", ["kanamycin"]),
     "ant": ("AMINOGLYCOSIDE", ["streptomycin"]),
+    "armA": ("AMINOGLYCOSIDE", ["gentamicin", "tobramycin", "amikacin"]),
+    "rmtB": ("AMINOGLYCOSIDE", ["gentamicin", "tobramycin", "amikacin"]),
+    # Quinolones
     "qnr": ("QUINOLONE", ["ciprofloxacin"]),
+    "oqxA": ("QUINOLONE", ["ciprofloxacin"]),
+    "oqxB": ("QUINOLONE", ["ciprofloxacin"]),
+    # Phenicols
     "cfr": ("PHENICOL", ["linezolid", "chloramphenicol"]),
     "catA": ("PHENICOL", ["chloramphenicol"]),
     "catB": ("PHENICOL", ["chloramphenicol"]),
     "floR": ("PHENICOL", ["florfenicol", "chloramphenicol"]),
+    "cmlA": ("PHENICOL", ["chloramphenicol"]),
+    # Fosfomycin
     "fosA": ("FOSFOMYCIN", ["fosfomycin"]),
-    "mph": ("MACROLIDE", ["azithromycin"]),
+    "fosB": ("FOSFOMYCIN", ["fosfomycin"]),
+    # Rifamycin
     "arr": ("RIFAMYCIN", ["rifampicin"]),
+    # Efflux pumps (broad-spectrum, low confidence)
+    "emrD": ("EFFLUX", ["nalidixic_acid"]),
+    "emrE": ("EFFLUX", ["erythromycin"]),
+    "emrB": ("EFFLUX", ["nalidixic_acid"]),
+    "mdtK": ("EFFLUX", ["ciprofloxacin"]),
+    "acrB": ("EFFLUX", ["ciprofloxacin", "tetracycline", "chloramphenicol"]),
+    "mdfA": ("EFFLUX", ["chloramphenicol", "erythromycin"]),
 }
 
 # Drug class lookup for each antibiotic (derived from rules)

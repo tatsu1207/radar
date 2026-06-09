@@ -319,12 +319,6 @@ def run_ml_phenotype(sample_id: str, db) -> List[MLPhenotypePrediction]:
 
     logger.info(f"Running ML phenotype prediction for sample {sample_id} (species={species})")
 
-    # Delete existing predictions for re-runs
-    db.query(MLPhenotypePrediction).filter(
-        MLPhenotypePrediction.sample_id == sample_id
-    ).delete()
-    db.commit()
-
     # Load all ARGs once (reused per antibiotic)
     args = db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
     amr_results = _build_amr_results(args)
@@ -332,7 +326,7 @@ def run_ml_phenotype(sample_id: str, db) -> List[MLPhenotypePrediction]:
     mlst = db.query(MLSTResult).filter(MLSTResult.sample_id == sample_id).first()
     mlst_st = mlst.sequence_type if mlst and mlst.sequence_type else "unknown"
 
-    # Run predictions — extract features per antibiotic (drug-class-specific)
+    # Run all predictions first, then persist atomically
     species_models = _models[species]
     predictions = []
 
@@ -391,24 +385,30 @@ def run_ml_phenotype(sample_id: str, db) -> List[MLPhenotypePrediction]:
         else:
             key_mutations = []
 
-        pred = MLPhenotypePrediction(
-            sample_id=sample_id,
-            antibiotic=abx,
-            drug_class=drug_class,
-            prediction="Resistant" if is_resistant else "Susceptible",
-            probability=round(float(prob_resistant), 3),
-            confidence=confidence,
-            key_genes=key_genes,
-            key_mutations=key_mutations,
-        )
-        db.add(pred)
-        predictions.append(pred)
+        predictions.append({
+            "antibiotic": abx,
+            "drug_class": drug_class,
+            "prediction": "Resistant" if is_resistant else "Susceptible",
+            "probability": round(float(prob_resistant), 3),
+            "confidence": confidence,
+            "key_genes": key_genes,
+            "key_mutations": key_mutations,
+        })
 
+    # Persist atomically: delete old + insert new in one commit
+    db.query(MLPhenotypePrediction).filter(
+        MLPhenotypePrediction.sample_id == sample_id
+    ).delete()
+    db_preds = []
+    for p in predictions:
+        pred = MLPhenotypePrediction(sample_id=sample_id, **p)
+        db.add(pred)
+        db_preds.append(pred)
     db.commit()
 
-    n_r = sum(1 for p in predictions if p.prediction == "Resistant")
+    n_r = sum(1 for p in predictions if p["prediction"] == "Resistant")
     logger.info(
         f"ML phenotype prediction for {sample_id}: "
         f"{len(predictions)} antibiotics, {n_r} resistant"
     )
-    return predictions
+    return db_preds
