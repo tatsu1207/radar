@@ -154,6 +154,20 @@ docker compose exec worker bash -c "
 "
 ```
 
+**Mounting host data:** By default, Docker containers cannot access files on the host machine. To use the **Add from Server** button to browse and import local data (e.g., FASTQ files), create a `docker-compose.override.yml` in the project root:
+
+```yaml
+services:
+  backend:
+    volumes:
+      - /path/to/your/data:/host-data:ro
+  worker:
+    volumes:
+      - /path/to/your/data:/host-data
+```
+
+Replace `/path/to/your/data` with the actual host directory (e.g., `/data`, `/home/user/sequencing`). Then restart: `./docker-stop.sh && ./docker-start.sh`. Your files will appear under `/host-data/` in the server file browser. This file is machine-specific and excluded from git.
+
 **Multi-user isolation:** `docker-start.sh` assigns unique ports, container names, and volumes per user (based on UID), so multiple users on the same machine can run RADAR simultaneously without conflicts.
 
 ### Access
