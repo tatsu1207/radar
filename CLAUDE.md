@@ -75,7 +75,7 @@ radar/
 
 Based on the research methodology. For FASTQ input all steps run. For FASTA input (including BV-BRC pre-assembled), steps 1-3 are skipped.
 
-1. **QC** - fastp: adapter trimming, quality filtering (Illumina); Filtlong: ONT long-read filtering
+1. **QC** - fastp: adapter trimming, quality filtering (Illumina); Chopper: ONT long-read quality filtering and trimming
 2. **Assembly** - SPAdes (Illumina-only), Flye + Medaka + Polypolish (hybrid), Flye (long-read-only; --nano-hq for ONT, --pacbio-hifi for PacBio)
 3. **Assembly QC** - QUAST + BUSCO: assembly quality metrics and genome completeness
 4. **ARG detection** - AMRFinderPlus: resistance gene identification
@@ -89,22 +89,20 @@ Based on the research methodology. For FASTQ input all steps run. For FASTA inpu
 
 ## Bioinformatics Tools
 
-All tools run on CPU only (no GPU required). Installed via `install.sh` into 6 conda environments:
+All tools run on CPU only (no GPU required). Installed via `install.sh` into 9 conda environments:
 
-**Base environment (`radar`) — Python 3.12:**
+**Base environment (`radar`) — Python >=3.11,<3.13:**
 
 | Tool | Purpose |
 |------|---------|
 | fastp | Adapter trimming and quality filtering (Illumina) |
-| Filtlong | ONT long-read quality filtering |
+| Chopper | ONT long-read quality filtering and trimming |
 | SPAdes | Short-read genome assembly |
 | Flye | Long-read genome assembly (ONT/PacBio) |
 | Polypolish + BWA | Short-read polishing for hybrid assembly |
-| QUAST | Assembly quality assessment |
 | AMRFinderPlus | ARG detection (GitHub binary v4.2.7 + HMMER/BLAST) |
 | mlst | Multi-locus sequence typing |
 | skani | Species ID via ANI against GTDB |
-| SISTR + Kleborate | In silico serotyping |
 | minced | CRISPR array detection |
 | Prodigal | Gene prediction (used by DefenseFinder, context annotations) |
 | BLAST + Infernal | Nucleotide searches (16S, ICEberg, sRNA/Rfam) |
@@ -120,6 +118,8 @@ All tools run on CPU only (no GPU required). Installed via `install.sh` into 6 c
 
 | Conda Env | Tool | Python | Why separate |
 |-----------|------|--------|-------------|
+| radar-sistr | SISTR + Kleborate | 3.10 | pytables/hdf5/libcurl conflicts |
+| radar-quast | QUAST | 3.10 | boost/blast/simplejson conflicts with python>=3.11 |
 | radar-mobsuite | MOB-suite | 3.11 | Incompatible with Python 3.12 |
 | radar-mefinder | MobileElementFinder | 3.11 | Incompatible with Python 3.12 |
 | radar-medaka | Medaka | 3.10 | CPU-only PyTorch, strict htslib constraints |
