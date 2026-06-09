@@ -1264,48 +1264,79 @@ def get_sra_submission_data(db: Session = Depends(get_db)):
         metadata = db.query(Metadata).filter(Metadata.sample_id == sample.id).first()
         species = db.query(SpeciesResult).filter(SpeciesResult.sample_id == sample.id).first()
 
-        # Determine library layout from files
+        # Determine file types
         from app.models.models import PairType
         has_r1 = any(f.pair == PairType.R1 for f in files)
         has_r2 = any(f.pair == PairType.R2 for f in files)
         has_long = any(f.pair == PairType.long_read for f in files)
         is_paired = has_r1 and has_r2
 
-        # Determine platform
-        platform = "ILLUMINA"
-        instrument = "Illumina MiSeq"
-        if has_long and not has_r1:
-            plat_files = [f for f in files if f.pair == PairType.long_read]
-            if plat_files and plat_files[0].platform:
-                pv = plat_files[0].platform.value
-                if "ont" in pv.lower():
-                    platform = "OXFORD_NANOPORE"
-                    instrument = "MinION"
-                elif "pacbio" in pv.lower():
-                    platform = "PACBIO_SMRT"
-                    instrument = "PacBio RS II"
-
         import os
-        filenames = [f.original_filename or os.path.basename(f.file_path) for f in fastq_files]
+        organism = species.species if species else (metadata.species if metadata and hasattr(metadata, 'species') else "")
+        collection_date = metadata.collection_date if metadata else ""
+        geo_loc_name = metadata.location if metadata else ""
+        isolation_source = metadata.source if metadata else ""
 
-        entries.append({
+        base_entry = {
             "sample_id": str(sample.id),
             "sample_name": sample.name,
-            "organism": species.species if species else (metadata.species if metadata and hasattr(metadata, 'species') else ""),
-            "collection_date": metadata.collection_date if metadata else "",
-            "geo_loc_name": metadata.location if metadata else "",
-            "isolation_source": metadata.source if metadata else "",
+            "organism": organism,
+            "collection_date": collection_date,
+            "geo_loc_name": geo_loc_name,
+            "isolation_source": isolation_source,
             "library_strategy": "WGS",
             "library_source": "GENOMIC",
             "library_selection": "RANDOM",
-            "library_layout": "paired" if is_paired else "single",
-            "platform": platform,
-            "instrument_model": instrument,
             "filetype": "fastq",
-            "filenames": filenames,
-            "filename1": filenames[0] if filenames else "",
-            "filename2": filenames[1] if len(filenames) > 1 and is_paired else "",
-        })
+        }
+
+        # Illumina entry (if R1 exists)
+        if has_r1:
+            illumina_files = [f for f in fastq_files if f.pair in (PairType.R1, PairType.R2)]
+            fnames = [f.original_filename or os.path.basename(f.file_path) for f in illumina_files]
+            entries.append({
+                **base_entry,
+                "library_layout": "paired" if is_paired else "single",
+                "platform": "ILLUMINA",
+                "instrument_model": "Illumina MiSeq",
+                "filenames": fnames,
+                "filename1": fnames[0] if fnames else "",
+                "filename2": fnames[1] if len(fnames) > 1 and is_paired else "",
+            })
+
+        # Long-read entry (if long read exists)
+        if has_long:
+            long_files = [f for f in fastq_files if f.pair == PairType.long_read]
+            long_platform = "OXFORD_NANOPORE"
+            long_instrument = "MinION"
+            if long_files and long_files[0].platform:
+                pv = long_files[0].platform.value
+                if "pacbio" in pv.lower():
+                    long_platform = "PACBIO_SMRT"
+                    long_instrument = "PacBio RS II"
+            fnames = [f.original_filename or os.path.basename(f.file_path) for f in long_files]
+            entries.append({
+                **base_entry,
+                "library_layout": "single",
+                "platform": long_platform,
+                "instrument_model": long_instrument,
+                "filenames": fnames,
+                "filename1": fnames[0] if fnames else "",
+                "filename2": "",
+            })
+
+        # Fallback: no R1 and no long read (e.g. single-end Illumina)
+        if not has_r1 and not has_long:
+            fnames = [f.original_filename or os.path.basename(f.file_path) for f in fastq_files]
+            entries.append({
+                **base_entry,
+                "library_layout": "single",
+                "platform": "ILLUMINA",
+                "instrument_model": "Illumina MiSeq",
+                "filenames": fnames,
+                "filename1": fnames[0] if fnames else "",
+                "filename2": "",
+            })
 
     return entries
 
