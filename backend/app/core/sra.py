@@ -185,49 +185,56 @@ def download_sra(download_id: str):
             # Detect platform: SRA metadata first, then FASTQ headers
             from app.api.file_manager import _detect_platform_from_fastq
             sra_platform = _get_sra_platform(accession)
-            logger.info(f"SRA platform metadata for {accession}: {sra_platform}")
+            if not sra_platform:
+                detected_platform, _ = _detect_platform_from_fastq(gz_files[0])
+                sra_platform = detected_platform
+            platform = sra_platform or SequencingPlatform.illumina
+            logger.info(f"SRA platform for {accession}: {platform} ({len(gz_files)} files)")
 
-            if len(gz_files) >= 2:
-                # Paired-end
+            is_long_read = platform in (SequencingPlatform.ont, SequencingPlatform.pacbio)
+
+            if is_long_read:
+                # Long-read: register largest file as long_read, skip others
+                # (fasterq-dump --split-files may produce multiple files for ONT/PacBio)
+                largest = max(gz_files, key=os.path.getsize)
+                sf = SampleFile(
+                    sample_id=dl.sample_id,
+                    file_path=largest,
+                    file_type=".fastq.gz",
+                    pair=PairType.long_read,
+                    platform=platform,
+                    source=FileSource.sra,
+                    original_filename=os.path.basename(largest),
+                    file_size=os.path.getsize(largest),
+                )
+                db.add(sf)
+            elif len(gz_files) >= 2:
+                # Illumina paired-end
                 for i, gz_file in enumerate(gz_files[:2]):
                     pair = PairType.R1 if i == 0 else PairType.R2
-                    file_size = os.path.getsize(gz_file)
-                    if not sra_platform:
-                        detected_platform, _ = _detect_platform_from_fastq(gz_file)
-                        sra_platform = detected_platform
                     sf = SampleFile(
                         sample_id=dl.sample_id,
                         file_path=gz_file,
                         file_type=".fastq.gz",
                         pair=pair,
-                        platform=sra_platform or SequencingPlatform.illumina,
+                        platform=platform,
                         source=FileSource.sra,
                         original_filename=os.path.basename(gz_file),
-                        file_size=file_size,
+                        file_size=os.path.getsize(gz_file),
                     )
                     db.add(sf)
             else:
-                # Single-end — could be PacBio, ONT, or Illumina single-end
+                # Illumina single-end
                 gz_file = gz_files[0]
-                file_size = os.path.getsize(gz_file)
-                if not sra_platform:
-                    detected_platform, _ = _detect_platform_from_fastq(gz_file)
-                    sra_platform = detected_platform
-                platform = sra_platform or SequencingPlatform.illumina
-                # PacBio/ONT single files are long reads, not single-end Illumina
-                if platform in (SequencingPlatform.ont, SequencingPlatform.pacbio):
-                    pair = PairType.long_read
-                else:
-                    pair = PairType.single
                 sf = SampleFile(
                     sample_id=dl.sample_id,
                     file_path=gz_file,
                     file_type=".fastq.gz",
-                    pair=pair,
+                    pair=PairType.single,
                     platform=platform,
                     source=FileSource.sra,
                     original_filename=os.path.basename(gz_file),
-                    file_size=file_size,
+                    file_size=os.path.getsize(gz_file),
                 )
                 db.add(sf)
 
