@@ -69,14 +69,14 @@ export default function ServerPathDialog({ isOpen, onClose, projectId, onSubmit 
   }
 
   function selectAll() {
-    const all = entries.map((e) => e.path);
+    const files = entries.filter((e) => !e.is_dir).map((e) => e.path);
     setSelected((prev) => {
-      const allSelected = all.every((f) => prev.has(f));
+      const allSelected = files.every((f) => prev.has(f));
       const next = new Set(prev);
       if (allSelected) {
-        all.forEach((f) => next.delete(f));
+        files.forEach((f) => next.delete(f));
       } else {
-        all.forEach((f) => next.add(f));
+        files.forEach((f) => next.add(f));
       }
       return next;
     });
@@ -102,7 +102,8 @@ export default function ServerPathDialog({ isOpen, onClose, projectId, onSubmit 
     }
   }
 
-  const allSelected = entries.length > 0 && entries.every((e) => selected.has(e.path));
+  const fileEntries = entries.filter((e) => !e.is_dir);
+  const allSelected = fileEntries.length > 0 && fileEntries.every((e) => selected.has(e.path));
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Add Files from Server">
@@ -142,7 +143,7 @@ export default function ServerPathDialog({ isOpen, onClose, projectId, onSubmit 
               <thead>
                 <tr className="border-b border-gray-700 bg-gray-800/50">
                   <th className="w-8 px-2 py-2 text-left">
-                    {entries.length > 0 && (
+                    {fileEntries.length > 0 && (
                       <button
                         onClick={selectAll}
                         className={`w-4 h-4 rounded border flex items-center justify-center ${
@@ -163,8 +164,7 @@ export default function ServerPathDialog({ isOpen, onClose, projectId, onSubmit 
                 {entries.map((entry) => (
                   <tr
                     key={entry.path}
-                    onClick={() => toggleEntry(entry.path)}
-                    onDoubleClick={() => entry.is_dir && browse(entry.path)}
+                    onClick={() => entry.is_dir ? browse(entry.path) : toggleEntry(entry.path)}
                     className={`border-b border-gray-800/50 cursor-pointer transition-colors ${
                       selected.has(entry.path)
                         ? 'bg-blue-600/10'
@@ -172,16 +172,18 @@ export default function ServerPathDialog({ isOpen, onClose, projectId, onSubmit 
                     }`}
                   >
                     <td className="px-2 py-1.5">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); toggleEntry(entry.path); }}
-                        className={`w-4 h-4 rounded border flex items-center justify-center ${
-                          selected.has(entry.path)
-                            ? 'bg-blue-500 border-blue-500'
-                            : 'border-gray-600'
-                        }`}
-                      >
-                        {selected.has(entry.path) && <Check className="w-3 h-3 text-white" />}
-                      </button>
+                      {!entry.is_dir && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleEntry(entry.path); }}
+                          className={`w-4 h-4 rounded border flex items-center justify-center ${
+                            selected.has(entry.path)
+                              ? 'bg-blue-500 border-blue-500'
+                              : 'border-gray-600'
+                          }`}
+                        >
+                          {selected.has(entry.path) && <Check className="w-3 h-3 text-white" />}
+                        </button>
+                      )}
                     </td>
                     <td className="px-2 py-1.5 flex items-center gap-2">
                       {entry.is_dir ? (
@@ -193,7 +195,7 @@ export default function ServerPathDialog({ isOpen, onClose, projectId, onSubmit 
                         {entry.name}
                       </span>
                       {entry.is_dir && (
-                        <span className="text-xs text-gray-600 ml-auto shrink-0">double-click to open</span>
+                        <span className="text-xs text-gray-600 ml-auto shrink-0">click to open</span>
                       )}
                     </td>
                     <td className="px-2 py-1.5 text-right text-gray-500 text-xs">
