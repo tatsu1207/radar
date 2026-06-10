@@ -234,20 +234,28 @@ case "$CASE" in
                 --threads "$THREADS"
         CURRENT_ASM="${ASM_DIR}/flye_out/assembly.fasta"
 
-        # Medaka polish (v2.x: inference + sequence)
+        # Medaka polish (v2.x: mini_align → inference → sequence)
         MEDAKA_DIR="${ASM_DIR}/medaka_out"
         mkdir -p "$MEDAKA_DIR"
+        MEDAKA_BAM="${MEDAKA_DIR}/calls_to_draft.bam"
         MEDAKA_HDF="${MEDAKA_DIR}/consensus_probs.hdf"
-        if run_noncritical "Medaka inference" \
+        if run_noncritical "Medaka alignment" \
             conda run -n radar-medaka \
-            medaka inference \
-                "$LONG_INPUT" "$CURRENT_ASM" "$MEDAKA_HDF" \
-                --threads "$THREADS"; then
-            if run_noncritical "Medaka sequence" \
+            mini_align \
+                -i "$LONG_INPUT" -r "$CURRENT_ASM" \
+                -t "$THREADS" \
+                -p "${MEDAKA_DIR}/calls_to_draft"; then
+            if run_noncritical "Medaka inference" \
                 conda run -n radar-medaka \
-                medaka sequence \
-                    "$MEDAKA_HDF" "$CURRENT_ASM" "${MEDAKA_DIR}/consensus.fasta"; then
-                [ -f "${MEDAKA_DIR}/consensus.fasta" ] && CURRENT_ASM="${MEDAKA_DIR}/consensus.fasta"
+                medaka inference \
+                    "$MEDAKA_BAM" "$MEDAKA_HDF" \
+                    --threads "$THREADS"; then
+                if run_noncritical "Medaka sequence" \
+                    conda run -n radar-medaka \
+                    medaka sequence \
+                        "$MEDAKA_HDF" "$CURRENT_ASM" "${MEDAKA_DIR}/consensus.fasta"; then
+                    [ -f "${MEDAKA_DIR}/consensus.fasta" ] && CURRENT_ASM="${MEDAKA_DIR}/consensus.fasta"
+                fi
             fi
         fi
 
@@ -322,10 +330,10 @@ run_noncritical "BUSCO" \
 log "═══ PHASE 2: Annotation ═══"
 
 # --- Species ID (skani + 16S BLAST) ---
-# skani needs a sketched database directory with .sketch files
+# skani needs a sketched database directory (.sketch files or sketches.db)
 SKANI_DB=""
 for d in "${DB_DIR}/skani" "${DB_DIR}/skani/skani-gtdb-r220-sketch" "${DB_DIR}"/skani/*/; do
-    if [ -d "$d" ] && ls "$d"/*.sketch &>/dev/null; then
+    if [ -d "$d" ] && { ls "$d"/*.sketch &>/dev/null || [ -f "$d/sketches.db" ]; }; then
         SKANI_DB="$d"
         break
     fi
@@ -357,7 +365,7 @@ fi
 
 # --- MLST ---
 run_noncritical "MLST" \
-    bash -c "conda run -n radar env -u PERL5LIB -u PERL_LOCAL_LIB_ROOT mlst '$ASSEMBLY' --threads '$THREADS' > '${ANNOT_DIR}/mlst.tsv'"
+    conda run -n radar bash -c "export PERL5LIB=\$CONDA_PREFIX/lib/perl5/site_perl/5.22.0/x86_64-linux-thread-multi:\$CONDA_PREFIX/lib/perl5/site_perl/5.22.0; mlst '$ASSEMBLY' --threads '$THREADS' > '${ANNOT_DIR}/mlst.tsv'"
 
 # --- Serotyping ---
 run_noncritical "Serotyping (SISTR)" \

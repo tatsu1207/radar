@@ -209,7 +209,8 @@ if ! mamba env list 2>/dev/null | grep -qE "^radar-medaka\s"; then
             torch --extra-index-url https://download.pytorch.org/whl/cpu \
             >> /tmp/radar_install_radar-medaka.log 2>&1 \
         && conda run -n radar-medaka pip install --quiet --no-deps medaka >> /tmp/radar_install_radar-medaka.log 2>&1 \
-        && conda run -n radar-medaka pip install --quiet medaka >> /tmp/radar_install_radar-medaka.log 2>&1; then
+        && conda run -n radar-medaka pip install --quiet medaka >> /tmp/radar_install_radar-medaka.log 2>&1 \
+        && mamba install -n radar-medaka -y -c bioconda -c conda-forge minimap2 >> /tmp/radar_install_radar-medaka.log 2>&1; then
         echo -e "\r  OK    radar-medaka"
     else
         echo -e "\r  FAIL  radar-medaka (see /tmp/radar_install_radar-medaka.log)"
