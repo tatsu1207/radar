@@ -213,7 +213,7 @@ export default function ResultsPage() {
                 </th>
                 <th className="table-header">Sample</th>
                 <th className="table-header">Species</th>
-                <th className="table-header">AMR</th>
+                <th className="table-header">Resistance Profile</th>
                 <th className="table-header">VFs</th>
                 <th className="table-header">Plasmids</th>
                 <th className="table-header">Biocide/Metal</th>
