@@ -225,7 +225,88 @@ for entry in "${CGMLST_SPECIES[@]}"; do
         fi
     fi
 done
-echo "         K. pneumoniae and S. aureus schemas not on Chewie-NS (use external sources)"
+
+# S. aureus cgMLST from pubMLST (1716 loci, scheme 20)
+if [ -d "${CGMLST_DIR}/saureus" ]; then
+    echo "    SKIP  Staphylococcus aureus (already exists)"
+else
+    echo -n "    ...   Staphylococcus aureus (pubMLST)"
+    SAUREUS_TMP="${CGMLST_DIR}/saureus_tmp"
+    mkdir -p "${SAUREUS_TMP}"
+    if conda run -n radar python -c "
+import requests, sys, os
+base = 'https://rest.pubmlst.org/db/pubmlst_saureus_seqdef'
+r = requests.get(f'{base}/schemes/20', timeout=30)
+if not r.ok:
+    sys.exit(1)
+loci = r.json().get('loci', [])
+out_dir = '${SAUREUS_TMP}'
+ok = 0
+for url in loci:
+    locus_id = url.split('/')[-1]
+    r2 = requests.get(f'{url}/alleles_fasta', timeout=30)
+    if r2.ok and r2.text.startswith('>'):
+        with open(os.path.join(out_dir, f'{locus_id}.fasta'), 'w') as f:
+            f.write(r2.text)
+        ok += 1
+print(f'Downloaded {ok}/{len(loci)} loci', file=sys.stderr)
+if ok < len(loci) * 0.9:
+    sys.exit(1)
+" > /tmp/radar_db_cgmlst_saureus.log 2>&1 \
+    && conda run -n radar chewBBACA.py PrepExternalSchema \
+        -g "${SAUREUS_TMP}" \
+        -o "${CGMLST_DIR}/saureus" \
+        --cpu "${THREADS}" \
+        >> /tmp/radar_db_cgmlst_saureus.log 2>&1; then
+        rm -rf "${SAUREUS_TMP}"
+        echo -e "\r    OK    Staphylococcus aureus (pubMLST)"
+    else
+        rm -rf "${SAUREUS_TMP}"
+        echo -e "\r    FAIL  Staphylococcus aureus (see /tmp/radar_db_cgmlst_saureus.log)"
+        FAIL=1
+    fi
+fi
+
+# K. pneumoniae cgMLST from BIGSdb Pasteur (2752 loci, scheme 19)
+if [ -d "${CGMLST_DIR}/klebsiella" ]; then
+    echo "    SKIP  Klebsiella pneumoniae (already exists)"
+else
+    echo -n "    ...   Klebsiella pneumoniae (BIGSdb Pasteur)"
+    KLEB_TMP="${CGMLST_DIR}/klebsiella_tmp"
+    mkdir -p "${KLEB_TMP}"
+    if conda run -n radar python -c "
+import requests, sys, os
+base = 'https://bigsdb.pasteur.fr/api/db/pubmlst_klebsiella_seqdef'
+r = requests.get(f'{base}/schemes/19', timeout=30)
+if not r.ok:
+    sys.exit(1)
+loci = r.json().get('loci', [])
+out_dir = '${KLEB_TMP}'
+ok = 0
+for url in loci:
+    locus_id = url.split('/')[-1]
+    r2 = requests.get(f'{url}/alleles_fasta', timeout=30)
+    if r2.ok and r2.text.startswith('>'):
+        with open(os.path.join(out_dir, f'{locus_id}.fasta'), 'w') as f:
+            f.write(r2.text)
+        ok += 1
+print(f'Downloaded {ok}/{len(loci)} loci', file=sys.stderr)
+if ok == 0:
+    print('BIGSdb Pasteur requires authentication for allele data', file=sys.stderr)
+    sys.exit(1)
+" > /tmp/radar_db_cgmlst_klebsiella.log 2>&1 \
+    && conda run -n radar chewBBACA.py PrepExternalSchema \
+        -g "${KLEB_TMP}" \
+        -o "${CGMLST_DIR}/klebsiella" \
+        --cpu "${THREADS}" \
+        >> /tmp/radar_db_cgmlst_klebsiella.log 2>&1; then
+        rm -rf "${KLEB_TMP}"
+        echo -e "\r    OK    Klebsiella pneumoniae (BIGSdb Pasteur)"
+    else
+        rm -rf "${KLEB_TMP}"
+        echo -e "\r    FAIL  Klebsiella pneumoniae (may require BIGSdb authentication)"
+    fi
+fi
 
 # -------------------------------------------------------------------
 # 10. skani GTDB sketch database (OPTIONAL — ~30 GB)
