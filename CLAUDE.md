@@ -9,7 +9,7 @@
 - **Backend**: Python 3.11, FastAPI, Celery, SQLAlchemy, PostgreSQL 16, Redis
 - **Frontend**: Next.js 14, React 18, TypeScript, Tailwind CSS, Recharts
 - **Package manager**: mamba (Miniforge)
-- **Deployment**: Docker Compose or bare-metal via conda environment
+- **Deployment**: bare-metal via conda environment
 
 ## Project Structure
 
@@ -64,10 +64,9 @@ radar/
 │   └── package.json
 ├── databases/
 │   └── download_dbs.sh        # Reference database download script
-├── docker-compose.yml
 ├── setup_ubuntu.sh            # Bare-metal setup (mamba, no sudo)
-├── start_dev.sh               # Start all services locally
-├── stop_dev.sh                # Stop all services
+├── start.sh                   # Start all services locally
+├── stop.sh                    # Stop all services
 └── tests/
 ```
 
@@ -219,19 +218,11 @@ Known columns map to Metadata model fields; extra columns go into `custom_json`.
 
 ## Running the Platform
 
-**With Docker:**
 ```bash
-./docker-start.sh    # start (UID-based ports, multi-user safe)
-./docker-stop.sh     # stop
-```
-
-`docker-start.sh` generates `.env` with UID-based ports and a per-user `COMPOSE_PROJECT_NAME` (`radar-<username>`), so multiple users on the same machine get isolated containers, volumes, and ports.
-
-**Without Docker (bare-metal):**
-```bash
-./setup_ubuntu.sh    # one-time setup
-./start_dev.sh       # start all services
-./stop_dev.sh        # stop all services
+./install.sh                   # install tools (conda envs)
+./databases/download_dbs.sh    # download reference databases
+./start.sh                     # start all services
+./stop.sh                      # stop all services
 ```
 
 Ports are derived from UID for multi-user machines: frontend=7200+UID, backend=7210+UID, PostgreSQL=7220+UID, Redis=7230+UID.

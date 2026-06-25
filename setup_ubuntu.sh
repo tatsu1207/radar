@@ -317,7 +317,7 @@ EOF
 # --------------------------------------------------------------------------
 # Create helper scripts for running without Docker
 # --------------------------------------------------------------------------
-cat > "${SCRIPT_DIR}/start_dev.sh" << 'DEVEOF'
+cat > "${SCRIPT_DIR}/start.sh" << 'DEVEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -386,9 +386,9 @@ echo "============================================"
 trap "kill $CELERY_PID $BACKEND_PID $FRONTEND_PID 2>/dev/null; pg_ctl -D '${DATA_DIR}/pgdata' stop 2>/dev/null; redis-cli -p ${PORT_REDIS} shutdown 2>/dev/null; echo 'Stopped.'" EXIT
 wait
 DEVEOF
-chmod +x "${SCRIPT_DIR}/start_dev.sh"
+chmod +x "${SCRIPT_DIR}/start.sh"
 
-cat > "${SCRIPT_DIR}/stop_dev.sh" << 'STOPEOF'
+cat > "${SCRIPT_DIR}/stop.sh" << 'STOPEOF'
 #!/usr/bin/env bash
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -403,7 +403,7 @@ pkill -f "celery.*radar" 2>/dev/null && echo "Celery stopped." || true
 pkill -f "uvicorn.*app.main" 2>/dev/null && echo "Backend stopped." || true
 echo "Done."
 STOPEOF
-chmod +x "${SCRIPT_DIR}/stop_dev.sh"
+chmod +x "${SCRIPT_DIR}/stop.sh"
 
 # --------------------------------------------------------------------------
 # Done
@@ -425,10 +425,10 @@ echo "    PostgreSQL: localhost:${PORT_PG}"
 echo "    Redis:      localhost:${PORT_REDIS}"
 echo ""
 echo "  Start all services:"
-echo "    ./start_dev.sh"
+echo "    ./start.sh"
 echo ""
 echo "  Stop all services:"
-echo "    ./stop_dev.sh"
+echo "    ./stop.sh"
 echo ""
 echo "  Pipeline calls tools via: conda run -n <env> <tool>"
 echo "    e.g. conda run -n radar-qc bbduk.sh ..."

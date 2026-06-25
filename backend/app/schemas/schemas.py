@@ -199,6 +199,7 @@ class VirulenceResultRead(BaseModel):
     id: uuid.UUID
     sample_id: uuid.UUID
     gene: str
+    description: Optional[str] = None
     category: Optional[str] = None
     identity: Optional[float] = None
     coverage: Optional[float] = None

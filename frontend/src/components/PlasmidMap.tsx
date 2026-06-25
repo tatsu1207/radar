@@ -4,18 +4,20 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { Download } from 'lucide-react';
 
 interface Feature {
-  type: 'arg' | 'virulence' | 'mobile_element' | 'prophage' | 'relaxase' | 'orit' | 't4ss' | 'replicon';
+  type: 'arg' | 'virulence' | 'mobile_element' | 'prophage' | 'relaxase' | 'orit' | 't4ss' | 'replicon' | 'cds';
   name: string;
   label: string;
   family: string;
   start: number;
   end: number;
+  strand?: number;
 }
 
 interface PlasmidMapData {
   plasmid_id: string;
   contig: string;
   size: number;
+  sequence?: string;
   replicon: string;
   mob_type: string;
   mpf_type: string;
@@ -37,6 +39,7 @@ const LEGEND_COLORS: Record<string, string> = {
   orit:           '#EC4899',
   t4ss:           '#10B981',
   replicon:       '#6366F1',
+  cds:            '#9CA3AF',
 };
 
 const LEGEND_LABELS: Record<string, string> = {
@@ -48,41 +51,63 @@ const LEGEND_LABELS: Record<string, string> = {
   orit:           'oriT',
   t4ss:           'T4SS / MPF',
   replicon:       'Replicon',
+  cds:            'CDS',
 };
 
 function buildCGViewJSON(data: PlasmidMapData) {
-  // Build legend items for feature types present
-  const presentTypes = Array.from(new Set(data.features.map((f) => f.type)));
+  // Separate CDS from annotation features
+  const annotationFeatures = data.features.filter((f) => f.type !== 'cds');
+  const cdsFeatures = data.features.filter((f) => f.type === 'cds');
+  const hasSequence = !!data.sequence && data.sequence.length > 0;
+  const hasCDS = cdsFeatures.length > 0;
+
+  // Build legend items for feature types present (exclude CDS from legend if too many)
+  const presentTypes = Array.from(new Set(annotationFeatures.map((f) => f.type)));
   const legendItems = presentTypes.map((type) => ({
     name: LEGEND_LABELS[type] || type,
     swatchColor: LEGEND_COLORS[type] || '#888',
     decoration: type === 'arg' ? 'arrow' : 'arc',
   }));
 
-  // Assign features to tracks based on type
-  // Inner tracks: ARGs, relaxase/oriT
-  // Outer tracks: IS elements, T4SS, replicons, prophages
-  const trackOrder = ['arg', 'virulence', 'relaxase', 'orit', 'mobile_element', 't4ss', 'replicon', 'prophage'];
+  // Add GC content/skew to legend if sequence available
+  if (hasSequence) {
+    legendItems.push(
+      { name: 'GC Content (+)', swatchColor: '#3B82F6', decoration: 'arc' },
+      { name: 'GC Content (-)', swatchColor: '#93C5FD', decoration: 'arc' },
+      { name: 'GC Skew (+)', swatchColor: '#22C55E', decoration: 'arc' },
+      { name: 'GC Skew (-)', swatchColor: '#A855F7', decoration: 'arc' },
+    );
+  }
+  if (hasCDS) {
+    legendItems.push({ name: 'CDS', swatchColor: '#9CA3AF', decoration: 'arc' });
+  }
+
+  // Track layout: outer → inner for BRIG-like appearance
+  //   Outermost: IS elements, prophage, replicons
+  //   Middle: ARGs, VFs, relaxase, oriT, T4SS
+  //   Inner: CDS backbone (all genes)
+  //   Innermost: GC content, GC skew (plot tracks)
+  const trackOrder = ['mobile_element', 't4ss', 'replicon', 'prophage', 'arg', 'virulence', 'relaxase', 'orit'];
   const trackPosition: Record<string, string> = {
-    arg: 'inside',
-    virulence: 'inside',
-    relaxase: 'inside',
-    orit: 'inside',
     mobile_element: 'outside',
     t4ss: 'outside',
     replicon: 'outside',
     prophage: 'outside',
+    arg: 'inside',
+    virulence: 'inside',
+    relaxase: 'inside',
+    orit: 'inside',
   };
 
-  // Group features by type for separate tracks
+  // Group annotation features by type for separate tracks
   const featuresByType: Record<string, Feature[]> = {};
-  for (const f of data.features) {
+  for (const f of annotationFeatures) {
     if (!featuresByType[f.type]) featuresByType[f.type] = [];
     featuresByType[f.type].push(f);
   }
 
-  // Build CGView features array
-  const cgFeatures = data.features.map((f, i) => ({
+  // Build CGView features array (annotations only — CDS separate)
+  const cgFeatures: any[] = annotationFeatures.map((f) => ({
     name: f.type === 'arg' ? f.name
       : f.type === 'mobile_element' ? f.label
       : f.type === 'orit' ? 'oriT'
@@ -90,7 +115,7 @@ function buildCGViewJSON(data: PlasmidMapData) {
     type: f.type,
     start: f.start,
     stop: f.end,
-    strand: 1,
+    strand: f.strand ?? 1,
     legend: LEGEND_LABELS[f.type] || f.type,
     source: f.type,
     tags: [f.type],
@@ -101,8 +126,24 @@ function buildCGViewJSON(data: PlasmidMapData) {
     },
   }));
 
-  // Build tracks — one per feature type present, in order
-  const tracks = trackOrder
+  // Add CDS features
+  for (const cds of cdsFeatures) {
+    cgFeatures.push({
+      name: cds.name,
+      type: 'cds',
+      start: cds.start,
+      stop: cds.end,
+      strand: cds.strand ?? 1,
+      legend: 'CDS',
+      source: 'cds',
+      tags: ['cds'],
+      favorite: false,
+      meta: { product: cds.label },
+    });
+  }
+
+  // Build tracks — annotation tracks first, then CDS, then GC plots
+  const tracks: any[] = trackOrder
     .filter((type) => featuresByType[type])
     .map((type) => ({
       name: LEGEND_LABELS[type] || type,
@@ -114,6 +155,42 @@ function buildCGViewJSON(data: PlasmidMapData) {
       drawOrder: 'score',
     }));
 
+  // CDS track (inside, as a gene backbone ring)
+  if (hasCDS) {
+    tracks.push({
+      name: 'CDS',
+      position: 'inside',
+      separateFeaturesBy: 'strand',
+      dataType: 'feature',
+      dataMethod: 'source',
+      dataKeys: 'cds',
+      drawOrder: 'position',
+      thicknessRatio: 0.6,
+    });
+  }
+
+  // GC content and GC skew plot tracks (innermost, auto-computed from sequence)
+  if (hasSequence) {
+    tracks.push(
+      {
+        name: 'GC Content',
+        position: 'inside',
+        dataType: 'plot',
+        dataMethod: 'sequence',
+        dataKeys: 'gc-content',
+        dataOptions: { window: Math.max(100, Math.round(data.size / 500)) },
+      },
+      {
+        name: 'GC Skew',
+        position: 'inside',
+        dataType: 'plot',
+        dataMethod: 'sequence',
+        dataKeys: 'gc-skew',
+        dataOptions: { window: Math.max(100, Math.round(data.size / 500)) },
+      },
+    );
+  }
+
   // Mobility label
   const mobilityLabel = data.predicted_mobility && data.predicted_mobility !== '-'
     ? data.predicted_mobility.charAt(0).toUpperCase() + data.predicted_mobility.slice(1)
@@ -124,10 +201,9 @@ function buildCGViewJSON(data: PlasmidMapData) {
       version: '1.8.0',
       name: `${data.plasmid_id} (${data.contig})`,
       format: 'circular',
-      sequence: {
-        length: data.size,
-        name: data.plasmid_id,
-      },
+      sequence: hasSequence
+        ? { seq: data.sequence, name: data.plasmid_id }
+        : { length: data.size, name: data.plasmid_id },
       settings: {
         backgroundColor: '#FFFFFF',
         backgroundColorAlternate: '#F9FAFB',
@@ -199,7 +275,7 @@ export default function PlasmidMap({ data }: PlasmidMapProps) {
         containerRef.current.innerHTML = '';
 
         const viewer = new CGView.Viewer(`#${containerId}`, {
-          height: 500,
+          height: 550,
           width: containerRef.current.clientWidth || 700,
         });
 
@@ -232,7 +308,7 @@ export default function PlasmidMap({ data }: PlasmidMapProps) {
     if (!viewerRef.current || !containerRef.current) return;
     const ro = new ResizeObserver(() => {
       if (viewerRef.current && containerRef.current) {
-        viewerRef.current.resize(containerRef.current.clientWidth, 500);
+        viewerRef.current.resize(containerRef.current.clientWidth, 550);
       }
     });
     ro.observe(containerRef.current);
@@ -264,14 +340,17 @@ export default function PlasmidMap({ data }: PlasmidMapProps) {
 
   const formatBp = (bp: number) => bp >= 1e6 ? `${(bp/1e6).toFixed(2)} Mb` : bp >= 1e3 ? `${(bp/1e3).toFixed(1)} kb` : `${bp} bp`;
 
-  // Feature summary counts
+  // Feature summary counts (exclude CDS from the summary badges)
   const typeCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const f of data.features) {
+      if (f.type === 'cds') continue;
       counts[f.type] = (counts[f.type] || 0) + 1;
     }
     return counts;
   }, [data.features]);
+
+  const cdsCount = useMemo(() => data.features.filter((f) => f.type === 'cds').length, [data.features]);
 
   return (
     <div className="card">
@@ -292,6 +371,7 @@ export default function PlasmidMap({ data }: PlasmidMapProps) {
                 {Array.from(new Set(data.mpf_type.split(','))).join(', ')}
               </span></span>
             )}
+            {cdsCount > 0 && <span>{cdsCount} CDS</span>}
           </div>
           {/* Feature counts */}
           <div className="flex flex-wrap gap-3 mt-2">
@@ -315,13 +395,13 @@ export default function PlasmidMap({ data }: PlasmidMapProps) {
         <div className="text-center py-8 text-red-400 text-sm">{error}</div>
       ) : (
         <div id={containerId} ref={containerRef} className="w-full rounded-lg overflow-hidden border border-gray-800"
-          style={{ minHeight: 500 }} />
+          style={{ minHeight: 550 }} />
       )}
 
       {/* Feature table */}
       <details className="mt-4">
         <summary className="text-sm text-gray-400 cursor-pointer hover:text-gray-200">
-          Feature details ({data.features.length} features)
+          Feature details ({data.features.filter((f) => f.type !== 'cds').length} annotations, {cdsCount} CDS)
         </summary>
         <div className="mt-2 overflow-x-auto max-h-[400px] overflow-y-auto">
           <table className="w-full text-xs">
@@ -334,7 +414,7 @@ export default function PlasmidMap({ data }: PlasmidMapProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800/50">
-              {data.features.map((f, i) => (
+              {data.features.filter((f) => f.type !== 'cds').map((f, i) => (
                 <tr key={i} className="hover:bg-gray-800/30">
                   <td className="py-1.5 px-2">
                     <span className="inline-flex items-center gap-1">

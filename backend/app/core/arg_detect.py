@@ -87,9 +87,11 @@ def run_amrfinderplus(sample_id: str, assembly_path: str, db, threads: int = 4) 
                     if vf_key in seen_vfs:
                         continue
                     seen_vfs.add(vf_key)
+                    seq_name = row.get("Sequence name", "")
                     vf = VirulenceResult(
                         sample_id=sample_id,
                         gene=gene_name,
+                        description=seq_name if seq_name != gene_name else None,
                         category=drug_class or "virulence",
                         identity=identity,
                         coverage=coverage,

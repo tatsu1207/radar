@@ -7,34 +7,16 @@ set -euo pipefail
 # Installs bioinformatics tools: one base `radar` env plus separate envs only
 # for tools with incompatible dependencies.
 # Requires: mamba (Miniforge)
-# Usage: ./install.sh [-d /path/to/databases] [-t threads]
+# Usage: ./install.sh
+#
+# After installation, run ./databases/download_dbs.sh to download databases.
 # ============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DB_DIR="${SCRIPT_DIR}/databases"
-THREADS=4
-ENVS_ONLY=0
-
-while getopts "d:t:eh" opt; do
-    case $opt in
-        d) DB_DIR="$OPTARG" ;;
-        t) THREADS="$OPTARG" ;;
-        e) ENVS_ONLY=1 ;;
-        h)
-            echo "Usage: $0 [-d database_dir] [-t threads] [-e]"
-            echo "  -d  Database directory (default: ./databases)"
-            echo "  -t  Threads for database indexing (default: 4)"
-            echo "  -e  Envs only (skip database downloads)"
-            exit 0
-            ;;
-        *) exit 1 ;;
-    esac
-done
 
 echo "============================================"
-echo "  RADAR Install"
+echo "  RADAR Install (tools only)"
 echo "============================================"
-echo "  Database dir: ${DB_DIR}"
 echo ""
 
 # --------------------------------------------------------------------------
@@ -52,25 +34,9 @@ fi
 # --------------------------------------------------------------------------
 # 2. Create conda environments
 # --------------------------------------------------------------------------
-echo "[1/3] Creating conda environments..."
+echo "[1/2] Creating conda environments..."
 
 FAIL=0
-
-create_env() {
-    local name=$1; shift
-    if mamba env list 2>/dev/null | grep -qE "^${name}\s"; then
-        echo "  SKIP  ${name} (already exists)"
-        return 0
-    fi
-    echo -n "  ...   ${name}"
-    if "$@" > /tmp/radar_install_${name}.log 2>&1; then
-        echo -e "\r  OK    ${name}"
-    else
-        echo -e "\r  FAIL  ${name} (see /tmp/radar_install_${name}.log)"
-        FAIL=1
-        return 1
-    fi
-}
 
 echo ""
 echo "  --- Base environment (radar) ---"
@@ -250,163 +216,11 @@ else
     echo "  SKIP  radar-busco (already exists)"
 fi
 
-echo ""
-if [ "${FAIL}" -eq 1 ]; then
-    echo "WARNING: Some environments failed. Check /tmp/radar_install_*.log"
-    echo "Re-run this script to retry failed envs (existing ones are skipped)."
-    echo ""
-fi
-
 # --------------------------------------------------------------------------
-# 3. Download databases (skip with -e flag)
-# --------------------------------------------------------------------------
-if [ "${ENVS_ONLY}" -eq 1 ]; then
-    echo "[2/3] Skipping database downloads (-e flag)"
-    echo ""
-    echo "[3/3] Skipping optional tools (-e flag)"
-    echo ""
-    echo "============================================"
-    echo "  RADAR install complete (envs only)!"
-    echo "============================================"
-    exit 0
-fi
-
-echo "[2/3] Downloading databases..."
-mkdir -p "${DB_DIR}"
-
-# AMRFinderPlus database
-echo -n "  AMRFinderPlus database..."
-AMRFINDER_DB_DIR="${DB_DIR}/amrfinderplus"
-if [ -d "${AMRFINDER_DB_DIR}" ] && [ -f "${AMRFINDER_DB_DIR}/AMRProt" ]; then
-    echo " exists"
-else
-    AMRFINDER_BIN_DIR="$(conda run -n radar bash -c 'echo ${CONDA_PREFIX}/bin')"
-    if conda run -n radar amrfinder --update > /tmp/radar_db_amrfinder.log 2>&1; then
-        ln -sfn "${AMRFINDER_BIN_DIR}/data/latest" "${AMRFINDER_DB_DIR}" 2>/dev/null
-        echo " done"
-    else
-        echo ""
-        echo "    amrfinder --update failed; downloading manually..."
-        AMRFINDER_FTP="https://ftp.ncbi.nlm.nih.gov/pathogen/Antimicrobial_resistance/AMRFinderPlus/database/latest"
-        mkdir -p "${AMRFINDER_DB_DIR}"
-        FILE_LIST=$(curl -sL "${AMRFINDER_FTP}/" | grep -oP 'href="([^"/]+)"' | sed 's/href="//;s/"//' | grep -v '/$')
-        for f in $FILE_LIST; do
-            curl -sfL "${AMRFINDER_FTP}/${f}" -o "${AMRFINDER_DB_DIR}/${f}" 2>/dev/null || true
-        done
-        if [ -f "${AMRFINDER_DB_DIR}/AMRProt.fa" ]; then
-            conda run -n radar makeblastdb -in "${AMRFINDER_DB_DIR}/AMRProt.fa" -dbtype prot -out "${AMRFINDER_DB_DIR}/AMRProt.fa" >> /tmp/radar_db_amrfinder.log 2>&1 || true
-            conda run -n radar makeblastdb -in "${AMRFINDER_DB_DIR}/AMR_CDS.fa" -dbtype nucl -out "${AMRFINDER_DB_DIR}/AMR_CDS.fa" >> /tmp/radar_db_amrfinder.log 2>&1 || true
-            for dna_fa in "${AMRFINDER_DB_DIR}"/AMR_DNA-*.fa; do
-                [ -f "$dna_fa" ] && conda run -n radar makeblastdb -in "$dna_fa" -dbtype nucl -out "$dna_fa" >> /tmp/radar_db_amrfinder.log 2>&1 || true
-            done
-            [ -f "${AMRFINDER_DB_DIR}/amr_targets.fa" ] && conda run -n radar makeblastdb -in "${AMRFINDER_DB_DIR}/amr_targets.fa" -dbtype nucl -out "${AMRFINDER_DB_DIR}/amr_targets.fa" >> /tmp/radar_db_amrfinder.log 2>&1 || true
-            conda run -n radar hmmpress -f "${AMRFINDER_DB_DIR}/AMR.LIB" >> /tmp/radar_db_amrfinder.log 2>&1 || true
-        fi
-        if [ -f "${AMRFINDER_DB_DIR}/AMRProt.fa" ]; then
-            mkdir -p "${AMRFINDER_BIN_DIR}/data"
-            ln -sfn "${AMRFINDER_DB_DIR}" "${AMRFINDER_BIN_DIR}/data/latest" 2>/dev/null
-            echo "    done (manual download)"
-        else
-            echo "    FAILED"
-        fi
-    fi
-fi
-
-# geNomad database (~3.5 GB)
-echo -n "  geNomad database..."
-if [ -d "${DB_DIR}/genomad_db" ]; then
-    echo " exists"
-else
-    if conda run -n radar-genomad genomad download-database "${DB_DIR}" > /tmp/radar_db_genomad.log 2>&1; then
-        echo " done"
-    else
-        echo " FAILED (see /tmp/radar_db_genomad.log)"
-    fi
-fi
-
-# skani GTDB sketch database (~30 GB compressed, ~50 GB uncompressed)
-# Skipped by default — too large for auto-download. 16S BLAST is used as fallback.
-# To install manually:
-#   mkdir -p ${DB_DIR}/skani
-#   curl -L -o ${DB_DIR}/skani/skani_gtdb_r226-v0.3.tar.gz http://faust.compbio.cs.cmu.edu/skani-files/skani_gtdb_r226-v0.3.tar.gz
-#   tar xzf ${DB_DIR}/skani/skani_gtdb_r226-v0.3.tar.gz -C ${DB_DIR}/skani && rm ${DB_DIR}/skani/skani_gtdb_r226-v0.3.tar.gz
-echo "  skani GTDB database... skipped (30 GB, optional — see install.sh for manual instructions)"
-
-# NCBI 16S rRNA BLAST database
-echo -n "  16S rRNA BLAST database..."
-if [ -f "${DB_DIR}/16S/16S_ribosomal_RNA.ndb" ]; then
-    echo " exists"
-else
-    mkdir -p "${DB_DIR}/16S"
-    if (cd "${DB_DIR}/16S" && \
-        curl -sL -O "https://ftp.ncbi.nlm.nih.gov/blast/db/16S_ribosomal_RNA.tar.gz" \
-        && tar xzf 16S_ribosomal_RNA.tar.gz \
-        && rm 16S_ribosomal_RNA.tar.gz); then
-        echo " done"
-    else
-        echo " FAILED"
-    fi
-fi
-
-# MOB-suite database
-echo -n "  MOB-suite database..."
-if conda run -n radar-mobsuite mob_init > /tmp/radar_db_mobsuite.log 2>&1; then
-    echo " done"
-else
-    echo " FAILED (will auto-download on first run)"
-fi
-
-# PointFinder database
-echo -n "  PointFinder database..."
-if [ -d "${DB_DIR}/pointfinder_db" ]; then
-    echo " exists"
-else
-    if git clone --quiet https://bitbucket.org/genomicepidemiology/pointfinder_db.git "${DB_DIR}/pointfinder_db" 2>/dev/null; then
-        echo " done"
-    else
-        echo " FAILED"
-    fi
-fi
-
-# ResFinder database
-echo -n "  ResFinder database..."
-if [ -d "${DB_DIR}/resfinder_db" ]; then
-    echo " exists"
-else
-    if git clone --quiet https://bitbucket.org/genomicepidemiology/resfinder_db.git "${DB_DIR}/resfinder_db" 2>/dev/null; then
-        echo " done"
-    else
-        echo " FAILED"
-    fi
-fi
-
-# Rfam CM database (for sRNA annotation via cmscan)
-echo -n "  Rfam database..."
-if [ -f "${DB_DIR}/Rfam.cm" ]; then
-    echo " exists"
-else
-    if curl -sL -o "${DB_DIR}/Rfam.cm.gz" "https://ftp.ebi.ac.uk/pub/databases/Rfam/CURRENT/Rfam.cm.gz" \
-        && gunzip "${DB_DIR}/Rfam.cm.gz" \
-        && conda run -n radar cmpress "${DB_DIR}/Rfam.cm" > /dev/null 2>&1; then
-        echo " done"
-    else
-        echo " FAILED"
-    fi
-fi
-
-# DefenseFinder models
-echo -n "  DefenseFinder models..."
-if conda run -n radar defense-finder update > /tmp/radar_db_defense.log 2>&1; then
-    echo " done"
-else
-    echo " FAILED (see /tmp/radar_db_defense.log)"
-fi
-
-# --------------------------------------------------------------------------
-# 4. BPROM binary (optional)
+# 3. BPROM binary (optional)
 # --------------------------------------------------------------------------
 echo ""
-echo "[3/3] Checking optional tools..."
+echo "[2/2] Checking optional tools..."
 
 BPROM_BIN=""
 if [ -d /tmp/bprom ] || [ -f /tmp/bprom ]; then
@@ -428,11 +242,15 @@ fi
 # Done
 # --------------------------------------------------------------------------
 echo ""
+if [ "${FAIL}" -eq 1 ]; then
+    echo "WARNING: Some environments failed. Check /tmp/radar_install_*.log"
+    echo "Re-run this script to retry failed envs (existing ones are skipped)."
+    echo ""
+fi
+
 echo "============================================"
-echo "  RADAR install complete!"
+echo "  RADAR install complete (tools only)!"
 echo "============================================"
-echo ""
-echo "  Databases: ${DB_DIR}"
 echo ""
 echo "  Conda environments installed:"
 echo "    Base:     radar (fastp, chopper, flye, spades, polypolish, bwa,"
@@ -443,6 +261,6 @@ echo "              OSTIR, AMRFinderPlus)"
 echo "    Separate: radar-sistr, radar-quast, radar-mobsuite,"
 echo "              radar-mefinder, radar-medaka, radar-genomad, radar-busco"
 echo ""
-echo "  Run the pipeline:"
-echo "    ./pipeline.sh -1 sample_R1.fastq.gz -2 sample_R2.fastq.gz -o results/"
+echo "  Next step: download databases"
+echo "    ./databases/download_dbs.sh"
 echo ""

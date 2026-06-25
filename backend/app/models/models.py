@@ -356,6 +356,7 @@ class VirulenceResult(Base):
     id = Column(UUID, primary_key=True, default=uuid.uuid4)
     sample_id = Column(UUID, ForeignKey("samples.id", ondelete="CASCADE"), nullable=False)
     gene = Column(String(255), nullable=False)
+    description = Column(String(512), nullable=True)
     category = Column(String(255), nullable=True)
     identity = Column(Float, nullable=True)
     coverage = Column(Float, nullable=True)

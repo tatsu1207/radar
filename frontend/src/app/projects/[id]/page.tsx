@@ -174,6 +174,9 @@ export default function ProjectDetailPage() {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-gray-100">Samples</h2>
           <div className="flex items-center gap-2">
+            <Link href={`/projects/${projectId}/comparison`} className="btn-secondary flex items-center gap-2 text-sm">
+              Comparison
+            </Link>
             <Link href={`/projects/${projectId}/files`} className="btn-primary flex items-center gap-2 text-sm">
               <FolderOpen className="w-4 h-4" />
               File Manager

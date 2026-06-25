@@ -18,6 +18,30 @@ echo ""
 echo "  Ports: frontend=${PORT_FRONTEND} backend=${PORT_BACKEND} pg=${PORT_PG} redis=${PORT_REDIS}"
 echo ""
 
+# ── Stop existing app processes (restart-safe) ────────────────────────────
+# PostgreSQL and Redis are left running — they handle reconnection fine.
+# Only restart Celery, backend, and frontend to pick up code changes.
+RESTARTING=0
+if [ -f "${PID_FILE}" ]; then
+    source "${PID_FILE}"
+    for pid_var in CELERY_PID CELERY_DEFAULT_PID BACKEND_PID FRONTEND_PID; do
+        pid="${!pid_var:-}"
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null || true
+            RESTARTING=1
+        fi
+    done
+    # Also kill by process name in case PIDs are stale
+    pkill -f "celery.*app.celery_app" 2>/dev/null || true
+    pkill -f "uvicorn.*app.main" 2>/dev/null || true
+    pkill -f "next-router-worker" 2>/dev/null || true
+    rm -f "${PID_FILE}"
+    if [ "${RESTARTING}" -eq 1 ]; then
+        echo "Stopped previous RADAR processes."
+        sleep 1
+    fi
+fi
+
 # ── PostgreSQL ────────────────────────────────────────────────────────────
 if ! pg_isready -h localhost -p "${PORT_PG}" -q 2>/dev/null; then
     echo "Starting PostgreSQL on port ${PORT_PG}..."
@@ -82,6 +106,7 @@ FRONTEND_PID=$!
 # ── Save PIDs ─────────────────────────────────────────────────────────────
 cat > "${PID_FILE}" << EOF
 CELERY_PID=${CELERY_PID}
+CELERY_DEFAULT_PID=${CELERY_DEFAULT_PID}
 BACKEND_PID=${BACKEND_PID}
 FRONTEND_PID=${FRONTEND_PID}
 EOF
@@ -97,5 +122,5 @@ echo "  PostgreSQL: localhost:${PORT_PG}"
 echo "  Redis:      localhost:${PORT_REDIS}"
 echo ""
 echo "  Logs:     ${LOG_DIR}/"
-echo "  Stop:     ./stop_dev.sh"
+echo "  Stop:     ./stop.sh"
 echo ""

@@ -213,10 +213,10 @@ export default function ResultsPage() {
                 </th>
                 <th className="table-header">Sample</th>
                 <th className="table-header">Species</th>
-                <th className="table-header">Resistance Profile</th>
+                <th className="table-header">ARG</th>
+                <th className="table-header">MRG</th>
                 <th className="table-header">VFs</th>
                 <th className="table-header">Plasmids</th>
-                <th className="table-header">Biocide/Metal</th>
                 <th className="table-header text-center">Export</th>
               </tr>
             </thead>
@@ -249,7 +249,18 @@ export default function ResultsPage() {
                       {summary ? (
                         summary.drug_resistance.length > 0 ? (
                           <span className="text-red-400">{summary.drug_resistance.join(', ')}</span>
-                        ) : <span className="text-gray-500">none detected</span>
+                        ) : <span className="text-gray-500">-</span>
+                      ) : <span className="text-gray-600 text-xs">...</span>}
+                    </td>
+                    <td className="table-cell text-sm">
+                      {summary ? (
+                        summary.bacmet && summary.bacmet.length > 0 ? (() => {
+                          const compounds = Array.from(new Set(summary.bacmet.map((b) => b.compound).filter(Boolean)));
+                          const specific = compounds.filter((c) => !c.toLowerCase().includes('efflux') && !c.toLowerCase().includes('stress'));
+                          const nEfflux = compounds.length - specific.length;
+                          const display = [...specific, ...(nEfflux > 0 ? [`${nEfflux} efflux`] : [])];
+                          return <span className="text-orange-300 text-xs">{display.join(', ') || `${summary.bacmet.length} genes`}</span>;
+                        })() : <span className="text-gray-500">-</span>
                       ) : <span className="text-gray-600 text-xs">...</span>}
                     </td>
                     <td className="table-cell text-sm">
@@ -267,18 +278,6 @@ export default function ResultsPage() {
                       ) : (
                         <span className="text-gray-600 text-xs">...</span>
                       )}
-                    </td>
-                    <td className="table-cell text-sm">
-                      {summary ? (
-                        summary.bacmet && summary.bacmet.length > 0 ? (() => {
-                          const compounds = Array.from(new Set(summary.bacmet.map((b) => b.compound).filter(Boolean)));
-                          // Show specific compounds first, then count generic efflux
-                          const specific = compounds.filter((c) => !c.toLowerCase().includes('efflux') && !c.toLowerCase().includes('stress'));
-                          const nEfflux = compounds.length - specific.length;
-                          const display = [...specific, ...(nEfflux > 0 ? [`${nEfflux} efflux`] : [])];
-                          return <span className="text-gray-300 text-xs">{display.join(', ') || `${summary.bacmet.length} genes`}</span>;
-                        })() : <span className="text-gray-600">-</span>
-                      ) : <span className="text-gray-600 text-xs">...</span>}
                     </td>
                     <td className="table-cell text-center" onClick={(e) => e.stopPropagation()}>
                       <button

@@ -24,6 +24,7 @@ from app.models.models import (
     MLSTResult,
     SerotypeResult,
     BacMetResult,
+    CgMLSTResult,
 )
 from app.schemas.schemas import (
     ARGResultRead,
@@ -265,6 +266,174 @@ def get_heatmap_data(project_id: uuid.UUID, db: Session = Depends(get_db)):
     }
 
 
+# ── Phylogeny / genomic comparison ─────────────────────────────────────────
+
+def _allelic_distance(profile_a: dict, profile_b: dict) -> tuple:
+    """Compute allelic distance between two cgMLST profiles.
+
+    Returns (distance, shared_loci) where distance = number of differing alleles
+    among loci present in both profiles (exact integer calls only).
+    """
+    shared = 0
+    diff = 0
+    for locus in profile_a:
+        if locus not in profile_b:
+            continue
+        a_val = profile_a[locus]
+        b_val = profile_b[locus]
+        # Only compare exact allele calls (integers)
+        try:
+            int(a_val)
+            int(b_val)
+        except (ValueError, TypeError):
+            continue
+        shared += 1
+        if str(a_val) != str(b_val):
+            diff += 1
+    return diff, shared
+
+
+def _neighbor_joining(names: list, dist_matrix: list) -> str:
+    """Simple neighbor-joining algorithm returning a Newick tree string."""
+    n = len(names)
+    if n == 0:
+        return ";"
+    if n == 1:
+        return f"({names[0]}:0);"
+    if n == 2:
+        d = dist_matrix[0][1]
+        return f"({names[0]}:{d/2:.1f},{names[1]}:{d/2:.1f});"
+
+    # Working copies
+    nodes = list(names)
+    D = [row[:] for row in dist_matrix]
+    node_counter = 0
+
+    while len(nodes) > 2:
+        m = len(nodes)
+        # Compute r (sum of distances for each node)
+        r = [sum(D[i]) for i in range(m)]
+
+        # Find pair with minimum Q
+        min_q = float('inf')
+        min_i, min_j = 0, 1
+        for i in range(m):
+            for j in range(i + 1, m):
+                q = (m - 2) * D[i][j] - r[i] - r[j]
+                if q < min_q:
+                    min_q = q
+                    min_i, min_j = i, j
+
+        # Branch lengths
+        dij = D[min_i][min_j]
+        if m > 2:
+            d_iu = dij / 2 + (r[min_i] - r[min_j]) / (2 * (m - 2))
+        else:
+            d_iu = dij / 2
+        d_ju = dij - d_iu
+        d_iu = max(0, d_iu)
+        d_ju = max(0, d_ju)
+
+        # New node
+        new_name = f"({nodes[min_i]}:{d_iu:.1f},{nodes[min_j]}:{d_ju:.1f})"
+
+        # Compute distances from new node to all others
+        new_row = []
+        for k in range(m):
+            if k == min_i or k == min_j:
+                new_row.append(0)
+            else:
+                d_new = (D[min_i][k] + D[min_j][k] - dij) / 2
+                new_row.append(max(0, d_new))
+
+        # Remove i and j (j > i), add new node
+        indices = [k for k in range(m) if k != min_i and k != min_j]
+        new_nodes = [nodes[k] for k in indices] + [new_name]
+        new_D = []
+        for a_idx in indices:
+            row = [D[a_idx][b_idx] for b_idx in indices]
+            row.append(new_row[a_idx])
+            new_D.append(row)
+        # Last row for new node
+        last_row = [new_row[k] for k in indices] + [0]
+        new_D.append(last_row)
+
+        nodes = new_nodes
+        D = new_D
+
+    # Final two nodes
+    d = D[0][1]
+    return f"({nodes[0]}:{d/2:.1f},{nodes[1]}:{d/2:.1f});"
+
+
+@router.get("/projects/{project_id}/phylogeny")
+def get_phylogeny(project_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Compute cgMLST-based phylogeny for all samples in a project."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Get all samples with cgMLST profiles
+    samples = db.query(Sample).filter(Sample.project_id == project_id).all()
+    profiles = []
+    for s in samples:
+        cg = db.query(CgMLSTResult).filter(CgMLSTResult.sample_id == s.id).first()
+        if cg and cg.allelic_profile:
+            # Get species and ST for annotation
+            species = db.query(SpeciesResult).filter(SpeciesResult.sample_id == s.id).first()
+            mlst = db.query(MLSTResult).filter(MLSTResult.sample_id == s.id).first()
+            profiles.append({
+                "sample_id": str(s.id),
+                "name": s.name,
+                "species": species.species if species else None,
+                "st": mlst.sequence_type if mlst else None,
+                "profile": cg.allelic_profile,
+                "loci_found": cg.loci_found,
+                "loci_total": cg.loci_total,
+            })
+
+    if len(profiles) < 2:
+        return {
+            "newick": "",
+            "samples": [p["name"] for p in profiles],
+            "distance_matrix": [],
+            "sample_info": profiles,
+            "message": "Need at least 2 samples with cgMLST profiles for comparison",
+        }
+
+    # Compute pairwise distance matrix
+    n = len(profiles)
+    names = [p["name"] for p in profiles]
+    dist_matrix = [[0] * n for _ in range(n)]
+    shared_matrix = [[0] * n for _ in range(n)]
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            diff, shared = _allelic_distance(profiles[i]["profile"], profiles[j]["profile"])
+            dist_matrix[i][j] = diff
+            dist_matrix[j][i] = diff
+            shared_matrix[i][j] = shared
+            shared_matrix[j][i] = shared
+
+    # Build neighbor-joining tree
+    newick = _neighbor_joining(names, dist_matrix)
+
+    return {
+        "newick": newick,
+        "samples": names,
+        "distance_matrix": dist_matrix,
+        "shared_loci": shared_matrix,
+        "sample_info": [{
+            "name": p["name"],
+            "sample_id": p["sample_id"],
+            "species": p["species"],
+            "st": p["st"],
+            "loci_found": p["loci_found"],
+            "loci_total": p["loci_total"],
+        } for p in profiles],
+    }
+
+
 @router.get("/samples/{sample_id}/is-elements")
 def get_is_elements(
     sample_id: uuid.UUID,
@@ -294,8 +463,8 @@ def get_is_elements(
             "contig": contig_id,
             "start": min(m.start, m.end),
             "end": max(m.start, m.end),
-            "is_name": m.element_type or "",
-            "is_family": m.family or "",
+            "is_name": m.family or m.element_type or "",
+            "is_family": m.element_type or "",
             "molecule_type": "",
             "plasmid_id": "",
         })
@@ -396,10 +565,13 @@ def get_is_elements(
         region_end = region_end + 500
 
         # Build features list for this region
+        is_label = is_el["is_name"]
+        if is_el["is_family"] and is_el["is_family"] != is_el["is_name"]:
+            is_label += f" ({is_el['is_family']})"
         features = [{
             "type": "mobile_element",
             "name": is_el["is_name"],
-            "label": is_el["is_family"],
+            "label": is_label,
             "family": is_el["is_family"],
             "start": is_el["start"],
             "end": is_el["end"],
@@ -424,10 +596,13 @@ def get_is_elements(
             if other["contig"] != is_el["contig"]:
                 continue
             if other["end"] >= region_start and other["start"] <= region_end:
+                other_label = other["is_name"]
+                if other["is_family"] and other["is_family"] != other["is_name"]:
+                    other_label += f" ({other['is_family']})"
                 features.append({
                     "type": "mobile_element",
                     "name": other["is_name"],
-                    "label": other["is_family"],
+                    "label": other_label,
                     "family": other["is_family"],
                     "start": other["start"],
                     "end": other["end"],
@@ -675,6 +850,51 @@ def get_linear_map(sample_id: uuid.UUID, db: Session = Depends(get_db)):
     return result
 
 
+def _parse_gff_cds(gff_path: str, target_contigs: set) -> Dict[str, list]:
+    """Parse a GFF3 file and extract CDS features for target contigs."""
+    cds_by_contig: Dict[str, list] = {}
+    if not os.path.exists(gff_path):
+        return cds_by_contig
+    with open(gff_path) as f:
+        for line in f:
+            if line.startswith("#"):
+                if line.startswith("##FASTA"):
+                    break
+                continue
+            parts = line.strip().split("\t")
+            if len(parts) < 9 or parts[2] != "CDS":
+                continue
+            contig = parts[0].split()[0]
+            if contig not in target_contigs:
+                continue
+            try:
+                start = int(parts[3])
+                end = int(parts[4])
+            except (ValueError, TypeError):
+                continue
+            strand = 1 if parts[6] == "+" else -1
+            attrs = parts[8]
+            name = ""
+            product = ""
+            for attr in attrs.split(";"):
+                if attr.startswith("Name="):
+                    name = attr[5:]
+                elif attr.startswith("gene="):
+                    name = name or attr[5:]
+                elif attr.startswith("product="):
+                    product = attr[8:]
+            cds_by_contig.setdefault(contig, []).append({
+                "type": "cds",
+                "name": name or "CDS",
+                "label": product or name or "CDS",
+                "family": "",
+                "start": min(start, end),
+                "end": max(start, end),
+                "strand": strand,
+            })
+    return cds_by_contig
+
+
 @router.get("/samples/{sample_id}/plasmid-map")
 def get_plasmid_map(sample_id: uuid.UUID, db: Session = Depends(get_db)):
     """Return plasmid map data: contigs with ARGs, IS elements, prophages mapped."""
@@ -715,6 +935,24 @@ def get_plasmid_map(sample_id: uuid.UUID, db: Session = Depends(get_db)):
 
     if not plasmid_contigs:
         return []
+
+    # Load assembly sequences for plasmid contigs (for GC content/skew)
+    assembly_path = os.path.join(settings.RESULTS_DIR, str(sample_id), "assembly", "assembly.fasta")
+    contig_seqs: Dict[str, str] = {}
+    if os.path.exists(assembly_path):
+        all_seqs = _parse_assembly_fasta(assembly_path)
+        contig_seqs = {cid: seq for cid, seq in all_seqs.items() if cid in plasmid_contigs}
+
+    # Load CDS annotations from GFF (Prodigal or Bakta)
+    gff_candidates = [
+        os.path.join(settings.RESULTS_DIR, str(sample_id), "bakta", "annotation.gff3"),
+        os.path.join(settings.RESULTS_DIR, str(sample_id), "annotation", "prodigal.gff"),
+    ]
+    cds_by_contig: Dict[str, list] = {}
+    for gff_path in gff_candidates:
+        cds_by_contig = _parse_gff_cds(gff_path, set(plasmid_contigs.keys()))
+        if cds_by_contig:
+            break
 
     # Parse MGE report for IS elements on plasmid contigs
     mge_features = {}  # contig_id -> list of features
@@ -855,6 +1093,10 @@ def get_plasmid_map(sample_id: uuid.UUID, db: Session = Depends(get_db)):
         for cf in conjugation_features.get(contig_id, []):
             features.append(cf)
 
+        # CDS annotations
+        for cds in cds_by_contig.get(contig_id, []):
+            features.append(cds)
+
         # Prophages
         for ph in prophages:
             ph_contig = ph.contig.split()[0] if ph.contig else ""
@@ -888,6 +1130,7 @@ def get_plasmid_map(sample_id: uuid.UUID, db: Session = Depends(get_db)):
             "plasmid_id": pinfo["plasmid_id"],
             "contig": contig_id,
             "size": pinfo["size"],
+            "sequence": contig_seqs.get(contig_id, ""),
             "replicon": pinfo["replicon"],
             "mob_type": pinfo["mob_type"],
             "mpf_type": pinfo["mpf_type"],
@@ -905,6 +1148,7 @@ def get_plasmid_map(sample_id: uuid.UUID, db: Session = Depends(get_db)):
                 "plasmid_id": pid,
                 "contig": entry["contig"],
                 "size": entry["size"],
+                "sequence": entry.get("sequence", ""),
                 "replicon": entry["replicon"],
                 "mob_type": entry["mob_type"],
                 "mpf_type": entry["mpf_type"],
@@ -916,6 +1160,7 @@ def get_plasmid_map(sample_id: uuid.UUID, db: Session = Depends(get_db)):
             g = grouped[pid]
             g["size"] += entry["size"]
             g["contig"] += f", {entry['contig']}"
+            g["sequence"] = g.get("sequence", "") + entry.get("sequence", "")
             # Merge features, offsetting positions by accumulated size
             offset = g["size"] - entry["size"]
             for f in entry["features"]:
@@ -1093,6 +1338,91 @@ def export_sample_annotations_tsv(sample_id: uuid.UUID, db: Session = Depends(ge
     )
 
 
+# ── Gene sequence download ─────────────────────────────────────────────────
+
+def _parse_assembly_fasta(fasta_path: str) -> Dict[str, str]:
+    """Parse a FASTA file into a dict of contig_id -> sequence."""
+    contigs: Dict[str, str] = {}
+    current_id = ""
+    chunks: list = []
+    with open(fasta_path) as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if line.startswith(">"):
+                if current_id:
+                    contigs[current_id] = "".join(chunks)
+                current_id = line[1:].split()[0]
+                chunks = []
+            else:
+                chunks.append(line)
+    if current_id:
+        contigs[current_id] = "".join(chunks)
+    return contigs
+
+
+@router.get("/samples/{sample_id}/gene-sequences")
+def download_gene_sequences(
+    sample_id: uuid.UUID,
+    type: str = Query(default="all", description="arg, virulence, bacmet, or all"),
+    db: Session = Depends(get_db),
+):
+    """Download detected gene sequences as a FASTA file."""
+    sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+
+    assembly_path = os.path.join(settings.RESULTS_DIR, str(sample_id), "assembly", "assembly.fasta")
+    if not os.path.exists(assembly_path):
+        raise HTTPException(status_code=404, detail="Assembly not found")
+
+    contigs = _parse_assembly_fasta(assembly_path)
+
+    output = io.StringIO()
+    gene_count = 0
+
+    if type in ("arg", "all"):
+        for a in db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all():
+            cid = a.contig.split()[0] if a.contig else ""
+            if cid not in contigs or not a.start or not a.end:
+                continue
+            seq = contigs[cid][a.start - 1 : a.end]  # 1-based coordinates
+            header = f">{a.gene} contig={cid} start={a.start} end={a.end} type=ARG drug_class={a.drug_class or ''}"
+            output.write(f"{header}\n{seq}\n")
+            gene_count += 1
+
+    if type in ("virulence", "all"):
+        for v in db.query(VirulenceResult).filter(VirulenceResult.sample_id == sample_id).all():
+            cid = v.contig.split()[0] if v.contig else ""
+            if cid not in contigs or not v.start or not v.end:
+                continue
+            seq = contigs[cid][v.start - 1 : v.end]
+            desc = f" description={v.description}" if v.description else ""
+            header = f">{v.gene} contig={cid} start={v.start} end={v.end} type=VF category={v.category or ''}{desc}"
+            output.write(f"{header}\n{seq}\n")
+            gene_count += 1
+
+    if type in ("bacmet", "all"):
+        for b in db.query(BacMetResult).filter(BacMetResult.sample_id == sample_id).all():
+            cid = b.contig.split()[0] if b.contig else ""
+            if cid not in contigs or not b.start or not b.end:
+                continue
+            seq = contigs[cid][b.start - 1 : b.end]
+            header = f">{b.gene} contig={cid} start={b.start} end={b.end} type=MRG compound={b.compound or ''}"
+            output.write(f"{header}\n{seq}\n")
+            gene_count += 1
+
+    if gene_count == 0:
+        raise HTTPException(status_code=404, detail="No gene sequences found")
+
+    filename = f"{sample.name}_{type}_sequences.fasta"
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="application/x-fasta",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
 @router.get("/export/annotations")
 def export_all_annotations(
     sample_ids: str = Query(..., description="Comma-separated sample UUIDs"),
@@ -1128,11 +1458,11 @@ def export_all_annotations(
         # Virulence
         out = io.StringIO()
         w = csv.writer(out, delimiter="\t")
-        w.writerow(["sample", "gene", "category", "identity", "coverage", "contig", "start", "end"])
+        w.writerow(["sample", "gene", "description", "category", "identity", "coverage", "contig", "start", "end"])
         for sid in ids:
             name = sample_names.get(sid, sid)
             for v in db.query(VirulenceResult).filter(VirulenceResult.sample_id == sid).all():
-                w.writerow([name, v.gene, v.category, v.identity, v.coverage, v.contig, v.start, v.end])
+                w.writerow([name, v.gene, v.description or "", v.category, v.identity, v.coverage, v.contig, v.start, v.end])
         zf.writestr("virulence.tsv", out.getvalue())
 
         # Plasmids

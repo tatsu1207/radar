@@ -121,54 +121,20 @@ Also supports SRA accession fetch and BV-BRC genome import.
 git clone https://github.com/tatsu1207/radar.git
 cd radar
 
-# Install all tools (6 conda environments + 8 databases, CPU-only)
+# Install tools (conda environments, CPU-only)
 ./install.sh
 
+# Download reference databases
+./databases/download_dbs.sh
+
 # Start all services
-./start_dev.sh
+./start.sh
 
 # Stop
-./stop_dev.sh
+./stop.sh
 ```
 
-### Option 2: Docker
-
-```bash
-git clone https://github.com/tatsu1207/radar.git
-cd radar
-./docker-start.sh    # start (UID-based ports, multi-user safe)
-./docker-stop.sh     # stop
-```
-
-The first run pulls ~13 GB of images (the worker image contains all bioinformatics tools). Subsequent starts are instant. Reference databases (~10 GB) are stored in a Docker volume and downloaded on first pipeline run.
-
-**Optional: skani GTDB database** — For more accurate species identification via ANI (instead of 16S BLAST fallback), install the skani GTDB sketch database (~30 GB compressed, ~50 GB uncompressed):
-
-```bash
-docker compose exec worker bash -c "
-  mkdir -p /databases/skani &&
-  curl -L -o /databases/skani/skani_gtdb_r226-v0.3.tar.gz \
-    http://faust.compbio.cs.cmu.edu/skani-files/skani_gtdb_r226-v0.3.tar.gz &&
-  tar xzf /databases/skani/skani_gtdb_r226-v0.3.tar.gz -C /databases/skani &&
-  rm /databases/skani/skani_gtdb_r226-v0.3.tar.gz
-"
-```
-
-**Mounting host data:** By default, Docker containers cannot access files on the host machine. To use the **Add from Server** button to browse and import local data (e.g., FASTQ files), create a `docker-compose.override.yml` in the project root:
-
-```yaml
-services:
-  backend:
-    volumes:
-      - /path/to/your/data:/host-data:ro
-  worker:
-    volumes:
-      - /path/to/your/data:/host-data
-```
-
-Replace `/path/to/your/data` with the actual host directory (e.g., `/data`, `/home/user/sequencing`). Then restart: `./docker-stop.sh && ./docker-start.sh`. Your files will appear under `/host-data/` in the server file browser. This file is machine-specific and excluded from git.
-
-**Multi-user isolation:** `docker-start.sh` assigns unique ports, container names, and volumes per user (based on UID), so multiple users on the same machine can run RADAR simultaneously without conflicts.
+Ports are derived from UID for multi-user machines: frontend=7200+UID, backend=7210+UID, PostgreSQL=7220+UID, Redis=7230+UID.
 
 ### Access
 
@@ -231,8 +197,8 @@ radar/
       lib/api.ts     # Backend API client
   install.sh         # Install all conda envs + databases
   pipeline.sh        # Standalone CLI pipeline (no web UI)
-  start_dev.sh       # Start all services
-  stop_dev.sh        # Stop all services
+  start.sh           # Start all services
+  stop.sh            # Stop all services
   databases/         # Reference databases (auto-downloaded by install.sh)
 ```
 

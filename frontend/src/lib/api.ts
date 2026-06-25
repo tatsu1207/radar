@@ -70,6 +70,7 @@ export interface VirulenceResult {
   id: string;
   sample_id: string;
   gene: string;
+  description?: string;
   category: string;
   identity: number;
   coverage: number;
@@ -292,18 +293,20 @@ export async function getLinearMap(sampleId: string): Promise<LinearMapContig[]>
 }
 
 export interface PlasmidMapFeature {
-  type: 'arg' | 'mobile_element' | 'prophage' | 'relaxase' | 'orit' | 't4ss' | 'replicon';
+  type: 'arg' | 'virulence' | 'mobile_element' | 'prophage' | 'relaxase' | 'orit' | 't4ss' | 'replicon' | 'cds';
   name: string;
   label: string;
   family: string;
   start: number;
   end: number;
+  strand?: number;
 }
 
 export interface PlasmidMapData {
   plasmid_id: string;
   contig: string;
   size: number;
+  sequence?: string;
   replicon: string;
   mob_type: string;
   mpf_type: string;
@@ -330,6 +333,26 @@ export async function getVirulence(sampleId: string): Promise<VirulenceResult[]>
 
 export async function getHeatmap(projectId: string): Promise<HeatmapData> {
   return fetchAPI<HeatmapData>(`/api/projects/${projectId}/heatmap`);
+}
+
+export interface PhylogenyData {
+  newick: string;
+  samples: string[];
+  distance_matrix: number[][];
+  shared_loci?: number[][];
+  sample_info: {
+    name: string;
+    sample_id: string;
+    species: string | null;
+    st: string | null;
+    loci_found: number | null;
+    loci_total: number | null;
+  }[];
+  message?: string;
+}
+
+export async function getPhylogeny(projectId: string): Promise<PhylogenyData> {
+  return fetchAPI<PhylogenyData>(`/api/projects/${projectId}/phylogeny`);
 }
 
 export async function exportCSV(sampleId: string): Promise<Blob> {

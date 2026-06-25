@@ -262,7 +262,12 @@ export default function LinearGenomeMap({
           <div className="px-3 py-1.5 bg-gray-800/90 border border-gray-700 rounded text-xs inline-block">
             <span className="font-medium text-gray-100">{hoveredFeature.name}</span>
             <span className="text-gray-400 ml-2">{TRACK_COLORS[hoveredFeature.type]?.label || hoveredFeature.type}</span>
-            {hoveredFeature.label && <span className="text-gray-500 ml-2">{hoveredFeature.label}</span>}
+            {hoveredFeature.family && hoveredFeature.family !== hoveredFeature.name && (
+              <span className="text-gray-500 ml-2">{hoveredFeature.family} family</span>
+            )}
+            {hoveredFeature.label && hoveredFeature.label !== hoveredFeature.name && !hoveredFeature.label.includes(hoveredFeature.name) && (
+              <span className="text-gray-500 ml-2">{hoveredFeature.label}</span>
+            )}
             <span className="text-gray-500 ml-2 font-mono">{hoveredFeature.start.toLocaleString()}-{hoveredFeature.end.toLocaleString()}</span>
           </div>
         )}

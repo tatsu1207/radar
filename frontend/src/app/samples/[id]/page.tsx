@@ -273,18 +273,43 @@ export default function SampleDetailPage() {
             )}
           </div>
 
-          {/* Drug Resistance */}
-          {summary && summary.drug_resistance && summary.drug_resistance.length > 0 && (
+          {/* Resistance Profile: ARG + MRG */}
+          {summary && ((summary.drug_resistance && summary.drug_resistance.length > 0) || (summary.bacmet && summary.bacmet.length > 0)) && (
             <div className="card">
-              <h2 className="text-lg font-semibold text-gray-100 mb-3">Drug Resistance Profile</h2>
-              <p className="text-xs text-gray-400 mb-3">{summary.arg_count} resistance genes detected across {summary.drug_resistance.length} drug classes</p>
-              <div className="flex flex-wrap gap-2">
-                {summary.drug_resistance.map((dc) => (
-                  <span key={dc} className="px-2.5 py-1 bg-red-600/15 text-red-300 border border-red-600/30 rounded-lg text-xs font-medium">
-                    {dc}
-                  </span>
-                ))}
-              </div>
+              <h2 className="text-lg font-semibold text-gray-100 mb-3">Resistance Profile</h2>
+              {/* ARG — Antibiotic Resistance Genes */}
+              {summary.drug_resistance && summary.drug_resistance.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-xs text-gray-400 mb-2 uppercase tracking-wide">
+                    ARG — {summary.arg_count} gene{summary.arg_count !== 1 ? 's' : ''} across {summary.drug_resistance.length} drug class{summary.drug_resistance.length !== 1 ? 'es' : ''}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {summary.drug_resistance.map((dc: string) => (
+                      <span key={dc} className="px-2.5 py-1 bg-red-600/15 text-red-300 border border-red-600/30 rounded-lg text-xs font-medium">
+                        {dc}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* MRG — Metal Resistance Genes */}
+              {summary.bacmet && summary.bacmet.length > 0 && (() => {
+                const compounds = Array.from(new Set(summary.bacmet.map((b: { compound: string }) => b.compound).filter(Boolean)));
+                return (
+                  <div>
+                    <p className="text-xs text-gray-400 mb-2 uppercase tracking-wide">
+                      MRG — {summary.bacmet.length} gene{summary.bacmet.length !== 1 ? 's' : ''} ({compounds.length} compound{compounds.length !== 1 ? 's' : ''})
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {compounds.map((c: string) => (
+                        <span key={c} className="px-2.5 py-1 bg-orange-600/15 text-orange-300 border border-orange-600/30 rounded-lg text-xs font-medium">
+                          {c}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -386,7 +411,18 @@ export default function SampleDetailPage() {
       {tab === 'Resistance Genes' && (
         <div className="space-y-6">
           <div className="card">
-            <h2 className="text-lg font-semibold text-gray-100 mb-4">Resistance Genes (AMRFinderPlus)</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-100">Resistance Genes (AMRFinderPlus)</h2>
+              {args.length > 0 && (
+                <button
+                  onClick={() => window.location.href = `/api/samples/${id}/gene-sequences?type=arg`}
+                  className="btn-secondary flex items-center gap-2 text-xs"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  FASTA
+                </button>
+              )}
+            </div>
             <ARGTable results={args} />
           </div>
 
@@ -523,7 +559,7 @@ export default function SampleDetailPage() {
                   {isData.synteny_regions.map((region: any, i: number) => (
                     <LinearGenomeMap
                       key={`${region.contig}-${region.is_name}-${i}`}
-                      title={`${region.is_name} — ${region.contig}`}
+                      title={`${region.is_name}${region.features?.[0]?.family && region.features[0].family !== region.is_name ? ` (${region.features[0].family})` : ''} — ${region.contig}`}
                       subtitle={`${region.molecule_type}${region.plasmid_id ? ` (${region.plasmid_id})` : ''} — ${(region.length / 1000).toFixed(1)} kb region — ${region.features.length} features`}
                       length={region.region_end}
                       features={region.features}
@@ -783,17 +819,26 @@ export default function SampleDetailPage() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-100">Virulence Factors (AMRFinderPlus)</h2>
               {virulence.length > 0 && (
-                <button
-                  onClick={() => downloadTSV(
-                    `${sample?.name || 'sample'}_virulence.tsv`,
-                    ['Gene', 'Category', 'Identity%', 'Coverage%', 'Contig', 'Database'],
-                    virulence.map((v) => [v.gene, v.category, v.identity, v.coverage, v.contig, v.database])
-                  )}
-                  className="btn-secondary flex items-center gap-2 text-xs"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  Download TSV
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => window.location.href = `/api/samples/${id}/gene-sequences?type=virulence`}
+                    className="btn-secondary flex items-center gap-2 text-xs"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    FASTA
+                  </button>
+                  <button
+                    onClick={() => downloadTSV(
+                      `${sample?.name || 'sample'}_virulence.tsv`,
+                      ['Gene', 'Description', 'Category', 'Identity%', 'Coverage%', 'Contig', 'Database'],
+                      virulence.map((v) => [v.gene, v.description || '', v.category, v.identity, v.coverage, v.contig, v.database])
+                    )}
+                    className="btn-secondary flex items-center gap-2 text-xs"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    TSV
+                  </button>
+                </div>
               )}
             </div>
             {virulence.length === 0 ? (
@@ -804,6 +849,7 @@ export default function SampleDetailPage() {
                   <thead>
                     <tr className="border-b border-gray-800">
                       <th className="table-header">Gene</th>
+                      <th className="table-header">Description</th>
                       <th className="table-header">Category</th>
                       <th className="table-header">Identity%</th>
                       <th className="table-header">Coverage%</th>
@@ -814,6 +860,7 @@ export default function SampleDetailPage() {
                     {virulence.map((v) => (
                       <tr key={v.id} className="hover:bg-gray-800/50">
                         <td className="table-cell font-medium text-gray-200">{v.gene}</td>
+                        <td className="table-cell text-sm text-gray-400">{v.description || '-'}</td>
                         <td className="table-cell">{v.category}</td>
                         <td className="table-cell">{v.identity?.toFixed(1)}%</td>
                         <td className="table-cell">{v.coverage?.toFixed(1)}%</td>
