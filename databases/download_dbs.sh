@@ -18,7 +18,8 @@ set -euo pipefail
 #   6. ResFinder           (~10 MB)  - Resistance gene detection
 #   7. Rfam                (~500 MB) - sRNA annotation (cmscan)
 #   8. DefenseFinder       (~100 MB) - Defense system models
-#   9. skani GTDB          (~30 GB)  - Species ID via ANI (OPTIONAL, skipped by default)
+#   9. cgMLST schemas      (~1-5 GB) - Core-genome MLST (chewBBACA via Chewie-NS)
+#  10. skani GTDB          (~30 GB)  - Species ID via ANI (OPTIONAL, skipped by default)
 # ============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -51,7 +52,7 @@ FAIL=0
 # -------------------------------------------------------------------
 # 1. AMRFinderPlus database
 # -------------------------------------------------------------------
-echo -n "  [1/9] AMRFinderPlus database..."
+echo -n "  [1/10] AMRFinderPlus database..."
 AMRFINDER_DB_DIR="${DB_DIR}/amrfinderplus"
 if [ -d "${AMRFINDER_DB_DIR}" ] && [ -f "${AMRFINDER_DB_DIR}/AMRProt" ]; then
     echo " exists"
@@ -92,7 +93,7 @@ fi
 # -------------------------------------------------------------------
 # 2. geNomad database (~3.5 GB)
 # -------------------------------------------------------------------
-echo -n "  [2/9] geNomad database..."
+echo -n "  [2/10] geNomad database..."
 if [ -d "${DB_DIR}/genomad_db" ]; then
     echo " exists"
 else
@@ -107,7 +108,7 @@ fi
 # -------------------------------------------------------------------
 # 3. NCBI 16S rRNA BLAST database
 # -------------------------------------------------------------------
-echo -n "  [3/9] 16S rRNA BLAST database..."
+echo -n "  [3/10] 16S rRNA BLAST database..."
 if [ -f "${DB_DIR}/16S/16S_ribosomal_RNA.ndb" ]; then
     echo " exists"
 else
@@ -126,7 +127,7 @@ fi
 # -------------------------------------------------------------------
 # 4. MOB-suite database
 # -------------------------------------------------------------------
-echo -n "  [4/9] MOB-suite database..."
+echo -n "  [4/10] MOB-suite database..."
 if conda run -n radar-mobsuite mob_init > /tmp/radar_db_mobsuite.log 2>&1; then
     echo " done"
 else
@@ -136,7 +137,7 @@ fi
 # -------------------------------------------------------------------
 # 5. PointFinder database
 # -------------------------------------------------------------------
-echo -n "  [5/9] PointFinder database..."
+echo -n "  [5/10] PointFinder database..."
 if [ -d "${DB_DIR}/pointfinder_db" ]; then
     echo " exists"
 else
@@ -151,7 +152,7 @@ fi
 # -------------------------------------------------------------------
 # 6. ResFinder database
 # -------------------------------------------------------------------
-echo -n "  [6/9] ResFinder database..."
+echo -n "  [6/10] ResFinder database..."
 if [ -d "${DB_DIR}/resfinder_db" ]; then
     echo " exists"
 else
@@ -166,7 +167,7 @@ fi
 # -------------------------------------------------------------------
 # 7. Rfam CM database (for sRNA annotation via cmscan)
 # -------------------------------------------------------------------
-echo -n "  [7/9] Rfam database..."
+echo -n "  [7/10] Rfam database..."
 if [ -f "${DB_DIR}/Rfam.cm" ]; then
     echo " exists"
 else
@@ -183,7 +184,7 @@ fi
 # -------------------------------------------------------------------
 # 8. DefenseFinder models
 # -------------------------------------------------------------------
-echo -n "  [8/9] DefenseFinder models..."
+echo -n "  [8/10] DefenseFinder models..."
 if conda run -n radar defense-finder update > /tmp/radar_db_defense.log 2>&1; then
     echo " done"
 else
@@ -192,9 +193,44 @@ else
 fi
 
 # -------------------------------------------------------------------
-# 9. skani GTDB sketch database (OPTIONAL — ~30 GB)
+# 9. cgMLST schemas (chewBBACA via Chewie-NS)
 # -------------------------------------------------------------------
-echo "  [9/9] skani GTDB database... skipped (30 GB, optional)"
+echo "  [9/10] cgMLST schemas (chewBBACA)..."
+CGMLST_DIR="${DB_DIR}/cgmlst_schemas"
+mkdir -p "${CGMLST_DIR}"
+
+# Species available on Chewie-NS: species_id schema_id local_dir_name
+CGMLST_SPECIES=(
+    "10:1:ecoli:Escherichia coli"
+    "14:1:salmonella:Salmonella enterica"
+    "6:1:campylobacter:Campylobacter jejuni"
+    "18:1:listeria:Listeria monocytogenes"
+)
+
+for entry in "${CGMLST_SPECIES[@]}"; do
+    IFS=':' read -r sp_id sc_id dir_name sp_label <<< "$entry"
+    if [ -d "${CGMLST_DIR}/${dir_name}" ]; then
+        echo "    SKIP  ${sp_label} (already exists)"
+    else
+        echo -n "    ...   ${sp_label}"
+        if conda run -n radar chewBBACA.py DownloadSchema \
+            --species-id "$sp_id" --schema-id "$sc_id" \
+            --download-folder "${CGMLST_DIR}/${dir_name}" \
+            --cpu "${THREADS}" \
+            > /tmp/radar_db_cgmlst_${dir_name}.log 2>&1; then
+            echo -e "\r    OK    ${sp_label}"
+        else
+            echo -e "\r    FAIL  ${sp_label} (see /tmp/radar_db_cgmlst_${dir_name}.log)"
+            FAIL=1
+        fi
+    fi
+done
+echo "         K. pneumoniae and S. aureus schemas not on Chewie-NS (use external sources)"
+
+# -------------------------------------------------------------------
+# 10. skani GTDB sketch database (OPTIONAL — ~30 GB)
+# -------------------------------------------------------------------
+echo "  [10/10] skani GTDB database... skipped (30 GB, optional)"
 echo "         To install manually:"
 echo "           mkdir -p ${DB_DIR}/skani"
 echo "           curl -L -o ${DB_DIR}/skani/skani_gtdb_r226-v0.3.tar.gz \\"
@@ -227,5 +263,6 @@ echo "    PointFinder    : ${DB_DIR}/pointfinder_db"
 echo "    ResFinder      : ${DB_DIR}/resfinder_db"
 echo "    Rfam           : ${DB_DIR}/Rfam.cm"
 echo "    DefenseFinder  : (managed by defense-finder)"
+echo "    cgMLST schemas : ${DB_DIR}/cgmlst_schemas"
 echo "    skani GTDB     : (optional, see above)"
 echo ""
