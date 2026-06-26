@@ -121,6 +121,23 @@ def cancel_job(job_id: uuid.UUID, db: Session = Depends(get_db), current_user: U
         except Exception:
             pass
 
+    # Kill any running subprocesses for this sample (flye, spades, medaka, etc.)
+    import subprocess as _sp
+    sample_id_str = str(job.sample_id)
+    try:
+        result = _sp.run(
+            ["pgrep", "-f", sample_id_str],
+            capture_output=True, text=True
+        )
+        if result.stdout.strip():
+            for pid in result.stdout.strip().split("\n"):
+                try:
+                    os.kill(int(pid), 9)
+                except (ProcessLookupError, ValueError):
+                    pass
+    except Exception:
+        pass
+
     # Cancel all sub-jobs for this sample that are pending/running
     if job.tool == "pipeline":
         sub_jobs = (
