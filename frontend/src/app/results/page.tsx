@@ -285,18 +285,32 @@ export default function ResultsPage() {
                       )}
                     </td>
                     <td className="table-cell text-center" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => {
-                          const token = localStorage.getItem('radar_token');
-                          fetch(`/api/samples/${s.sample_id}/export-all`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-                            .then(r => r.blob())
-                            .then(blob => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${s.sample_name}_annotations.tsv`; a.click(); });
-                        }}
-                        className="p-1 rounded hover:bg-blue-600/20 text-gray-500 hover:text-blue-400 transition-colors"
-                        title="Download all annotations (TSV)"
-                      >
-                        <Download className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          onClick={() => {
+                            const token = localStorage.getItem('radar_token');
+                            fetch(`/api/samples/${s.sample_id}/gene-sequences?type=all`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+                              .then(r => r.blob())
+                              .then(blob => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${s.name}_genes.fasta`; a.click(); });
+                          }}
+                          className="p-1 rounded hover:bg-green-600/20 text-gray-500 hover:text-green-400 transition-colors"
+                          title="Download gene sequences (FASTA)"
+                        >
+                          <span className="text-[10px] font-bold">FA</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            const token = localStorage.getItem('radar_token');
+                            fetch(`/api/samples/${s.sample_id}/export-all`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+                              .then(r => r.blob())
+                              .then(blob => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${s.name}_annotations.tsv`; a.click(); });
+                          }}
+                          className="p-1 rounded hover:bg-blue-600/20 text-gray-500 hover:text-blue-400 transition-colors"
+                          title="Download all annotations (TSV)"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

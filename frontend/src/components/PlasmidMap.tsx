@@ -383,11 +383,30 @@ export default function PlasmidMap({ data }: PlasmidMapProps) {
             ))}
           </div>
         </div>
-        <button onClick={handleExportPNG} disabled={!loaded}
-          className="btn-secondary flex items-center gap-2 text-xs">
-          <Download className="w-3.5 h-3.5" />
-          Export PNG
-        </button>
+        <div className="flex items-center gap-2">
+          {data.sequence && (
+            <button
+              onClick={() => {
+                const fasta = `>${data.plasmid_id || data.contig} length=${data.size} replicon=${data.replicon || 'unknown'} mobility=${data.predicted_mobility || 'unknown'}\n${data.sequence!.match(/.{1,80}/g)?.join('\n') || data.sequence}`;
+                const blob = new Blob([fasta], { type: 'text/plain' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `${data.plasmid_id || data.contig}.fasta`;
+                a.click();
+                URL.revokeObjectURL(a.href);
+              }}
+              className="btn-secondary flex items-center gap-2 text-xs"
+            >
+              <Download className="w-3.5 h-3.5" />
+              FASTA
+            </button>
+          )}
+          <button onClick={handleExportPNG} disabled={!loaded}
+            className="btn-secondary flex items-center gap-2 text-xs">
+            <Download className="w-3.5 h-3.5" />
+            PNG
+          </button>
+        </div>
       </div>
 
       {/* CGView container */}
