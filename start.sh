@@ -35,6 +35,7 @@ if [ -f "${PID_FILE}" ]; then
     pkill -f "celery.*app.celery_app" 2>/dev/null || true
     pkill -f "uvicorn.*app.main" 2>/dev/null || true
     pkill -f "next-router-worker" 2>/dev/null || true
+    pkill -f "next dev" 2>/dev/null || true
     rm -f "${PID_FILE}"
     if [ "${RESTARTING}" -eq 1 ]; then
         echo "Stopped previous RADAR processes."

@@ -22,6 +22,7 @@ fi
 pkill -f "celery.*app.celery_app" 2>/dev/null || true
 pkill -f "uvicorn.*app.main" 2>/dev/null || true
 pkill -f "next-router-worker" 2>/dev/null || true
+pkill -f "next dev" 2>/dev/null || true
 
 # Stop PostgreSQL and Redis
 pg_ctl -D "${DATA_DIR}/pgdata" stop 2>/dev/null && echo "PostgreSQL stopped." || echo "PostgreSQL not running."
