@@ -19,11 +19,17 @@ export default function IntroductionPage() {
       { name: 'Flye + Medaka + Polypolish', desc: 'Hybrid/long-read assembly with polishing' },
       { name: 'QUAST + BUSCO', desc: 'Assembly quality and completeness assessment' },
     ]},
+    { category: 'Species & Typing', tools: [
+      { name: 'skani / 16S BLAST', desc: 'Species identification (ANI or 16S rRNA)' },
+      { name: 'MLST', desc: 'Multi-locus sequence typing' },
+      { name: 'SISTR + Kleborate', desc: 'In silico serotyping (Salmonella, Klebsiella)' },
+      { name: 'chewBBACA', desc: 'Core-genome MLST for phylogenomic comparison' },
+    ]},
     { category: 'Resistance & Virulence', tools: [
       { name: 'AMRFinderPlus', desc: 'Antimicrobial resistance gene detection' },
+      { name: 'ResFinder / PointFinder', desc: 'Resistance genes and point mutations' },
       { name: 'BacMet2', desc: 'Biocide and metal resistance genes' },
       { name: 'Virulence factors', desc: 'Virulence gene detection via AMRFinderPlus' },
-      { name: 'PointFinder', desc: 'Resistance-associated point mutations' },
     ]},
     { category: 'Mobile Genetic Elements', tools: [
       { name: 'MOB-recon', desc: 'Plasmid reconstruction, replicon typing, mobility classification' },
@@ -31,17 +37,15 @@ export default function IntroductionPage() {
       { name: 'IntegronFinder', desc: 'Integron detection' },
       { name: 'geNomad', desc: 'Prophage and viral region detection' },
     ]},
-    { category: 'Genomic Context', tools: [
-      { name: 'skani / 16S BLAST', desc: 'Species identification (ANI or 16S rRNA)' },
-      { name: 'MLST', desc: 'Multi-locus sequence typing' },
+    { category: 'Expression Context', tools: [
       { name: 'BPROM + OSTIR', desc: 'Promoter strength and ribosome binding site analysis' },
       { name: 'Prodigal', desc: 'Gene prediction, codon adaptation, rare codons, GC deviation' },
+      { name: 'Infernal / Rfam', desc: 'sRNA detection near resistance genes' },
     ]},
     { category: 'Defense & Structure', tools: [
       { name: 'DefenseFinder', desc: 'Bacterial defense systems (RM, CRISPR-Cas, Abi, BREX, Zorya, etc.)' },
       { name: 'minced', desc: 'CRISPR array detection with spacer/repeat analysis' },
       { name: 'ICEfinder', desc: 'Integrative and conjugative element detection' },
-      { name: 'Infernal / Rfam', desc: 'sRNA detection near resistance genes' },
     ]},
     { category: 'Prediction & Scoring', tools: [
       { name: 'ML Phenotype Prediction', desc: '107 Random Forest models across 5 species, 35 antibiotics' },
@@ -50,10 +54,10 @@ export default function IntroductionPage() {
   ];
 
   const highlights = [
-    { icon: Dna, title: '24 Bioinformatics Tools', desc: 'One tool per conda environment for reproducibility. From QC to phenotype prediction.' },
+    { icon: Dna, title: '27+ Bioinformatics Tools', desc: 'Isolated conda environments for reproducibility. From QC to phenotype prediction, serotyping, and cgMLST.' },
     { icon: Shield, title: 'ML Phenotype Prediction', desc: 'Pre-trained Random Forest models predict resistance to 13-35 antibiotics per species with confidence scores.' },
     { icon: FlaskConical, title: 'Expression Context', desc: 'Goes beyond gene presence: analyzes promoter strength, RBS efficiency, codon adaptation to explain why genes may or may not confer resistance.' },
-    { icon: Map, title: 'Interactive Maps', desc: 'Circular plasmid maps grouped by cluster, and synteny maps showing MGE-associated ARGs and virulence factors with adjustable flanking distance.' },
+    { icon: Map, title: 'Interactive Maps', desc: 'Circular plasmid maps grouped by cluster, synteny maps showing MGE-associated ARGs and virulence factors, and cgMLST-based phylogenetic trees.' },
   ];
 
   return (
@@ -62,7 +66,7 @@ export default function IntroductionPage() {
         <h1 className="text-3xl font-bold text-white mb-3">RADAR</h1>
         <p className="text-lg text-gray-300 leading-relaxed">
           <strong>R</strong>esistome <strong>A</strong>nalysis, <strong>D</strong>etection,{' '}
-          <strong>A</strong>ssessment &amp; <strong>R</strong>isk
+          <strong>A</strong>ssessment &amp; <strong>R</strong>esearch
         </p>
         <p className="text-gray-400 mt-3 leading-relaxed">
           A bioinformatics platform for whole-genome sequencing (WGS) based antimicrobial resistance analysis.
@@ -120,7 +124,7 @@ export default function IntroductionPage() {
 
       <h2 className="text-xl font-semibold text-white mb-4">Pipeline Overview</h2>
       <p className="text-gray-400 text-sm mb-4">
-        The pipeline runs 20+ annotation tools in sequence, with skip logic for re-runs.
+        The pipeline runs 27+ annotation tools in sequence, with skip logic for re-runs.
         Only one pipeline runs at a time; additional samples are queued automatically.
       </p>
       <div className="space-y-4 mb-10">
@@ -191,6 +195,14 @@ export default function IntroductionPage() {
           <div className="flex justify-between">
             <span className="text-gray-400">Biocide/metal resistance</span>
             <span className="text-gray-300">BacMet2 gene detection</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-400">Serotyping</span>
+            <span className="text-gray-300">SISTR (Salmonella) + Kleborate (Klebsiella)</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-400">Genomic comparison</span>
+            <span className="text-gray-300">cgMLST phylogenetic tree (NJ from allelic distances)</span>
           </div>
           <div className="flex justify-between">
             <span className="text-gray-400">Risk assessment</span>
