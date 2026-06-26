@@ -195,7 +195,14 @@ export default function GlobalFilesPage() {
     setError(null);
     try {
       await startPipeline(sampleId, 12);
-      await loadData();
+      // Optimistically update UI to show running status
+      setSamples((prev) =>
+        prev.map((s) =>
+          s.sample_id === sampleId
+            ? { ...s, pipeline_status: 'running', pipeline_progress: 0 }
+            : s
+        )
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start pipeline');
     } finally {

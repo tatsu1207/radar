@@ -374,8 +374,8 @@ def start_preprocessing(
     if not sample.files:
         raise HTTPException(status_code=400, detail="Sample has no uploaded files")
 
-    # Clean up stale running jobs (older than 2 hours) and allow restart
-    stale_cutoff = datetime.utcnow() - __import__('datetime').timedelta(hours=2)
+    # Clean up stale/orphaned jobs and allow restart
+    stale_cutoff = datetime.utcnow() - __import__('datetime').timedelta(minutes=10)
     stale_jobs = (
         db.query(AnalysisJob)
         .filter(
@@ -386,12 +386,13 @@ def start_preprocessing(
         .all()
     )
     for sj in stale_jobs:
-        if sj.started_at and sj.started_at < stale_cutoff:
+        # Mark as failed if: no start time, or older than 10 minutes
+        if not sj.started_at or sj.started_at < stale_cutoff:
             sj.status = JobStatus.failed
             sj.finished_at = datetime.utcnow()
             sj.log = (sj.log or "") + "\nMarked failed (stale job cleanup)\n"
         else:
-            # Genuinely running
+            # Genuinely running (started within last 10 minutes)
             raise HTTPException(status_code=409, detail="Preprocessing already in progress")
     db.commit()
 
