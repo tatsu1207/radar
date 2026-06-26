@@ -8,8 +8,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const pathname = usePathname();
 
-  // Login page — no sidebar, no auth required
-  if (pathname === '/login') {
+  // Public pages — no sidebar, no auth required
+  if (pathname === '/login' || pathname === '/register' || pathname === '/verify') {
     return <>{children}</>;
   }
 

@@ -88,6 +88,10 @@ class User(Base):
 
     id = Column(UUID, primary_key=True, default=uuid.uuid4)
     username = Column(String(255), unique=True, nullable=False)
+    email = Column(String(255), unique=True, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    is_verified = Column(Boolean, default=False)
+    verification_token = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     projects = relationship("Project", back_populates="owner")

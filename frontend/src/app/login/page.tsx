@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { Radar } from 'lucide-react';
 
@@ -42,7 +43,6 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
           <h2 className="text-lg font-semibold text-white text-center">Sign in</h2>
-          <p className="text-xs text-gray-500 text-center">Use your system account credentials</p>
 
           {error && (
             <div className="bg-red-900/30 border border-red-700 text-red-400 text-sm px-3 py-2 rounded-lg">
@@ -63,7 +63,6 @@ export default function LoginPage() {
               autoFocus
               autoComplete="username"
               className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Linux username"
             />
           </div>
 
@@ -79,7 +78,6 @@ export default function LoginPage() {
               required
               autoComplete="current-password"
               className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Password"
             />
           </div>
 
@@ -90,6 +88,13 @@ export default function LoginPage() {
           >
             {submitting ? 'Signing in...' : 'Sign in'}
           </button>
+
+          <p className="text-center text-sm text-gray-500">
+            Don&apos;t have an account?{' '}
+            <Link href="/register" className="text-blue-400 hover:text-blue-300">
+              Register
+            </Link>
+          </p>
         </form>
       </div>
     </div>
