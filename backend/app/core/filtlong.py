@@ -36,15 +36,23 @@ def run_filtlong(sample_id: str, input_files: list[str], db=None, threads: int =
         raise ValueError("No long-read file found for Chopper")
 
     # Auto-fix: if .gz file is actually plain text, gzip it in place
-    if long_file.endswith(".gz"):
+    # Also handle case where a previous failed run left the uncompressed file
+    if long_file.endswith(".gz") and not os.path.exists(long_file):
+        plain_path = long_file[:-3]
+        if os.path.exists(plain_path):
+            logger.info(f"Found uncompressed {plain_path}, compressing to {long_file}")
+            subprocess.run(f"gzip -c {plain_path} > {long_file}", shell=True, check=True)
+            os.remove(plain_path)
+
+    if long_file.endswith(".gz") and os.path.exists(long_file):
         with open(long_file, "rb") as f:
             magic = f.read(2)
         if magic != b'\x1f\x8b':  # not a valid gzip header
             logger.info(f"File {long_file} has .gz extension but is plain text — compressing")
-            plain_path = long_file[:-3]  # remove .gz
-            os.rename(long_file, plain_path)
-            subprocess.run(["gzip", plain_path], check=True)
-            # gzip creates the .gz file back at the original path
+            tmp_path = long_file + ".tmp"
+            os.rename(long_file, tmp_path)
+            subprocess.run(f"gzip -c {tmp_path} > {long_file}", shell=True, check=True)
+            os.remove(tmp_path)
 
     output_path = os.path.join(results_dir, "filtered_long.fastq.gz")
 
