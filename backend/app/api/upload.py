@@ -7,7 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import get_db
-from app.models.models import Sample, SampleFile, PairType
+from app.models.models import Sample, SampleFile, PairType, User
+from app.core.auth import get_current_user
+from app.core.ownership import require_sample_owner
 from app.schemas.schemas import FileUploadResponse, SampleFileRead
 
 router = APIRouter(tags=["upload"])
@@ -37,10 +39,9 @@ async def upload_files(
     sample_id: uuid.UUID,
     files: List[UploadFile] = File(...),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    sample = db.query(Sample).filter(Sample.id == sample_id).first()
-    if not sample:
-        raise HTTPException(status_code=404, detail="Sample not found")
+    sample = require_sample_owner(sample_id, current_user, db)
 
     upload_dir = os.path.join(settings.UPLOAD_DIR, str(sample_id))
     os.makedirs(upload_dir, exist_ok=True)

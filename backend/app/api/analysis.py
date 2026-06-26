@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import get_db
-from app.models.models import Sample, AnalysisJob, JobStatus
+from app.models.models import Sample, AnalysisJob, JobStatus, User
+from app.core.auth import get_current_user
+from app.core.ownership import require_sample_owner
 from app.schemas.schemas import AnalysisJobRead, AnalysisRequest
 
 router = APIRouter(tags=["analysis"])
@@ -33,10 +35,9 @@ def start_analysis(
     sample_id: uuid.UUID,
     payload: AnalysisRequest = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    sample = db.query(Sample).filter(Sample.id == sample_id).first()
-    if not sample:
-        raise HTTPException(status_code=404, detail="Sample not found")
+    sample = require_sample_owner(sample_id, current_user, db)
 
     if not sample.files:
         raise HTTPException(status_code=400, detail="Sample has no uploaded files")
@@ -72,11 +73,10 @@ def run_step(
     sample_id: uuid.UUID,
     payload: StepRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Run a single pipeline step for a sample."""
-    sample = db.query(Sample).filter(Sample.id == sample_id).first()
-    if not sample:
-        raise HTTPException(status_code=404, detail="Sample not found")
+    sample = require_sample_owner(sample_id, current_user, db)
 
     if payload.tool not in PIPELINE_STEPS:
         raise HTTPException(status_code=400, detail=f"Unknown tool: {payload.tool}")
@@ -105,7 +105,7 @@ def run_step(
 
 
 @router.post("/jobs/{job_id}/cancel", response_model=AnalysisJobRead)
-def cancel_job(job_id: uuid.UUID, db: Session = Depends(get_db)):
+def cancel_job(job_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     job = db.query(AnalysisJob).filter(AnalysisJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -153,7 +153,7 @@ def cancel_job(job_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/samples/{sample_id}/jobs", response_model=List[AnalysisJobRead])
-def list_jobs(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def list_jobs(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
@@ -168,7 +168,7 @@ def list_jobs(sample_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/projects/{project_id}/jobs", response_model=List[AnalysisJobRead])
-def list_project_jobs(project_id: uuid.UUID, db: Session = Depends(get_db)):
+def list_project_jobs(project_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get all jobs for all samples in a project."""
     from app.models.models import Sample as SampleModel
     sample_ids = [s.id for s in db.query(SampleModel.id).filter(SampleModel.project_id == project_id).all()]
@@ -183,7 +183,7 @@ def list_project_jobs(project_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/jobs/{job_id}", response_model=AnalysisJobRead)
-def get_job(job_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_job(job_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     job = db.query(AnalysisJob).filter(AnalysisJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -193,7 +193,7 @@ def get_job(job_id: uuid.UUID, db: Session = Depends(get_db)):
 # ── Preprocessing Pipeline ─────────────────────────────────────────────────
 
 @router.get("/pipeline/status")
-def pipeline_status(db: Session = Depends(get_db)):
+def pipeline_status(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get preprocessing pipeline status for all samples."""
     from sqlalchemy.orm import joinedload
 
@@ -244,7 +244,7 @@ def pipeline_status(db: Session = Depends(get_db)):
 
 
 @router.get("/pipeline/qc/{sample_id}")
-def download_qc_report(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def download_qc_report(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Download combined QUAST + BUSCO QC report as text."""
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
@@ -316,7 +316,7 @@ def download_qc_report(sample_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/pipeline/assembly/{sample_id}")
-def download_assembly(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def download_assembly(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Download assembled genome FASTA."""
     from fastapi.responses import FileResponse
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
@@ -330,7 +330,7 @@ def download_assembly(sample_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/pipeline/qc/{sample_id}/fastp")
-def get_fastp_report(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_fastp_report(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Serve fastp HTML report."""
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
@@ -343,7 +343,7 @@ def get_fastp_report(sample_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/pipeline/qc/{sample_id}/quast")
-def get_quast_report(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_quast_report(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Serve QUAST HTML report."""
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
@@ -364,13 +364,12 @@ def start_preprocessing(
     sample_id: uuid.UUID,
     payload: PipelineStartRequest = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Start the preprocessing pipeline (fastp + Chopper + SPAdes/Flye) for a sample."""
     threads = payload.threads if payload else 12
 
-    sample = db.query(Sample).filter(Sample.id == sample_id).first()
-    if not sample:
-        raise HTTPException(status_code=404, detail="Sample not found")
+    sample = require_sample_owner(sample_id, current_user, db)
 
     if not sample.files:
         raise HTTPException(status_code=400, detail="Sample has no uploaded files")

@@ -19,6 +19,7 @@ class ProjectUpdate(BaseModel):
 
 class ProjectRead(BaseModel):
     id: uuid.UUID
+    user_id: Optional[uuid.UUID] = None
     name: str
     description: Optional[str] = None
     created_at: datetime

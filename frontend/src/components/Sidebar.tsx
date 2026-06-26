@@ -16,8 +16,11 @@ import {
   Radar,
   Sun,
   Moon,
+  LogOut,
+  User,
 } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
+import { useAuth } from '@/context/AuthContext';
 
 const navItems = [
   { href: '/files', label: 'Files', icon: Files },
@@ -30,6 +33,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { theme, toggle } = useTheme();
+  const { user, logout } = useAuth();
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
@@ -92,7 +96,22 @@ export default function Sidebar() {
           );
         })}
       </nav>
-      <div className="px-4 py-4 border-t border-gray-800">
+      <div className="px-4 py-4 border-t border-gray-800 space-y-2">
+        {user && (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs text-gray-400">
+              <User className="w-3.5 h-3.5" />
+              {user.username}
+            </div>
+            <button
+              onClick={logout}
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-red-400 transition-colors"
+              title="Sign out"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
         <p className="text-xs text-gray-600">RADAR v0.1.0</p>
       </div>
     </>

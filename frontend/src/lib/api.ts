@@ -129,14 +129,27 @@ export class APIError extends Error {
   }
 }
 
+function getAuthHeaders(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  const token = localStorage.getItem('radar_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function fetchAPI<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     headers: {
       'Content-Type': 'application/json',
+      ...getAuthHeaders(),
       ...options?.headers,
     },
     ...options,
   });
+
+  if (res.status === 401 && typeof window !== 'undefined') {
+    localStorage.removeItem('radar_token');
+    window.location.href = '/login';
+    throw new APIError('Unauthorized', 401);
+  }
 
   if (!res.ok) {
     const errorBody = await res.text().catch(() => 'Unknown error');
@@ -206,6 +219,7 @@ export async function uploadFiles(sampleId: string, files: File[]): Promise<{ up
 
   const res = await fetch(`/api/samples/${sampleId}/upload`, {
     method: 'POST',
+    headers: getAuthHeaders(),
     body: formData,
   });
 
@@ -356,7 +370,7 @@ export async function getPhylogeny(projectId: string): Promise<PhylogenyData> {
 }
 
 export async function exportCSV(sampleId: string): Promise<Blob> {
-  const res = await fetch(`/api/samples/${sampleId}/export`);
+  const res = await fetch(`/api/samples/${sampleId}/export`, { headers: getAuthHeaders() });
   if (!res.ok) {
     throw new APIError('Export failed', res.status);
   }
@@ -384,6 +398,7 @@ export async function importMetadataCSV(projectId: string, file: File): Promise<
 
   const res = await fetch(`/api/projects/${projectId}/metadata/import`, {
     method: 'POST',
+    headers: getAuthHeaders(),
     body: formData,
   });
 
@@ -735,6 +750,8 @@ export function uploadFilesToProject(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url);
+    const auth = getAuthHeaders();
+    if (auth.Authorization) xhr.setRequestHeader('Authorization', auth.Authorization);
 
     if (onProgress) {
       xhr.upload.onprogress = (e) => {
@@ -813,6 +830,7 @@ export async function uploadMetadataTSV(projectId: string, file: File): Promise<
   formData.append('file', file);
   const res = await fetch(`/api/projects/${projectId}/file-manager/metadata`, {
     method: 'POST',
+    headers: getAuthHeaders(),
     body: formData,
   });
   if (!res.ok) throw new APIError(await res.text().catch(() => 'Upload failed'), res.status);
@@ -830,6 +848,8 @@ export function globalUploadFiles(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url);
+    const auth = getAuthHeaders();
+    if (auth.Authorization) xhr.setRequestHeader('Authorization', auth.Authorization);
 
     if (onProgress) {
       xhr.upload.onprogress = (e) => {
@@ -941,6 +961,7 @@ export async function uploadMetadataGlobal(file: File): Promise<{ created: numbe
   // We need a project_id for the existing endpoint; use a global upload instead
   const res = await fetch('/api/metadata/upload', {
     method: 'POST',
+    headers: getAuthHeaders(),
     body: formData,
   });
   if (!res.ok) throw new APIError(await res.text().catch(() => 'Upload failed'), res.status);

@@ -7,7 +7,9 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
 from app.db import get_db
-from app.models.models import Sample, Metadata, ASTResult, SIR, Project
+from app.models.models import Sample, Metadata, ASTResult, SIR, Project, User
+from app.core.auth import get_current_user
+from app.core.ownership import require_sample_owner, require_project_owner
 from app.schemas.schemas import (
     MetadataCreate,
     MetadataRead,
@@ -24,10 +26,9 @@ def upsert_metadata(
     sample_id: uuid.UUID,
     payload: MetadataCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    sample = db.query(Sample).filter(Sample.id == sample_id).first()
-    if not sample:
-        raise HTTPException(status_code=404, detail="Sample not found")
+    sample = require_sample_owner(sample_id, current_user, db)
 
     meta = db.query(Metadata).filter(Metadata.sample_id == sample_id).first()
     if meta:
@@ -58,7 +59,7 @@ def upsert_metadata(
 
 
 @router.get("/samples/{sample_id}/metadata", response_model=MetadataRead)
-def get_metadata(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_metadata(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
@@ -74,10 +75,9 @@ def add_ast_result(
     sample_id: uuid.UUID,
     payload: ASTResultCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    sample = db.query(Sample).filter(Sample.id == sample_id).first()
-    if not sample:
-        raise HTTPException(status_code=404, detail="Sample not found")
+    sample = require_sample_owner(sample_id, current_user, db)
 
     ast = ASTResult(
         sample_id=sample_id,
@@ -93,7 +93,7 @@ def add_ast_result(
 
 
 @router.get("/samples/{sample_id}/ast", response_model=List[ASTResultRead])
-def list_ast_results(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def list_ast_results(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
@@ -105,10 +105,9 @@ async def bulk_import_metadata(
     project_id: uuid.UUID,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    require_project_owner(project_id, current_user, db)
 
     content = await file.read()
     filename = file.filename or ""
@@ -218,6 +217,7 @@ async def bulk_import_metadata(
 async def global_upload_metadata(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Upload metadata TSV globally. First column must be SAMPLE (matches sample name across all projects)."""
     content = await file.read()
@@ -316,7 +316,7 @@ async def global_upload_metadata(
 
 
 @router.get("/metadata/all")
-def list_all_metadata(db: Session = Depends(get_db)):
+def list_all_metadata(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Return all samples with their metadata (if any)."""
     samples = (
         db.query(Sample)
@@ -357,7 +357,7 @@ def list_all_metadata(db: Session = Depends(get_db)):
 
 
 @router.get("/metadata/download")
-def download_metadata_tsv(db: Session = Depends(get_db)):
+def download_metadata_tsv(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Download all sample metadata as a TSV file."""
     samples = (
         db.query(Sample)

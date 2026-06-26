@@ -1,3 +1,5 @@
+import secrets
+
 from pydantic_settings import BaseSettings
 from typing import List
 
@@ -17,6 +19,10 @@ class Settings(BaseSettings):
         ".fa",
         ".fna",
     ]
+
+    JWT_SECRET_KEY: str = secrets.token_urlsafe(32)
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = 1440  # 24 hours
 
     model_config = {"env_prefix": "RADAR_"}
 

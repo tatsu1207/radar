@@ -83,15 +83,27 @@ class RiskCategory(str, enum.Enum):
     critical = "critical"
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(UUID, primary_key=True, default=uuid.uuid4)
+    username = Column(String(255), unique=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    projects = relationship("Project", back_populates="owner")
+
+
 class Project(Base):
     __tablename__ = "projects"
 
     id = Column(UUID, primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID, ForeignKey("users.id"), nullable=True)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    owner = relationship("User", back_populates="projects")
     samples = relationship("Sample", back_populates="project", cascade="all, delete-orphan")
 
 

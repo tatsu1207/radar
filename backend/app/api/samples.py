@@ -7,7 +7,9 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
 from app.db import get_db
-from app.models.models import Project, Sample, InputType
+from app.models.models import Project, Sample, InputType, User
+from app.core.auth import get_current_user
+from app.core.ownership import require_project_owner, require_sample_owner
 from app.schemas.schemas import SampleCreate, SampleRead, SampleList
 
 router = APIRouter(tags=["samples"])
@@ -18,10 +20,9 @@ def create_sample(
     project_id: uuid.UUID,
     payload: SampleCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    require_project_owner(project_id, current_user, db)
 
     sample = Sample(
         project_id=project_id,
@@ -40,6 +41,7 @@ def list_samples(
     page: int = 1,
     size: int = 50,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -53,7 +55,11 @@ def list_samples(
 
 
 @router.get("/samples/{sample_id}", response_model=SampleRead)
-def get_sample(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_sample(
+    sample_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     sample = (
         db.query(Sample)
         .options(joinedload(Sample.files))
@@ -66,10 +72,12 @@ def get_sample(sample_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.delete("/samples/{sample_id}", status_code=204)
-def delete_sample(sample_id: uuid.UUID, db: Session = Depends(get_db)):
-    sample = db.query(Sample).filter(Sample.id == sample_id).first()
-    if not sample:
-        raise HTTPException(status_code=404, detail="Sample not found")
+def delete_sample(
+    sample_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    sample = require_sample_owner(sample_id, current_user, db)
 
     # Remove uploaded files from disk
     upload_dir = os.path.join(settings.UPLOAD_DIR, str(sample_id))

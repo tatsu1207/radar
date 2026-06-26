@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import get_db
+from app.models.models import User
+from app.core.auth import get_current_user
 from app.models.models import (
     Sample,
     ARGResult,
@@ -38,7 +40,7 @@ router = APIRouter(tags=["results"])
 
 
 @router.get("/samples/{sample_id}/summary")
-def get_sample_summary(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_sample_summary(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Aggregate summary of all annotation results for a sample."""
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
@@ -190,7 +192,7 @@ def get_arg_results(
 
 
 @router.get("/samples/{sample_id}/plasmids", response_model=List[PlasmidResultRead])
-def get_plasmid_results(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_plasmid_results(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
@@ -198,7 +200,7 @@ def get_plasmid_results(sample_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/samples/{sample_id}/mobility", response_model=List[MobilityResultRead])
-def get_mobility_results(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_mobility_results(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
@@ -206,7 +208,7 @@ def get_mobility_results(sample_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/samples/{sample_id}/risk", response_model=RiskScoreRead)
-def get_risk_score(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_risk_score(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
@@ -217,7 +219,7 @@ def get_risk_score(sample_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/samples/{sample_id}/virulence", response_model=List[VirulenceResultRead])
-def get_virulence_results(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_virulence_results(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
@@ -225,7 +227,7 @@ def get_virulence_results(sample_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/projects/{project_id}/heatmap")
-def get_heatmap_data(project_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_heatmap_data(project_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -367,7 +369,7 @@ def _neighbor_joining(names: list, dist_matrix: list) -> str:
 
 
 @router.get("/projects/{project_id}/phylogeny")
-def get_phylogeny(project_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_phylogeny(project_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Compute cgMLST-based phylogeny for all samples in a project."""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -631,7 +633,7 @@ def get_is_elements(
 
 
 @router.get("/samples/{sample_id}/linear-map")
-def get_linear_map(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_linear_map(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Return per-contig features for Easyfig-style linear genome maps."""
     import os
     from app.config import settings
@@ -896,7 +898,7 @@ def _parse_gff_cds(gff_path: str, target_contigs: set) -> Dict[str, list]:
 
 
 @router.get("/samples/{sample_id}/plasmid-map")
-def get_plasmid_map(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_plasmid_map(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Return plasmid map data: contigs with ARGs, IS elements, prophages mapped."""
     import os
     from app.config import settings
@@ -1183,7 +1185,7 @@ def get_plasmid_map(sample_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/samples/{sample_id}/export")
-def export_results_csv(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def export_results_csv(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
@@ -1220,7 +1222,7 @@ def export_results_csv(sample_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/samples/{sample_id}/export-all")
-def export_sample_annotations_tsv(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def export_sample_annotations_tsv(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Export all annotation results for a single sample as one TSV file."""
     from app.models.models import (
         SpeciesResult, MLSTResult, PlasmidResult,
@@ -1549,7 +1551,7 @@ def export_all_annotations(
 
 
 @router.get("/export/feature-matrix")
-def export_feature_matrix_csv(db: Session = Depends(get_db)):
+def export_feature_matrix_csv(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Export all samples as a wide feature matrix CSV.
 
     Format: Sample_ID, gene1, gene1_dg_mrna, gene1_dg_total, gene1_expression,
@@ -1573,7 +1575,7 @@ def export_feature_matrix_csv(db: Session = Depends(get_db)):
 
 
 @router.get("/sra-submission")
-def get_sra_submission_data(db: Session = Depends(get_db)):
+def get_sra_submission_data(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get sample data formatted for SRA submission preparation.
 
     Returns metadata for BioSample and SRA metadata TSV templates.
@@ -1674,7 +1676,7 @@ def get_sra_submission_data(db: Session = Depends(get_db)):
 # ── Point Mutations ──────────────────────────────────────────────────────────
 
 @router.get("/samples/{sample_id}/point-mutations")
-def get_point_mutations(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_point_mutations(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     from app.models.models import PointMutationResult
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
@@ -1697,7 +1699,7 @@ def get_point_mutations(sample_id: uuid.UUID, db: Session = Depends(get_db)):
 # ── CRISPR, Defense Systems, ICE ─────────────────────────────────────────────
 
 @router.get("/samples/{sample_id}/crispr")
-def get_crispr_results(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_crispr_results(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     from app.models.models import CRISPRResult
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
@@ -1723,7 +1725,7 @@ def get_crispr_results(sample_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/samples/{sample_id}/defense-systems")
-def get_defense_systems(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_defense_systems(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     from app.models.models import DefenseFinderResult
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
@@ -1746,7 +1748,7 @@ def get_defense_systems(sample_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/samples/{sample_id}/ice")
-def get_ice_results(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_ice_results(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     from app.models.models import ICEResult
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
     if not sample:
@@ -1773,7 +1775,7 @@ def get_ice_results(sample_id: uuid.UUID, db: Session = Depends(get_db)):
 # ── BacMet Results ───────────────────────────────────────────────────────────
 
 @router.get("/samples/{sample_id}/bacmet")
-def get_bacmet_results(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_bacmet_results(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get BacMet2 biocide/metal resistance results for a sample."""
     from app.models.models import BacMetResult
 
@@ -1807,7 +1809,7 @@ def get_bacmet_results(sample_id: uuid.UUID, db: Session = Depends(get_db)):
 # ── ML Phenotype Predictions ─────────────────────────────────────────────────
 
 @router.get("/samples/{sample_id}/ml-predictions")
-def get_ml_predictions(sample_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_ml_predictions(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get ML-based phenotype predictions for a sample."""
     from app.models.models import MLPhenotypePrediction, SpeciesResult, MLSTResult
 

@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import Base, engine
-from app.api import projects, samples, upload, analysis, results, metadata, file_manager
+from app.api import auth, projects, samples, upload, analysis, results, metadata, file_manager
 
 
 @asynccontextmanager
@@ -33,6 +33,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(auth.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
 app.include_router(samples.router, prefix="/api")
 app.include_router(upload.router, prefix="/api")

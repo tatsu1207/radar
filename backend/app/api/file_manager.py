@@ -42,6 +42,9 @@ from app.schemas.schemas import (
     MetadataTSVResult,
 )
 from app.celery_app import celery_app
+from app.models.models import User
+from app.core.auth import get_current_user
+from app.core.ownership import require_project_owner
 
 router = APIRouter(tags=["file-manager"])
 
@@ -343,7 +346,7 @@ def _get_or_create_default_project(db: Session) -> Project:
 
 
 @router.get("/file-manager/all", response_model=FileManagerResponse)
-def get_all_file_manager(db: Session = Depends(get_db)):
+def get_all_file_manager(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Return all samples across all projects with project name."""
     samples = (
         db.query(Sample)
@@ -367,6 +370,7 @@ def get_all_file_manager(db: Session = Depends(get_db)):
 async def global_upload_files(
     files: List[UploadFile] = File(...),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Upload files globally (auto-creates default project).
 
@@ -459,6 +463,7 @@ async def global_upload_files(
 def global_register_server_paths(
     body: ServerPathRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Register files from server paths (auto-creates default project)."""
     project = _get_or_create_default_project(db)
@@ -563,6 +568,7 @@ def global_register_server_paths(
 def global_start_sra_downloads(
     body: SRARequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Submit SRA accessions for download (auto-creates default project).
 
@@ -619,7 +625,7 @@ def global_start_sra_downloads(
 
 
 @router.get("/file-manager/sra", response_model=List[SRADownloadRead])
-def global_list_sra_downloads(db: Session = Depends(get_db)):
+def global_list_sra_downloads(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """List all SRA download jobs."""
     downloads = (
         db.query(SRADownload)
@@ -630,7 +636,7 @@ def global_list_sra_downloads(db: Session = Depends(get_db)):
 
 
 @router.delete("/file-manager/sra/{download_id}")
-def cancel_sra_download(download_id: uuid.UUID, db: Session = Depends(get_db)):
+def cancel_sra_download(download_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Cancel an SRA download."""
     dl = db.query(SRADownload).filter(SRADownload.id == download_id).first()
     if not dl:
@@ -656,7 +662,7 @@ def cancel_sra_download(download_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.delete("/file-manager/sra/{download_id}/remove")
-def remove_sra_download(download_id: uuid.UUID, db: Session = Depends(get_db)):
+def remove_sra_download(download_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Remove an SRA download record (and its sample if no files)."""
     dl = db.query(SRADownload).filter(SRADownload.id == download_id).first()
     if not dl:
@@ -685,7 +691,7 @@ def remove_sra_download(download_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.post("/file-manager/sra/{download_id}/retry")
-def retry_sra_download(download_id: uuid.UUID, db: Session = Depends(get_db)):
+def retry_sra_download(download_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Retry a failed SRA download."""
     dl = db.query(SRADownload).filter(SRADownload.id == download_id).first()
     if not dl:
@@ -711,7 +717,7 @@ def retry_sra_download(download_id: uuid.UUID, db: Session = Depends(get_db)):
 # ── GET file manager view ───────────────────────────────────────────────────
 
 @router.get("/projects/{project_id}/file-manager", response_model=FileManagerResponse)
-def get_file_manager(project_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_file_manager(project_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     samples = (
         db.query(Sample)
         .filter(Sample.project_id == project_id)
@@ -729,7 +735,9 @@ async def upload_files(
     project_id: uuid.UUID,
     files: List[UploadFile] = File(...),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    require_project_owner(project_id, current_user, db)
     created_samples = {}  # name -> Sample
 
     for upload_file in files:
@@ -814,7 +822,7 @@ async def upload_files(
 # ── Browse server filesystem ───────────────────────────────────────────────
 
 @router.get("/file-browser")
-def browse_files(path: str = os.path.expanduser("~")):
+def browse_files(path: str = os.path.expanduser("~"), current_user: User = Depends(get_current_user)):
     """List files and directories at the given server path."""
     resolved = os.path.abspath(path)
     if not os.path.isdir(resolved):
@@ -854,7 +862,9 @@ def register_server_paths(
     project_id: uuid.UUID,
     body: ServerPathRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    require_project_owner(project_id, current_user, db)
     # Expand directories to individual files
     expanded_paths = []
     for p in body.paths:
@@ -965,7 +975,9 @@ async def upload_metadata(
     project_id: uuid.UUID,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    require_project_owner(project_id, current_user, db)
     content = await file.read()
     try:
         df = pd.read_csv(io.BytesIO(content), sep="\t")
@@ -1039,7 +1051,9 @@ def start_sra_downloads(
     project_id: uuid.UUID,
     body: SRARequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    require_project_owner(project_id, current_user, db)
     results = []
 
     # Build groups: either from explicit groups or from flat accessions (one per group)
@@ -1089,6 +1103,7 @@ def start_sra_downloads(
 def list_sra_downloads(
     project_id: uuid.UUID,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     downloads = (
         db.query(SRADownload)
@@ -1106,7 +1121,9 @@ def start_bvbrc_fetches(
     project_id: uuid.UUID,
     body: BVBRCRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    require_project_owner(project_id, current_user, db)
     results = []
     for genome_id in body.genome_ids:
         genome_id = genome_id.strip()
@@ -1149,6 +1166,7 @@ def start_bvbrc_fetches(
 def list_bvbrc_fetches(
     project_id: uuid.UUID,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     fetches = (
         db.query(BVBRCFetch)
@@ -1166,7 +1184,9 @@ def delete_file(
     project_id: uuid.UUID,
     file_id: uuid.UUID,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    require_project_owner(project_id, current_user, db)
     sf = db.query(SampleFile).filter(SampleFile.id == file_id).first()
     if not sf:
         raise HTTPException(status_code=404, detail="File not found")
@@ -1192,7 +1212,9 @@ def delete_sample(
     project_id: uuid.UUID,
     sample_id: uuid.UUID,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    require_project_owner(project_id, current_user, db)
     sample = db.query(Sample).filter(
         Sample.id == sample_id, Sample.project_id == project_id
     ).first()
