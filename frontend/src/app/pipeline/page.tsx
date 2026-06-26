@@ -217,14 +217,18 @@ export default function PipelinePage() {
                     </td>
                     <td className="table-cell">
                       {sample.has_qc ? (
-                        <a
-                          href={`/api/pipeline/qc/${sample.sample_id}`}
-                          download
+                        <button
+                          onClick={() => {
+                            const token = localStorage.getItem('radar_token');
+                            fetch(`/api/pipeline/qc/${sample.sample_id}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+                              .then(r => r.blob())
+                              .then(blob => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${sample.sample_name}_qc.txt`; a.click(); });
+                          }}
                           className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 text-sm transition-colors"
                         >
                           <FileDown className="w-4 h-4" />
                           Report
-                        </a>
+                        </button>
                       ) : (
                         <span className="text-gray-600"><Minus className="w-4 h-4" /></span>
                       )}

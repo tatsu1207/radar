@@ -162,7 +162,12 @@ export default function ResultsPage() {
           <button
             onClick={() => {
               const ids = selectedCompleted.map((s) => s.sample_id).join(',');
-              if (ids) window.location.href = `/api/export/annotations?sample_ids=${encodeURIComponent(ids)}`;
+              if (ids) {
+                const token = localStorage.getItem('radar_token');
+                fetch(`/api/export/annotations?sample_ids=${encodeURIComponent(ids)}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+                  .then(r => r.blob())
+                  .then(blob => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'radar_annotations.zip'; a.click(); });
+              }
             }}
             disabled={selectedCompleted.length === 0}
             className="btn-secondary flex items-center gap-2"
@@ -281,7 +286,12 @@ export default function ResultsPage() {
                     </td>
                     <td className="table-cell text-center" onClick={(e) => e.stopPropagation()}>
                       <button
-                        onClick={() => window.location.href = `/api/samples/${s.sample_id}/export-all`}
+                        onClick={() => {
+                          const token = localStorage.getItem('radar_token');
+                          fetch(`/api/samples/${s.sample_id}/export-all`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+                            .then(r => r.blob())
+                            .then(blob => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${s.sample_name}_annotations.tsv`; a.click(); });
+                        }}
                         className="p-1 rounded hover:bg-blue-600/20 text-gray-500 hover:text-blue-400 transition-colors"
                         title="Download all annotations (TSV)"
                       >

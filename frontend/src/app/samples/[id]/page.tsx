@@ -53,6 +53,30 @@ function downloadTSV(filename: string, headers: string[], rows: (string | number
 }
 type Tab = (typeof TABS)[number];
 
+function authDownload(url: string, openInTab = false) {
+  const token = localStorage.getItem('radar_token');
+  fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    .then(res => {
+      if (!res.ok) throw new Error('Download failed');
+      const disposition = res.headers.get('content-disposition');
+      const match = disposition?.match(/filename=(.+)/);
+      const filename = match ? match[1] : 'download';
+      return res.blob().then(blob => ({ blob, filename }));
+    })
+    .then(({ blob, filename }) => {
+      const objUrl = URL.createObjectURL(blob);
+      if (openInTab) {
+        window.open(objUrl, '_blank');
+      } else {
+        const a = document.createElement('a');
+        a.href = objUrl;
+        a.download = filename;
+        a.click();
+      }
+    })
+    .catch(() => alert('Download failed'));
+}
+
 export default function SampleDetailPage() {
   const params = useParams();
   const sampleId = params.id as string;
@@ -202,14 +226,12 @@ export default function SampleDetailPage() {
           <div className="card">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-100">Read QC (fastp)</h2>
-              <a
-                href={`/api/pipeline/qc/${sampleId}/fastp`}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                onClick={() => authDownload(`/api/pipeline/qc/${sampleId}/fastp`, true)}
                 className="btn-secondary text-xs flex items-center gap-1.5"
               >
                 View Report
-              </a>
+              </button>
             </div>
           </div>
 
@@ -219,23 +241,21 @@ export default function SampleDetailPage() {
               <h2 className="text-lg font-semibold text-gray-100">Assembly Quality</h2>
               <div className="flex items-center gap-2">
                 {summary?.quast && (
-                  <a
-                    href={`/api/pipeline/qc/${sampleId}/quast`}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    onClick={() => authDownload(`/api/pipeline/qc/${sampleId}/quast`, true)}
                     className="btn-secondary text-xs flex items-center gap-1.5"
                   >
                     View QUAST Report
-                  </a>
+                  </button>
                 )}
                 {summary?.quast && (
-                  <a
-                    href={`/api/pipeline/assembly/${sampleId}`}
+                  <button
+                    onClick={() => authDownload(`/api/pipeline/assembly/${sampleId}`)}
                     className="btn-secondary text-xs flex items-center gap-1.5"
                   >
                     <Download className="w-3.5 h-3.5" />
                     Download FASTA
-                  </a>
+                  </button>
                 )}
               </div>
             </div>
@@ -415,7 +435,7 @@ export default function SampleDetailPage() {
               <h2 className="text-lg font-semibold text-gray-100">Resistance Genes (AMRFinderPlus)</h2>
               {args.length > 0 && (
                 <button
-                  onClick={() => window.location.href = `/api/samples/${id}/gene-sequences?type=arg`}
+                  onClick={() => authDownload(`/api/samples/${sampleId}/gene-sequences?type=arg`)}
                   className="btn-secondary flex items-center gap-2 text-xs"
                 >
                   <Download className="w-3.5 h-3.5" />
@@ -821,7 +841,7 @@ export default function SampleDetailPage() {
               {virulence.length > 0 && (
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => window.location.href = `/api/samples/${id}/gene-sequences?type=virulence`}
+                    onClick={() => authDownload(`/api/samples/${sampleId}/gene-sequences?type=virulence`)}
                     className="btn-secondary flex items-center gap-2 text-xs"
                   >
                     <Download className="w-3.5 h-3.5" />
