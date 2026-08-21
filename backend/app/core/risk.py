@@ -24,6 +24,9 @@ from app.models.models import (
     RiskScore,
     RiskCategory,
     HazardRank,
+    SpeciesResult,
+    MLSTResult,
+    Metadata,
 )
 
 logger = logging.getLogger(__name__)
@@ -177,6 +180,117 @@ _NON_AMR_CLASSES = {
 # AMRFinderPlus mechanism values that indicate non-antimicrobial resistance
 _NON_AMR_MECHANISMS = {"BIOCIDE", "METAL", "ACID", "STRESS"}
 
+# ---------------------------------------------------------------------------
+# Intrinsic/species-core gene filtering
+#
+# Species-core determinants are near-universal chromosomal genes that inflate
+# the rank without representing actionable resistance. They are excluded from
+# worst-case selection UNLESS activated by:
+#   - An IS element within ~500 bp upstream (e.g., ISAba1 → blaOXA-51-like)
+#   - A resistance-conferring point mutation in the gene
+#
+# Gene → species mapping. A gene is considered intrinsic only when:
+#   1. It matches a prefix in this table AND
+#   2. The isolate species matches the listed species AND
+#   3. The gene is chromosomal (not on a plasmid)
+# ---------------------------------------------------------------------------
+
+_INTRINSIC_GENES = {
+    # A. baumannii intrinsic beta-lactamases
+    "blaoxa-51": "acinetobacter baumannii",
+    "blaoxa-64": "acinetobacter baumannii",
+    "blaoxa-65": "acinetobacter baumannii",
+    "blaoxa-66": "acinetobacter baumannii",
+    "blaoxa-67": "acinetobacter baumannii",
+    "blaoxa-68": "acinetobacter baumannii",
+    "blaoxa-69": "acinetobacter baumannii",
+    "blaoxa-70": "acinetobacter baumannii",
+    "blaoxa-71": "acinetobacter baumannii",
+    "blaoxa-78": "acinetobacter baumannii",
+    "blaoxa-82": "acinetobacter baumannii",
+    "blaoxa-83": "acinetobacter baumannii",
+    "blaoxa-84": "acinetobacter baumannii",
+    "blaoxa-86": "acinetobacter baumannii",
+    "blaoxa-87": "acinetobacter baumannii",
+    "blaoxa-88": "acinetobacter baumannii",
+    "blaoxa-89": "acinetobacter baumannii",
+    "blaoxa-90": "acinetobacter baumannii",
+    "blaoxa-91": "acinetobacter baumannii",
+    "blaoxa-92": "acinetobacter baumannii",
+    "blaoxa-94": "acinetobacter baumannii",
+    "blaoxa-95": "acinetobacter baumannii",
+    "blaoxa-98": "acinetobacter baumannii",
+    "blaoxa-99": "acinetobacter baumannii",
+    "blaoxa-104": "acinetobacter baumannii",
+    "blaoxa-106": "acinetobacter baumannii",
+    "blaoxa-107": "acinetobacter baumannii",
+    "blaadc": "acinetobacter baumannii",
+    # A. baumannii intrinsic efflux/resistance
+    "adeb": "acinetobacter baumannii",
+    "adea": "acinetobacter baumannii",
+    "ader": "acinetobacter baumannii",
+    "ades": "acinetobacter baumannii",
+    # E. coli intrinsic chromosomal beta-lactamase
+    "blaec": "escherichia coli",
+    "ampc": "escherichia coli",
+    # Salmonella intrinsic efflux
+    "mdsab": "salmonella enterica",
+    "mdsa": "salmonella enterica",
+    "mdsb": "salmonella enterica",
+    "mdsc": "salmonella enterica",
+    "acrb": "salmonella enterica",
+    # K. pneumoniae intrinsic beta-lactamases
+    "blashv-1": "klebsiella pneumoniae",
+    "blashv-11": "klebsiella pneumoniae",
+    "blashv-26": "klebsiella pneumoniae",
+    "blashv-28": "klebsiella pneumoniae",
+    "blashv-33": "klebsiella pneumoniae",
+    "blashv-36": "klebsiella pneumoniae",
+    "blashv-38": "klebsiella pneumoniae",
+    "blashv-41": "klebsiella pneumoniae",
+    "blashv-56": "klebsiella pneumoniae",
+    "blashv-60": "klebsiella pneumoniae",
+    "blashv-61": "klebsiella pneumoniae",
+    "blashv-62": "klebsiella pneumoniae",
+    "blashv-75": "klebsiella pneumoniae",
+    "blashv-76": "klebsiella pneumoniae",
+    "blashv-100": "klebsiella pneumoniae",
+    "blashv-110": "klebsiella pneumoniae",
+    "blashv-187": "klebsiella pneumoniae",
+    "oxyr": "klebsiella pneumoniae",
+    # K. pneumoniae intrinsic fosfomycin resistance
+    "fosA": "klebsiella pneumoniae",
+    "fosa": "klebsiella pneumoniae",
+    # S. aureus intrinsic
+    "meca": "staphylococcus aureus",  # NOT intrinsic, but mecA is acquired — keep it
+    "nora": "staphylococcus aureus",
+    "mgrA": "staphylococcus aureus",
+    "mgra": "staphylococcus aureus",
+    "arlr": "staphylococcus aureus",
+    "arls": "staphylococcus aureus",
+    # Common intrinsic efflux pumps across Enterobacterales
+    "acra": "enterobacterales",
+    "acrb": "enterobacterales",
+    "tolc": "enterobacterales",
+    "mara": "enterobacterales",
+    "marr": "enterobacterales",
+    "soxs": "enterobacterales",
+    "soxr": "enterobacterales",
+    "rob": "enterobacterales",
+    "emrd": "enterobacterales",
+    "mdtk": "enterobacterales",
+    "mdtm": "enterobacterales",
+}
+
+# IS elements known to activate intrinsic genes when inserted upstream
+_ACTIVATING_IS = {
+    "isaba1", "isaba125", "isaba2", "isaba3", "isaba4",  # A. baumannii
+    "isecp1", "is26", "is1",  # Enterobacterales
+}
+
+# Maximum distance (bp) for an IS element to be considered activating
+_IS_ACTIVATION_DISTANCE = 500
+
 
 def _is_amr_entry(arg: ARGResult) -> bool:
     """Check if an ARGResult is an antimicrobial resistance entry (not STRESS/METAL/BIOCIDE)."""
@@ -189,6 +303,136 @@ def _is_amr_entry(arg: ARGResult) -> bool:
         if main_class in _NON_AMR_CLASSES:
             return False
     return True
+
+
+def _get_species_name(sample_id: str, db) -> Optional[str]:
+    """Get species name for a sample from available sources."""
+    # Try SpeciesResult first
+    sr = db.query(SpeciesResult).filter(SpeciesResult.sample_id == sample_id).first()
+    if sr and sr.species:
+        species = sr.species.lower()
+        # If it looks like a species name (has space), use it
+        if " " in species:
+            return species
+
+    # Try MLST scheme → species mapping
+    mlst = db.query(MLSTResult).filter(MLSTResult.sample_id == sample_id).first()
+    if mlst and mlst.scheme:
+        scheme_map = {
+            "ecoli": "escherichia coli",
+            "ecoli_achtman_4": "escherichia coli",
+            "senterica": "salmonella enterica",
+            "klebsiella": "klebsiella pneumoniae",
+            "kpneumoniae": "klebsiella pneumoniae",
+            "saureus": "staphylococcus aureus",
+            "abaumannii": "acinetobacter baumannii",
+            "abaumannii_2": "acinetobacter baumannii",
+            "efaecium": "enterococcus faecium",
+            "efaecalis": "enterococcus faecalis",
+        }
+        species = scheme_map.get(mlst.scheme.lower())
+        if species:
+            return species
+
+    # Try Metadata
+    meta = db.query(Metadata).filter(Metadata.sample_id == sample_id).first()
+    if meta and meta.species:
+        return meta.species.lower()
+
+    return None
+
+
+def _is_intrinsic(gene: str, species: Optional[str]) -> bool:
+    """Check if a gene is intrinsic to the given species.
+
+    Returns True if the gene matches the intrinsic gene table AND the species
+    matches (or species is in the Enterobacterales order for order-level entries).
+
+    Uses exact matching (after normalization) to avoid prefix collisions like
+    blaSHV-1 (intrinsic) matching blaSHV-12 (acquired ESBL).
+    """
+    if not species:
+        return False
+
+    gene_lower = gene.lower().replace("-", "").replace("_", "")
+    species_lower = species.lower()
+
+    # Enterobacterales member species
+    enterobacterales = {
+        "escherichia coli", "salmonella enterica", "klebsiella pneumoniae",
+        "enterobacter cloacae", "citrobacter freundii", "serratia marcescens",
+        "proteus mirabilis", "morganella morganii",
+    }
+
+    for entry, intrinsic_species in _INTRINSIC_GENES.items():
+        entry_norm = entry.lower().replace("-", "").replace("_", "")
+        # Exact match after normalization
+        if gene_lower != entry_norm:
+            continue
+        if intrinsic_species == "enterobacterales":
+            return species_lower in enterobacterales
+        if intrinsic_species in species_lower or species_lower in intrinsic_species:
+            return True
+
+    return False
+
+
+def _has_activating_context(
+    arg: ARGResult,
+    mobility_results: list,
+) -> bool:
+    """Check if an intrinsic gene has activating context that restores its hazard.
+
+    Activating context:
+    1. A known activating IS element within _IS_ACTIVATION_DISTANCE bp upstream
+    2. The gene is annotated with a point mutation (mechanism contains POINT)
+    """
+    # Point mutation activation
+    mechanism = (arg.mechanism or "").upper()
+    if "POINT" in mechanism:
+        return True
+    if arg.point_mutations:
+        return True
+
+    # IS element upstream activation
+    if arg.contig and arg.start and arg.end:
+        for mob in mobility_results:
+            if mob.contig and mob.contig == arg.contig and mob.start and mob.end:
+                # Check if IS element name is a known activator
+                is_name = (mob.element_type or "").lower().replace(" ", "").replace("-", "").replace("_", "")
+                is_family = (mob.family or "").lower().replace(" ", "").replace("-", "").replace("_", "")
+
+                is_activating = False
+                for act_is in _ACTIVATING_IS:
+                    act_norm = act_is.lower().replace("-", "").replace("_", "")
+                    if act_norm in is_name or act_norm in is_family:
+                        is_activating = True
+                        break
+
+                if not is_activating:
+                    continue
+
+                # Check distance: IS must be within _IS_ACTIVATION_DISTANCE
+                # upstream of the ARG
+                # "Upstream" depends on strand; since we don't track strand,
+                # check proximity in either direction
+                is_end = mob.end
+                is_start = mob.start
+                arg_start = arg.start
+                arg_end = arg.end
+
+                # Distance from IS to ARG (either direction)
+                if is_end <= arg_start:
+                    dist = arg_start - is_end
+                elif is_start >= arg_end:
+                    dist = is_start - arg_end
+                else:
+                    dist = 0  # Overlapping
+
+                if dist <= _IS_ACTIVATION_DISTANCE:
+                    return True
+
+    return False
 
 
 def _normalize_class(raw_class: str) -> str:
@@ -440,6 +684,12 @@ def calculate_composite_risk(sample_id: str, db=None, **kwargs) -> RiskScore:
     vf_results = db.query(VirulenceResult).filter(
         VirulenceResult.sample_id == sample_id
     ).all()
+    mobility_results = db.query(MobilityResult).filter(
+        MobilityResult.sample_id == sample_id
+    ).all()
+
+    # Get species for intrinsic gene filtering
+    species = _get_species_name(sample_id, db)
 
     # Filter to AMR-type entries only (per paper: "only Type=AMR")
     amr_args = [a for a in all_arg_results if _is_amr_entry(a)]
@@ -470,6 +720,7 @@ def calculate_composite_risk(sample_id: str, db=None, **kwargs) -> RiskScore:
     worst_arg_location = None
     worst_drug_class = None
     has_tiered_arg = False
+    intrinsic_skipped = []
 
     # Collect antimicrobial drug classes for MDR (AMR entries only)
     drug_classes = set()
@@ -488,6 +739,16 @@ def calculate_composite_risk(sample_id: str, db=None, **kwargs) -> RiskScore:
         level, location = _get_transmissibility_level(
             arg, plasmids, ice_results, plasmid_contigs
         )
+
+        # Filter intrinsic/species-core chromosomal genes from worst-case
+        # selection. Intrinsic genes are still counted for MDR but cannot
+        # drive the hazard rank, UNLESS they have activating context
+        # (IS element upstream or point mutation).
+        if tier is not None and not arg.on_plasmid \
+                and _is_intrinsic(arg.gene, species) \
+                and not _has_activating_context(arg, mobility_results):
+            intrinsic_skipped.append(arg.gene)
+            continue
 
         if tier is not None:
             has_tiered_arg = True
@@ -586,10 +847,11 @@ def calculate_composite_risk(sample_id: str, db=None, **kwargs) -> RiskScore:
     db.commit()
     db.refresh(risk)
 
+    intrinsic_msg = f", intrinsic_skipped={intrinsic_skipped}" if intrinsic_skipped else ""
     logger.info(
         f"Hazard rank for {sample_id}: {hazard_rank.value} "
         f"(tier={aware_tier}, level={trans_level}, "
-        f"worst_arg={wc_gene}, MDR={mdr}, "
-        f"classes={len(drug_classes)}, VF_cats={vf_cat_count})"
+        f"worst_arg={wc_gene}, MDR={mdr}, species={species}, "
+        f"classes={len(drug_classes)}, VF_cats={vf_cat_count}{intrinsic_msg})"
     )
     return risk
