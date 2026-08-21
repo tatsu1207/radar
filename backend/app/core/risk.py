@@ -30,69 +30,110 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # WHO AWaRe tier mapping
-# Maps AMRFinderPlus Class (and Subclass where needed) to AWaRe tiers.
-# Uses the worst-case (highest) tier when a class spans multiple agents.
+#
+# Tier assignment follows a four-step cascade (per the paper):
+#   1. Per-agent tiers from the AMRFinderPlus Subclass (worst-case rule)
+#   2. Mode tier of the corresponding antibiotic Class (representative value)
+#   3. Worst-case tier of the gene family
+#   4. No tier (intrinsic/undetermined)
 # ---------------------------------------------------------------------------
 
-# Agent-level AWaRe tiers (from WHO AWaRe Classification 2023)
-# Reserve antibiotics
-_RESERVE_AGENTS = {
-    "colistin", "polymyxin", "polymyxin b",
-    "carbapenem", "imipenem", "meropenem", "ertapenem", "doripenem",
-    "tigecycline",
-    "linezolid", "tedizolid",
-    "daptomycin",
-    "fosfomycin",
-    "ceftazidime-avibactam", "ceftolozane-tazobactam",
-    "aztreonam",
-    "plazomicin",
-    "vancomycin", "teicoplanin",
+# Step 1: Individual antibiotic agent → AWaRe tier (WHO AWaRe 2023)
+# These must be actual agent names, NOT class names.
+_AGENT_TIER = {
+    # Reserve agents
+    "colistin": "Reserve",
+    "polymyxin": "Reserve",
+    "polymyxin b": "Reserve",
+    "imipenem": "Reserve",
+    "meropenem": "Reserve",
+    "ertapenem": "Reserve",
+    "doripenem": "Reserve",
+    "tigecycline": "Reserve",
+    "linezolid": "Reserve",
+    "tedizolid": "Reserve",
+    "daptomycin": "Reserve",
+    "fosfomycin": "Reserve",
+    "ceftazidime-avibactam": "Reserve",
+    "ceftolozane-tazobactam": "Reserve",
+    "plazomicin": "Reserve",
+    "vancomycin": "Reserve",
+    "teicoplanin": "Reserve",
+    "aztreonam": "Reserve",
+    # Watch agents
+    "cefotaxime": "Watch",
+    "ceftriaxone": "Watch",
+    "ceftazidime": "Watch",
+    "cefepime": "Watch",
+    "cefixime": "Watch",
+    "cefpodoxime": "Watch",
+    "ciprofloxacin": "Watch",
+    "levofloxacin": "Watch",
+    "moxifloxacin": "Watch",
+    "norfloxacin": "Watch",
+    "ofloxacin": "Watch",
+    "azithromycin": "Watch",
+    "clarithromycin": "Watch",
+    "erythromycin": "Watch",
+    "gentamicin": "Watch",
+    "amikacin": "Watch",
+    "tobramycin": "Watch",
+    "piperacillin-tazobactam": "Watch",
+    "ampicillin-sulbactam": "Watch",
+    "amoxicillin-clavulanate": "Watch",
+    # Access agents
+    "amoxicillin": "Access",
+    "ampicillin": "Access",
+    "penicillin": "Access",
+    "doxycycline": "Access",
+    "tetracycline": "Access",
+    "chloramphenicol": "Access",
+    "trimethoprim": "Access",
+    "sulfamethoxazole": "Access",
+    "nitrofurantoin": "Access",
+    "metronidazole": "Access",
+    "clindamycin": "Access",
+    "streptomycin": "Access",
+    "kanamycin": "Access",
+    "spectinomycin": "Access",
+    "nalidixic acid": "Access",
+    "florfenicol": "Access",
+    "mupirocin": "Access",
 }
 
-# Watch antibiotics
-_WATCH_AGENTS = {
-    "cephalosporin", "cefotaxime", "ceftriaxone", "ceftazidime", "cefepime",
-    "cefixime", "cefpodoxime",
-    "fluoroquinolone", "ciprofloxacin", "levofloxacin", "moxifloxacin",
-    "norfloxacin", "ofloxacin",
-    "macrolide", "azithromycin", "clarithromycin", "erythromycin",
-    "piperacillin-tazobactam",
-    "ampicillin-sulbactam", "amoxicillin-clavulanate",
-    "aminoglycoside", "gentamicin", "amikacin", "tobramycin",
-    "glycopeptide",
-}
-
-# Class-level AWaRe fallback (mode tier per antibiotic class)
-_CLASS_TIER_MAP = {
-    # Reserve-tier classes
+# Step 2: Antibiotic class → mode AWaRe tier (representative value)
+# Mode = most frequent tier among the class's agents; ties → higher tier.
+# This is the FALLBACK when no specific agent matches in step 1.
+_CLASS_MODE_TIER = {
+    # Reserve-mode classes (majority of agents are Reserve)
     "glycopeptide": "Reserve",
     "lipopeptide": "Reserve",
     "oxazolidinone": "Reserve",
     "polymyxin": "Reserve",
     "carbapenem": "Reserve",
     "glycylcycline": "Reserve",
-    # Watch-tier classes
-    "beta-lactam": "Watch",
+    # Watch-mode classes (majority of agents are Watch)
     "cephalosporin": "Watch",
     "fluoroquinolone": "Watch",
     "quinolone": "Watch",
     "macrolide": "Watch",
     "aminoglycoside": "Watch",
     "monobactam": "Watch",
-    # Access-tier classes
+    "rifamycin": "Watch",
+    "streptogramin": "Watch",
+    # Access-mode classes (majority of agents are Access)
+    "beta-lactam": "Access",
+    "penicillin": "Access",
     "tetracycline": "Access",
     "phenicol": "Access",
     "sulfonamide": "Access",
     "trimethoprim": "Access",
     "fosfomycin": "Reserve",
-    "rifamycin": "Watch",
     "lincosamide": "Access",
-    "streptogramin": "Watch",
     "nitroimidazole": "Access",
     "nitrofuran": "Access",
     "fusidane": "Access",
     "mupirocin": "Access",
-    "penicillin": "Access",
     "aminocoumarin": "Access",
     "diaminopyrimidine": "Access",
     "nucleoside": "Access",
@@ -103,8 +144,9 @@ _CLASS_TIER_MAP = {
     "thiostrepton": "Access",
 }
 
-# Gene-family-level overrides for known important ARGs
-_GENE_TIER_OVERRIDES = {
+# Step 3: Gene-family worst-case tier (fallback when class/agent unknown)
+# Only used when neither step 1 nor step 2 produces a tier.
+_GENE_FAMILY_TIER = {
     # Carbapenemases → Reserve
     "blandm": "Reserve", "blakpc": "Reserve", "blaoxa-48": "Reserve",
     "blavim": "Reserve", "blaimp": "Reserve", "blages": "Reserve",
@@ -117,71 +159,122 @@ _GENE_TIER_OVERRIDES = {
     # Linezolid resistance → Reserve
     "cfr": "Reserve", "optra": "Reserve",
     # ESBL → Watch (cephalosporin resistance)
-    "blactx-m": "Watch", "blashv": "Watch", "blatem": "Watch",
-    "blacmy": "Watch", "bladha": "Watch",
+    "blactx-m": "Watch", "blacmy": "Watch", "bladha": "Watch",
     # Glycylcycline-specific → Reserve (tet(X) family)
     "tetx": "Reserve",
     "tmexcd": "Reserve",
 }
 
+# Non-antimicrobial drug classes (STRESS/BIOCIDE/METAL) — excluded from
+# AWaRe tier assignment and MDR counting per the paper ("only Type=AMR").
+_NON_AMR_CLASSES = {
+    "efflux", "arsenic", "arsenate", "copper", "copper/silver", "silver",
+    "mercury", "organomercury", "zinc", "cadmium", "chromium", "lead",
+    "tellurium", "nickel", "cobalt", "quaternary ammonium", "hydrogen peroxide",
+    "triclosan", "benzalkonium", "chlorhexidine", "na",
+}
+
+# AMRFinderPlus mechanism values that indicate non-antimicrobial resistance
+_NON_AMR_MECHANISMS = {"BIOCIDE", "METAL", "ACID", "STRESS"}
+
+
+def _is_amr_entry(arg: ARGResult) -> bool:
+    """Check if an ARGResult is an antimicrobial resistance entry (not STRESS/METAL/BIOCIDE)."""
+    mechanism = (arg.mechanism or "").upper()
+    if mechanism in _NON_AMR_MECHANISMS:
+        return False
+    # Also check drug class
+    if arg.drug_class:
+        main_class = arg.drug_class.split(";")[0].strip().lower()
+        if main_class in _NON_AMR_CLASSES:
+            return False
+    return True
+
 
 def _normalize_class(raw_class: str) -> str:
-    """Normalize AMRFinderPlus class string for matching."""
+    """Normalize antibiotic class string for matching."""
     return raw_class.strip().lower().replace(" ", "").replace("-", "").replace("/", "")
 
 
 def _get_aware_tier(gene: str, drug_class: str, mechanism: str) -> Optional[str]:
-    """Determine AWaRe tier for an ARG.
+    """Determine AWaRe tier for an ARG using the four-step cascade.
 
-    Cascade:
-    1. Gene-family override (known carbapenemases, mcr, van, etc.)
-    2. Subclass agent-level matching
-    3. Class-level fallback (mode tier)
-    4. None (intrinsic/undetermined)
+    Step 1: Per-agent tiers from the Subclass (worst-case across agents)
+    Step 2: Mode tier of the antibiotic Class (representative, avoids over-estimation)
+    Step 3: Worst-case tier of the gene family (last resort)
+    Step 4: No tier (intrinsic/undetermined)
     """
-    gene_lower = gene.lower().replace("-", "").replace("_", "")
-
-    # Step 1: gene family overrides
-    for prefix, tier in _GENE_TIER_OVERRIDES.items():
-        if gene_lower.startswith(prefix):
-            return tier
-
     if not drug_class:
-        return None
+        # No drug class → skip to step 3 (gene family)
+        return _gene_family_fallback(gene)
 
     # Parse "Class; Subclass" format from AMRFinderPlus
-    parts = [p.strip().lower() for p in drug_class.split(";")]
+    # Main class may contain "/" for multi-class genes (e.g., "AMINOGLYCOSIDE/QUINOLONE")
+    parts = [p.strip() for p in drug_class.split(";")]
     main_class = parts[0] if parts else ""
-    subclasses = parts[1:] if len(parts) > 1 else []
+    subclass = ";".join(parts[1:]) if len(parts) > 1 else ""
 
-    # Step 2: agent-level from subclass
+    # ── Step 1: Per-agent tiers from Subclass (worst-case rule) ──
+    # AMRFinderPlus subclass may contain individual agents ("STREPTOMYCIN")
+    # or class-level terms ("CEPHALOSPORIN"). Both are checked.
+    if subclass:
+        best_tier = None
+        best_order = 0
+        agents = [a.strip().lower() for a in subclass.replace("/", ";").split(";") if a.strip()]
+        for agent in agents:
+            # Try exact match in agent tier table
+            tier = _AGENT_TIER.get(agent)
+            if not tier:
+                # Try fuzzy match against known agents
+                for known_agent, t in _AGENT_TIER.items():
+                    if known_agent in agent or agent in known_agent:
+                        tier = t
+                        break
+            if not tier:
+                # Subclass term might be a class name (e.g., "CEPHALOSPORIN")
+                tier = _CLASS_MODE_TIER.get(agent)
+            if tier:
+                order = _TIER_ORDER.get(tier, 0)
+                if order > best_order:
+                    best_order = order
+                    best_tier = tier
+                    if tier == "Reserve":
+                        return "Reserve"  # Can't get higher
+
+        if best_tier:
+            return best_tier
+
+    # ── Step 2: Class-level mode tier ──
+    # Main class may be multi-class ("AMINOGLYCOSIDE/QUINOLONE") — use worst-case
+    main_classes = [c.strip().lower() for c in main_class.split("/") if c.strip()]
     best_tier = None
-    for sub in subclasses:
-        # Check each word in the subclass against agent lists
-        sub_words = sub.replace("/", " ").replace("-", " ").split()
-        for word in sub_words:
-            word = word.strip()
-            if word in _RESERVE_AGENTS:
-                return "Reserve"  # Can't get higher
-            if word in _WATCH_AGENTS:
-                best_tier = "Watch"
-
-    # Also check the main class against agent lists
-    if main_class in _RESERVE_AGENTS:
-        return "Reserve"
-    if main_class in _WATCH_AGENTS and best_tier != "Reserve":
-        best_tier = "Watch"
-
+    best_order = 0
+    for mc in main_classes:
+        tier = _CLASS_MODE_TIER.get(mc)
+        if not tier:
+            normalized = _normalize_class(mc)
+            for key, t in _CLASS_MODE_TIER.items():
+                if _normalize_class(key) == normalized:
+                    tier = t
+                    break
+        if tier:
+            order = _TIER_ORDER.get(tier, 0)
+            if order > best_order:
+                best_order = order
+                best_tier = tier
     if best_tier:
         return best_tier
 
-    # Step 3: class-level fallback
-    normalized = _normalize_class(main_class)
-    for key, tier in _CLASS_TIER_MAP.items():
-        if _normalize_class(key) in normalized or normalized in _normalize_class(key):
-            return tier
+    # ── Step 3: Gene-family fallback (worst-case rule) ──
+    return _gene_family_fallback(gene)
 
-    # Step 4: no tier
+
+def _gene_family_fallback(gene: str) -> Optional[str]:
+    """Step 3: Map gene name to AWaRe tier by gene family prefix."""
+    gene_lower = gene.lower().replace("-", "").replace("_", "")
+    for prefix, tier in _GENE_FAMILY_TIER.items():
+        if gene_lower.startswith(prefix):
+            return tier
     return None
 
 
@@ -226,9 +319,6 @@ def _get_transmissibility_level(
 
             if mobility == "conjugative":
                 # Conjugative: check host range
-                # If mash_neighbor is from a different genus/family → broad
-                # For simplicity: if mash_neighbor exists and differs from
-                # isolate species, treat as broad (level 5). Otherwise narrow (4).
                 # Default to broad (5) when no host range info available,
                 # as conjugative plasmids are high concern regardless.
                 return 5, f"plasmid (conjugative, {cluster_id})"
@@ -252,7 +342,7 @@ def _get_transmissibility_level(
         return 1, f"plasmid ({cluster_id})"
 
     # Check if chromosomal ARG is within an ICE region
-    # Only for acquired ARGs (not point mutations)
+    # Per paper: point mutations are NEVER re-scored for ICE location
     mechanism = (arg.mechanism or "").upper()
     is_point_mutation = "POINT" in mechanism
 
@@ -294,11 +384,10 @@ def _rank_to_category(rank: HazardRank) -> RiskCategory:
         return RiskCategory.critical
     elif rank in (HazardRank.R4, HazardRank.R5):
         return RiskCategory.high
-    elif rank in (HazardRank.R6, HazardRank.R7, HazardRank.R8, HazardRank.R9, HazardRank.R10):
+    elif rank in (HazardRank.R6, HazardRank.R7, HazardRank.R8,
+                  HazardRank.R9, HazardRank.R10):
         return RiskCategory.medium
-    elif rank == HazardRank.R11:
-        return RiskCategory.low
-    elif rank == HazardRank.R12:
+    elif rank in (HazardRank.R11, HazardRank.R12):
         return RiskCategory.low
     else:  # NG
         return RiskCategory.low
@@ -332,39 +421,47 @@ def calculate_composite_risk(sample_id: str, db=None, **kwargs) -> RiskScore:
     """Calculate hazard rank for a sample.
 
     Steps:
-    1. For each ARG, determine AWaRe tier and transmissibility level
-    2. Find worst-case ARG (highest tier, then highest transmissibility)
-    3. Assign rank R1-R12 or NG
-    4. Flag MDR (≥3 distinct antibiotic classes)
-    5. Count VF categories as annotation
+    1. Filter to AMR-type entries only (exclude STRESS/BIOCIDE/METAL)
+    2. For each AMR ARG, determine AWaRe tier and transmissibility level
+    3. Find worst-case ARG (highest tier, then highest transmissibility)
+    4. Assign rank R1-R12 or NG
+    5. Flag MDR (≥3 distinct antimicrobial classes)
+    6. Count VF categories as annotation
     """
-    arg_results = db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
-    plasmids = db.query(PlasmidResult).filter(PlasmidResult.sample_id == sample_id).all()
-    ice_results = db.query(ICEResult).filter(ICEResult.sample_id == sample_id).all()
-    vf_results = db.query(VirulenceResult).filter(VirulenceResult.sample_id == sample_id).all()
+    all_arg_results = db.query(ARGResult).filter(
+        ARGResult.sample_id == sample_id
+    ).all()
+    plasmids = db.query(PlasmidResult).filter(
+        PlasmidResult.sample_id == sample_id
+    ).all()
+    ice_results = db.query(ICEResult).filter(
+        ICEResult.sample_id == sample_id
+    ).all()
+    vf_results = db.query(VirulenceResult).filter(
+        VirulenceResult.sample_id == sample_id
+    ).all()
 
-    # Build plasmid contig mapping
+    # Filter to AMR-type entries only (per paper: "only Type=AMR")
+    amr_args = [a for a in all_arg_results if _is_amr_entry(a)]
+
+    # Build plasmid contig mapping from ARGResult.contig_type
     plasmid_contigs = {}
-    for arg in arg_results:
+    for arg in all_arg_results:
         if arg.on_plasmid and arg.contig_type:
-            # contig_type is like "plasmid (AA738)"
             ct = arg.contig_type
             if ct.startswith("plasmid"):
                 cluster = ct.replace("plasmid (", "").rstrip(")")
                 if cluster and cluster != "plasmid":
                     plasmid_contigs[arg.contig] = cluster
 
-    # Also build from PlasmidResult data (more reliable)
-    # We need to re-read the contig_report for contig→cluster mapping
-    # But we already set this during plasmid.py. Use ARGResult.contig_type.
-    # Ensure we have all plasmid contigs mapped
+    # Also ensure plasmid contigs are mapped via PlasmidResult
     for p in plasmids:
-        # Find ARGs that reference this plasmid
-        for arg in arg_results:
-            if arg.on_plasmid and arg.contig_type and p.plasmid_id and p.plasmid_id in arg.contig_type:
+        for arg in all_arg_results:
+            if arg.on_plasmid and arg.contig_type and p.plasmid_id \
+                    and p.plasmid_id in arg.contig_type:
                 plasmid_contigs[arg.contig] = p.plasmid_id
 
-    # Score each ARG
+    # Score each AMR ARG
     worst_tier_order = 0
     worst_level = 0
     worst_arg = None
@@ -374,16 +471,18 @@ def calculate_composite_risk(sample_id: str, db=None, **kwargs) -> RiskScore:
     worst_drug_class = None
     has_tiered_arg = False
 
-    # Collect drug classes for MDR
+    # Collect antimicrobial drug classes for MDR (AMR entries only)
     drug_classes = set()
 
-    for arg in arg_results:
-        # Collect drug classes
+    for arg in amr_args:
+        # Collect drug classes for MDR counting
+        # Handle multi-class format ("AMINOGLYCOSIDE/QUINOLONE; ...")
         if arg.drug_class:
-            # Use the main class (before semicolon) for MDR counting
-            main_class = arg.drug_class.split(";")[0].strip().lower()
-            if main_class:
-                drug_classes.add(main_class)
+            main_part = arg.drug_class.split(";")[0].strip()
+            for mc in main_part.split("/"):
+                mc = mc.strip().lower()
+                if mc and mc not in _NON_AMR_CLASSES:
+                    drug_classes.add(mc)
 
         tier = _get_aware_tier(arg.gene, arg.drug_class, arg.mechanism)
         level, location = _get_transmissibility_level(
@@ -406,7 +505,8 @@ def calculate_composite_risk(sample_id: str, db=None, **kwargs) -> RiskScore:
                 worst_drug_class = arg.drug_class
 
     # Determine rank
-    if not arg_results:
+    if not amr_args:
+        # No AMR-type ARGs at all
         hazard_rank = HazardRank.R12
         aware_tier = None
         trans_level = None
@@ -414,6 +514,7 @@ def calculate_composite_risk(sample_id: str, db=None, **kwargs) -> RiskScore:
         wc_class = None
         wc_location = None
     elif not has_tiered_arg:
+        # Has AMR ARGs but none map to an AWaRe tier → NG
         hazard_rank = HazardRank.NG
         aware_tier = None
         trans_level = None
@@ -428,22 +529,24 @@ def calculate_composite_risk(sample_id: str, db=None, **kwargs) -> RiskScore:
         wc_class = worst_drug_class
         wc_location = worst_arg_location
 
-    # MDR flag
+    # MDR flag (≥3 distinct antimicrobial classes)
     mdr = len(drug_classes) >= 3
 
-    # VF category count
+    # VF category count (annotation only, orthogonal to rank)
     vf_categories = set()
     for vf in vf_results:
         if vf.category:
             vf_categories.add(vf.category.lower())
     vf_cat_count = len(vf_categories)
 
-    # Legacy scores
+    # Legacy scores for backwards compat
     composite = _rank_to_score(hazard_rank)
     category = _rank_to_category(hazard_rank)
 
     # Upsert
-    existing = db.query(RiskScore).filter(RiskScore.sample_id == sample_id).first()
+    existing = db.query(RiskScore).filter(
+        RiskScore.sample_id == sample_id
+    ).first()
     if existing:
         existing.hazard_rank = hazard_rank
         existing.aware_tier = aware_tier
@@ -456,7 +559,7 @@ def calculate_composite_risk(sample_id: str, db=None, **kwargs) -> RiskScore:
         existing.vf_category_count = vf_cat_count
         existing.composite_score = composite
         existing.risk_category = category
-        existing.arg_score = composite  # legacy
+        existing.arg_score = composite
         existing.vf_score = 0.0
         existing.mobility_score = 0.0
         risk = existing
