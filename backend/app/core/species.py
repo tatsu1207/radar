@@ -79,7 +79,7 @@ def _run_skani(sample_id, assembly_path, results_dir, db, threads) -> Optional[S
         return None
 
     # Parse results
-    # Columns: Ref_file  Query_file  ANI  Align_fraction_ref  Align_fraction_query  Ref_name  ...
+    # Columns: Ref_file  Query_file  ANI  Align_fraction_ref  Align_fraction_query  Ref_name  Query_name
     top_hits = []
     if os.path.exists(output_path):
         with open(output_path) as f:
@@ -91,8 +91,12 @@ def _run_skani(sample_id, assembly_path, results_dir, db, threads) -> Optional[S
                     continue
                 ref_file = parts[0]
                 ani = float(parts[2])
-                # Extract species from filename: GCF_XXXXXX.X_species_name
-                species = _species_from_gtdb_path(ref_file)
+                ref_name = parts[5] if len(parts) > 5 else ""
+                # Extract species from Ref_name (e.g., "NZ_CP033092.2 Escherichia coli DSM 30083 ...")
+                species = _species_from_ref_name(ref_name)
+                if not species:
+                    # Fallback to accession from path
+                    species = _species_from_gtdb_path(ref_file)
                 top_hits.append({
                     "species": species,
                     "identity": ani,
@@ -269,12 +273,38 @@ def _run_blast_16s(sample_id, assembly_path, results_dir, db, threads) -> Option
     return sr
 
 
+def _species_from_ref_name(ref_name: str) -> str:
+    """Extract species name from skani Ref_name field.
+
+    Input: 'NZ_CP033092.2 Escherichia coli DSM 30083 = JCM 1649 chromosome, complete genome'
+    Output: 'Escherichia coli'
+
+    Input: 'NZ_PTRE01000104.1 Escherichia sp. MOD1-EC7003 ...'
+    Output: 'Escherichia sp.'
+    """
+    if not ref_name:
+        return ""
+    # Split on whitespace; first token is the accession, rest is description
+    words = ref_name.strip().split()
+    if len(words) < 3:
+        return ""
+    # Skip the accession (first word), genus is second, species epithet is third
+    genus = words[1]
+    epithet = words[2]
+    # Sanity check: genus should start uppercase, epithet lowercase or "sp."
+    if not genus[0].isupper():
+        return ""
+    if epithet in ("sp.", "sp"):
+        return f"{genus} sp."
+    if epithet[0].isupper():
+        # Not a species epithet (might be strain name), return genus only
+        return f"{genus} sp."
+    return f"{genus} {epithet}"
+
+
 def _species_from_gtdb_path(ref_path: str) -> str:
-    """Extract species name from GTDB reference path/filename."""
+    """Extract species name from GTDB reference path/filename (fallback)."""
     basename = os.path.basename(ref_path)
-    # Try to get species from the sketch marker file name
-    # Typical: GCF_000005845.2_ASM584v2_genomic.fna.gz
-    # We'll return the accession as-is if we can't parse further
     return basename.split("_genomic")[0] if "_genomic" in basename else basename
 
 
