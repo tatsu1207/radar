@@ -96,7 +96,7 @@ def _run_serotypefinder(
                     elif "h_type" in db_name:
                         h_antigen = serotype_val
 
-    serotype_str = f"O{o_antigen}:H{h_antigen}" if o_antigen and h_antigen else None
+    serotype_str = f"{o_antigen}:{h_antigen}" if o_antigen and h_antigen else None
     return _save_result(sample_id, db, "serotypefinder",
                         serotype=serotype_str, o_antigen=o_antigen, h_antigen=h_antigen)
 
