@@ -77,6 +77,7 @@ def _run_serotypefinder(
         raise RuntimeError(f"SerotypeFinder failed: {result.stderr[-500:]}")
 
     # Parse results
+    # Columns: Database  Gene  Serotype  Identity  Template/HSP  Contig  Position  Accession
     results_file = os.path.join(results_dir, "results_tab.tsv")
     o_antigen = None
     h_antigen = None
@@ -87,9 +88,9 @@ def _run_serotypefinder(
                 if line.startswith("#") or line.startswith("Database"):
                     continue
                 parts = line.strip().split("\t")
-                if len(parts) >= 2:
+                if len(parts) >= 3:
                     db_name = parts[0].lower()
-                    serotype_val = parts[5] if len(parts) > 5 else parts[1]
+                    serotype_val = parts[2]  # Serotype column
                     if "o_type" in db_name:
                         o_antigen = serotype_val
                     elif "h_type" in db_name:

@@ -81,12 +81,12 @@ pip_install_one "chewbbaca" chewbbaca
 pip_install_one "resfinder" resfinder
 pip_install_one "OSTIR" OSTIR
 
-# sistr_cmd + kleborate: need separate env due to pytables/hdf5/libcurl conflicts
+# sistr_cmd + kleborate + serotypefinder: need separate env due to pytables/hdf5/libcurl conflicts
 echo ""
-echo "  --- sistr_cmd + kleborate environment ---"
+echo "  --- sistr_cmd + kleborate + serotypefinder environment ---"
 if ! mamba env list 2>/dev/null | grep -qE "^radar-sistr\s"; then
     echo -n "  ...   radar-sistr"
-    if mamba create -n radar-sistr -y python=3.10 sistr_cmd kleborate -c bioconda -c conda-forge --channel-priority flexible > /tmp/radar_install_radar-sistr.log 2>&1 \
+    if mamba create -n radar-sistr -y python=3.10 sistr_cmd kleborate serotypefinder -c bioconda -c conda-forge --channel-priority flexible > /tmp/radar_install_radar-sistr.log 2>&1 \
         && conda run -n radar-sistr pip install --quiet "setuptools<81" >> /tmp/radar_install_radar-sistr.log 2>&1; then
         echo -e "\r  OK    radar-sistr"
     else
