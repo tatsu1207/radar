@@ -309,8 +309,8 @@ def _resolve_read_files(sample_id: str, input_files: List[str], db) -> tuple:
     elif os.path.exists(trimmed_long):
         long_read = trimmed_long
 
-    # Fallback to original files
-    if not r1 and db:
+    # Fallback to original files for any that weren't resolved from QC
+    if db and (not r1 or not r2 or not long_read):
         sample_files = db.query(SampleFile).filter(SampleFile.sample_id == sample_id).all()
         for sf in sample_files:
             if sf.pair == PairType.R1 and not r1:

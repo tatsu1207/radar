@@ -19,7 +19,8 @@ set -euo pipefail
 #   7. Rfam                (~500 MB) - sRNA annotation (cmscan)
 #   8. DefenseFinder       (~100 MB) - Defense system models
 #   9. cgMLST schemas      (~1-5 GB) - Core-genome MLST (chewBBACA via Chewie-NS)
-#  10. skani GTDB          (~30 GB)  - Species ID via ANI (OPTIONAL, skipped by default)
+#  10. SerotypeFinder      (~5 MB)   - E. coli O:H serotyping
+#  11. skani GTDB          (~30 GB)  - Species ID via ANI (OPTIONAL, skipped by default)
 # ============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -309,9 +310,35 @@ if ok == 0:
 fi
 
 # -------------------------------------------------------------------
-# 10. skani GTDB sketch database (OPTIONAL — ~30 GB)
+# 10. SerotypeFinder database
 # -------------------------------------------------------------------
-echo "  [10/10] skani GTDB database... skipped (30 GB, optional)"
+echo -n "  [10/11] SerotypeFinder database..."
+if [ -d "${DB_DIR}/serotypefinder_db" ] && [ -f "${DB_DIR}/serotypefinder_db/config" ]; then
+    echo " exists"
+else
+    if git clone --quiet https://bitbucket.org/genomicepidemiology/serotypefinder_db.git "${DB_DIR}/serotypefinder_db" 2>/dev/null; then
+        # Symlink into the conda env so the activate.d export points to real data.
+        # The bioconda serotypefinder package hard-exports SEROTYPEFINDER_DB to an
+        # empty bundled dir via activate.d — this symlink overrides it.
+        SISTR_PREFIX="$(conda run -n radar-sistr bash -c 'echo $CONDA_PREFIX' 2>/dev/null)" || true
+        if [ -n "$SISTR_PREFIX" ]; then
+            BUNDLED_DB="$(find "$SISTR_PREFIX/share" -maxdepth 1 -name 'serotypefinder-*' -type d 2>/dev/null | head -1)"
+            if [ -n "$BUNDLED_DB" ] && [ -d "$BUNDLED_DB/db" ]; then
+                rm -rf "$BUNDLED_DB/db"
+                ln -s "$(cd "${DB_DIR}/serotypefinder_db" && pwd)" "$BUNDLED_DB/db"
+            fi
+        fi
+        echo " done"
+    else
+        echo " FAILED"
+        FAIL=1
+    fi
+fi
+
+# -------------------------------------------------------------------
+# 11. skani GTDB sketch database (OPTIONAL — ~30 GB)
+# -------------------------------------------------------------------
+echo "  [11/11] skani GTDB database... skipped (30 GB, optional)"
 echo "         To install manually:"
 echo "           mkdir -p ${DB_DIR}/skani"
 echo "           curl -L -o ${DB_DIR}/skani/skani_gtdb_r226-v0.3.tar.gz \\"
@@ -345,5 +372,6 @@ echo "    ResFinder      : ${DB_DIR}/resfinder_db"
 echo "    Rfam           : ${DB_DIR}/Rfam.cm"
 echo "    DefenseFinder  : (managed by defense-finder)"
 echo "    cgMLST schemas : ${DB_DIR}/cgmlst_schemas"
+echo "    SerotypeFinder : ${DB_DIR}/serotypefinder_db"
 echo "    skani GTDB     : (optional, see above)"
 echo ""

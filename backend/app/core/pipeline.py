@@ -851,8 +851,11 @@ def _run_annotation_phase(sample_id: str, assembly_path: str, job, db, threads: 
 def _run_noncritical(db, job, name, func):
     """Run a non-critical pipeline step, logging success or failure."""
     try:
-        func()
-        job.log += f"  {name} complete\n"
+        result = func()
+        if result is None:
+            job.log += f"  {name} — skipped (no result)\n"
+        else:
+            job.log += f"  {name} complete\n"
         db.commit()
     except Exception as e:
         db.rollback()
@@ -942,6 +945,25 @@ def run_single_step(self, sample_id: str, job_id: str, tool: str, threads: int =
             from app.core.risk import calculate_composite_risk
             calculate_composite_risk(sample_id, db=db)
             job.log += "Risk scoring complete\n"
+
+        elif tool == "serotyping":
+            from app.core.serotype import run_serotyping
+            assembly_path = _get_assembly_path(sample_id, db)
+            if not assembly_path:
+                raise ValueError("No assembly found. Run assembly first.")
+            result = run_serotyping(sample_id, assembly_path, db, threads=threads)
+            if result:
+                job.log += f"Serotyping complete: {result.serotype}\n"
+            else:
+                job.log += "Serotyping — skipped (no matching tool for species)\n"
+
+        elif tool == "genomad":
+            from app.core.genomad import run_genomad
+            assembly_path = _get_assembly_path(sample_id, db)
+            if not assembly_path:
+                raise ValueError("No assembly found. Run assembly first.")
+            run_genomad(sample_id, assembly_path, db, threads=threads)
+            job.log += "geNomad complete\n"
 
         else:
             raise ValueError(f"Unknown tool: {tool}")

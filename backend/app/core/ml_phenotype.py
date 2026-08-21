@@ -24,13 +24,18 @@ from app.models.models import (
 
 logger = logging.getLogger(__name__)
 
-# Path to pre-trained models (bundled in Docker at /opt/ml_models, or ../AMR/models for dev)
-_dev_fallback = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__))))), "..", "AMR", "models")
-MODELS_DIR = os.environ.get(
-    "RADAR_ML_MODELS_DIR",
-    _dev_fallback if os.path.isdir(_dev_fallback) else "/opt/ml_models",
+# Path to pre-trained models
+# Probe order: env var > repo/models > ../AMR/models (dev) > /opt/ml_models (Docker)
+_repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))))
+_repo_models = os.path.join(_repo_root, "models")
+_dev_fallback = os.path.join(_repo_root, "..", "AMR", "models")
+_default_models = (
+    _repo_models if os.path.isdir(_repo_models)
+    else _dev_fallback if os.path.isdir(_dev_fallback)
+    else "/opt/ml_models"
 )
+MODELS_DIR = os.environ.get("RADAR_ML_MODELS_DIR", _default_models)
 
 MLST_SCHEME_TO_SPECIES = {
     "senterica": "Salmonella_enterica",

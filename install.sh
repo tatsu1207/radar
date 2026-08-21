@@ -40,7 +40,7 @@ FAIL=0
 
 echo ""
 echo "  --- Base environment (radar) ---"
-if ! mamba env list 2>/dev/null | grep -qE "^radar\s"; then
+if ! conda env list 2>/dev/null | grep -qE "^radar\s"; then
     echo -n "  ...   radar"
     if mamba create -n radar -y -c bioconda -c conda-forge \
         "python>=3.11,<3.13" \
@@ -48,7 +48,7 @@ if ! mamba env list 2>/dev/null | grep -qE "^radar\s"; then
         hmmer blast \
         mlst skani minced prodigal \
         sra-tools viennarna infernal \
-        postgresql redis \
+        postgresql redis-server \
         > /tmp/radar_install_radar.log 2>&1; then
         echo -e "\r  OK    radar"
     else
@@ -84,7 +84,7 @@ pip_install_one "OSTIR" OSTIR
 # sistr_cmd + kleborate + serotypefinder: need separate env due to pytables/hdf5/libcurl conflicts
 echo ""
 echo "  --- sistr_cmd + kleborate + serotypefinder environment ---"
-if ! mamba env list 2>/dev/null | grep -qE "^radar-sistr\s"; then
+if ! conda env list 2>/dev/null | grep -qE "^radar-sistr\s"; then
     echo -n "  ...   radar-sistr"
     if mamba create -n radar-sistr -y python=3.10 sistr_cmd kleborate serotypefinder -c bioconda -c conda-forge --channel-priority flexible > /tmp/radar_install_radar-sistr.log 2>&1 \
         && conda run -n radar-sistr pip install --quiet "setuptools<81" >> /tmp/radar_install_radar-sistr.log 2>&1; then
@@ -98,7 +98,7 @@ else
 fi
 
 # quast: has complex boost/blast/simplejson conflicts with python>=3.11
-if ! mamba env list 2>/dev/null | grep -qE "^radar-quast\s"; then
+if ! conda env list 2>/dev/null | grep -qE "^radar-quast\s"; then
     echo -n "  ...   radar-quast"
     if mamba create -n radar-quast -y python=3.10 quast -c bioconda -c conda-forge --channel-priority flexible > /tmp/radar_install_radar-quast.log 2>&1; then
         echo -e "\r  OK    radar-quast"
@@ -140,7 +140,7 @@ echo ""
 echo "  --- Separate environments (conflicting deps) ---"
 
 # mob_suite needs python<=3.11
-if ! mamba env list 2>/dev/null | grep -qE "^radar-mobsuite\s"; then
+if ! conda env list 2>/dev/null | grep -qE "^radar-mobsuite\s"; then
     echo -n "  ...   radar-mobsuite"
     if mamba create -n radar-mobsuite -y python=3.11 blast mash -c conda-forge -c bioconda > /tmp/radar_install_radar-mobsuite.log 2>&1 \
         && conda run -n radar-mobsuite pip install --quiet mob_suite >> /tmp/radar_install_radar-mobsuite.log 2>&1; then
@@ -154,7 +154,7 @@ else
 fi
 
 # MobileElementFinder needs setuptools<81 and python<=3.11
-if ! mamba env list 2>/dev/null | grep -qE "^radar-mefinder\s"; then
+if ! conda env list 2>/dev/null | grep -qE "^radar-mefinder\s"; then
     echo -n "  ...   radar-mefinder"
     if mamba create -n radar-mefinder -y python=3.11 blast -c conda-forge -c bioconda > /tmp/radar_install_radar-mefinder.log 2>&1 \
         && conda run -n radar-mefinder pip install --quiet "setuptools<81" MobileElementFinder >> /tmp/radar_install_radar-mefinder.log 2>&1; then
@@ -169,7 +169,7 @@ fi
 
 # medaka has strict htslib constraints — needs python=3.10
 # Install CPU-only PyTorch first to avoid pulling ~3GB of CUDA/GPU libs
-if ! mamba env list 2>/dev/null | grep -qE "^radar-medaka\s"; then
+if ! conda env list 2>/dev/null | grep -qE "^radar-medaka\s"; then
     echo -n "  ...   radar-medaka"
     if mamba create -n radar-medaka -y python=3.10 -c conda-forge > /tmp/radar_install_radar-medaka.log 2>&1 \
         && conda run -n radar-medaka pip install --quiet \
@@ -189,9 +189,9 @@ fi
 
 # geNomad needs python=3.10
 # Install tensorflow-cpu first to avoid pulling ~1.5GB of GPU tensorflow
-if ! mamba env list 2>/dev/null | grep -qE "^radar-genomad\s"; then
+if ! conda env list 2>/dev/null | grep -qE "^radar-genomad\s"; then
     echo -n "  ...   radar-genomad"
-    if mamba create -n radar-genomad -y python=3.10 mmseqs2 -c conda-forge -c bioconda > /tmp/radar_install_radar-genomad.log 2>&1 \
+    if mamba create -n radar-genomad -y python=3.10 mmseqs2 aragorn -c conda-forge -c bioconda > /tmp/radar_install_radar-genomad.log 2>&1 \
         && conda run -n radar-genomad pip install --quiet tensorflow-cpu >> /tmp/radar_install_radar-genomad.log 2>&1 \
         && conda run -n radar-genomad pip install --quiet genomad >> /tmp/radar_install_radar-genomad.log 2>&1; then
         echo -e "\r  OK    radar-genomad"
@@ -204,7 +204,7 @@ else
 fi
 
 # BUSCO: complex deps (hmmer, prodigal, bbmap + pip from gitlab)
-if ! mamba env list 2>/dev/null | grep -qE "^radar-busco\s"; then
+if ! conda env list 2>/dev/null | grep -qE "^radar-busco\s"; then
     echo -n "  ...   radar-busco"
     if mamba create -n radar-busco -y python=3.10 hmmer prodigal bbmap -c bioconda -c conda-forge > /tmp/radar_install_radar-busco.log 2>&1 \
         && conda run -n radar-busco pip install --quiet "git+https://gitlab.com/ezlab/busco.git" pandas biopython requests >> /tmp/radar_install_radar-busco.log 2>&1; then

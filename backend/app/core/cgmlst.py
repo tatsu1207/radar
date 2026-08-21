@@ -68,6 +68,18 @@ def run_cgmlst(
         logger.warning(f"cgMLST schema not found at {schema_dir}")
         return None
 
+    # Chewie-NS DownloadSchema creates a nested subdirectory (e.g.,
+    # ecoli/Escherichia_coli_wgMLST/) that holds the actual schema files.
+    # Descend into it if the schema_dir itself lacks .schema_config.
+    if not os.path.exists(os.path.join(schema_dir, ".schema_config")):
+        subdirs = [d for d in os.listdir(schema_dir)
+                   if os.path.isdir(os.path.join(schema_dir, d))]
+        if len(subdirs) == 1:
+            nested = os.path.join(schema_dir, subdirs[0])
+            if os.path.exists(os.path.join(nested, ".schema_config")):
+                schema_dir = nested
+                logger.info(f"Using nested cgMLST schema: {schema_dir}")
+
     results_dir = os.path.join(settings.RESULTS_DIR, str(sample_id), "cgmlst")
     os.makedirs(results_dir, exist_ok=True)
 
