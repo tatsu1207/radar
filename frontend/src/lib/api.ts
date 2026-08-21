@@ -432,6 +432,35 @@ export async function addAST(
   });
 }
 
+// ML Phenotype Predictions
+export interface MLPrediction {
+  antibiotic: string;
+  drug_class: string;
+  prediction: 'Resistant' | 'Susceptible';
+  probability: number;
+  confidence: 'High' | 'Moderate' | 'Low';
+  key_genes: string[];
+  key_mutations: string[];
+  model_quality: {
+    n_samples: number;
+    r_percent: number;
+    cv_f1: number;
+  } | null;
+}
+
+export interface MLPredictionResponse {
+  species: string;
+  mlst_st: number | null;
+  n_antibiotics: number;
+  n_resistant: number;
+  n_susceptible: number;
+  predictions: MLPrediction[];
+}
+
+export async function getMLPredictions(sampleId: string): Promise<MLPredictionResponse> {
+  return fetchAPI<MLPredictionResponse>(`/api/samples/${sampleId}/ml-predictions`);
+}
+
 // Phenotype (legacy)
 export async function getPrediction(sampleId: string): Promise<PhenotypeComparison[]> {
   return fetchAPI<PhenotypeComparison[]>(`/api/phenotype/${sampleId}/predict`);

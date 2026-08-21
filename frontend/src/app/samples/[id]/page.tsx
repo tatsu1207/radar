@@ -18,6 +18,7 @@ import {
   getCRISPRResults,
   getDefenseSystems,
   getICEResults,
+  getMLPredictions,
 } from '@/lib/api';
 import type {
   Sample,
@@ -33,13 +34,14 @@ import type {
   CRISPRResultData,
   DefenseSystemResult,
   ICEResultData,
+  MLPredictionResponse,
 } from '@/lib/api';
 import StatusBadge from '@/components/StatusBadge';
 import ARGTable from '@/components/ARGTable';
 import PlasmidMap from '@/components/PlasmidMap';
 import LinearGenomeMap from '@/components/LinearGenomeMap';
 
-const TABS = ['Summary', 'Resistance Genes', 'Plasmids', 'Mobile Elements', 'Defense Systems', 'Virulence'] as const;
+const TABS = ['Summary', 'Resistance Genes', 'Predicted Phenotype', 'Plasmids', 'Mobile Elements', 'Defense Systems', 'Virulence'] as const;
 
 function downloadTSV(filename: string, headers: string[], rows: (string | number | boolean | null | undefined)[][]) {
   const tsv = [headers.join('\t'), ...rows.map((r) => r.map((v) => v ?? '').join('\t'))].join('\n');
@@ -96,6 +98,7 @@ export default function SampleDetailPage() {
   const [defenseSystems, setDefenseSystems] = useState<DefenseSystemResult[]>([]);
   const [ices, setIces] = useState<ICEResultData[]>([]);
   const [summary, setSummary] = useState<SampleSummary | null>(null);
+  const [mlPredictions, setMlPredictions] = useState<MLPredictionResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -133,10 +136,12 @@ export default function SampleDetailPage() {
       getCRISPRResults(sampleId).then(setCrisprs).catch(() => {});
       getDefenseSystems(sampleId).then(setDefenseSystems).catch(() => {});
       getICEResults(sampleId).then(setIces).catch(() => {});
+    } else if (tab === 'Predicted Phenotype' && !mlPredictions) {
+      getMLPredictions(sampleId).then(setMlPredictions).catch(() => {});
     } else if (tab === 'Virulence' && virulence.length === 0) {
       getVirulence(sampleId).then(setVirulence).catch(() => {});
     }
-  }, [tab, sample, sampleId, args.length, plasmids.length, isData, crisprs.length, defenseSystems.length, virulence.length]);
+  }, [tab, sample, sampleId, args.length, plasmids.length, isData, mlPredictions, crisprs.length, defenseSystems.length, virulence.length]);
 
   // Refetch IS data when flanking distance changes (debounced)
   useEffect(() => {
@@ -562,7 +567,7 @@ export default function SampleDetailPage() {
             </div>
             {isData && (
               <p className="text-xs text-gray-400">
-                {isData.total_is} IS elements detected — {isData.with_nearby || 0} flanked by ARG/VF within {(flanking/1000).toFixed(1)} kb
+                {isData.total_is} IS elements detected — {(isData as any).with_nearby || 0} flanked by ARG/VF within {(flanking/1000).toFixed(1)} kb
               </p>
             )}
           </div>
@@ -574,9 +579,9 @@ export default function SampleDetailPage() {
           ) : (
             <>
               {/* Synteny maps for IS elements with nearby ARGs/VFs */}
-              {isData.synteny_regions && isData.synteny_regions.length > 0 ? (
+              {(isData as any).synteny_regions && (isData as any).synteny_regions.length > 0 ? (
                 <div className="space-y-4">
-                  {isData.synteny_regions.map((region: any, i: number) => (
+                  {(isData as any).synteny_regions.map((region: any, i: number) => (
                     <LinearGenomeMap
                       key={`${region.contig}-${region.is_name}-${i}`}
                       title={`${region.is_name}${region.features?.[0]?.family && region.features[0].family !== region.is_name ? ` (${region.features[0].family})` : ''} — ${region.contig}`}
@@ -827,6 +832,129 @@ export default function SampleDetailPage() {
                   </tbody>
                 </table>
               </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Predicted Phenotype tab (ML) ── */}
+      {tab === 'Predicted Phenotype' && (
+        <div className="space-y-6">
+          <div className="card">
+            {!mlPredictions ? (
+              <p className="text-gray-500 text-center py-8">No ML phenotype predictions available.</p>
+            ) : (
+              <>
+                {/* Summary header */}
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h2 className="text-lg font-semibold text-gray-100">ML Phenotype Predictions</h2>
+                    <p className="text-sm text-gray-400 mt-1">
+                      {mlPredictions.species} {mlPredictions.mlst_st ? `ST${mlPredictions.mlst_st}` : ''} — {mlPredictions.n_antibiotics} antibiotics tested
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="px-3 py-1 rounded-full bg-red-900/30 text-red-400 text-sm font-semibold">
+                      {mlPredictions.n_resistant} R
+                    </span>
+                    <span className="px-3 py-1 rounded-full bg-green-900/30 text-green-400 text-sm font-semibold">
+                      {mlPredictions.n_susceptible} S
+                    </span>
+                  </div>
+                </div>
+
+                {/* Predictions table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-800">
+                        <th className="table-header">Antibiotic</th>
+                        <th className="table-header">Drug Class</th>
+                        <th className="table-header">Prediction</th>
+                        <th className="table-header">Probability</th>
+                        <th className="table-header">Model F1</th>
+                        <th className="table-header">Evidence</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-800">
+                      {mlPredictions.predictions
+                        .sort((a, b) => {
+                          if (a.prediction !== b.prediction) return a.prediction === 'Resistant' ? -1 : 1;
+                          return a.drug_class.localeCompare(b.drug_class);
+                        })
+                        .map((p) => {
+                          const f1 = p.model_quality?.cv_f1;
+                          const lowQuality = f1 !== undefined && f1 !== null && f1 < 0.6;
+                          const warnQuality = f1 !== undefined && f1 !== null && f1 < 0.8;
+                          return (
+                            <tr
+                              key={p.antibiotic}
+                              className={`hover:bg-gray-800/50 ${lowQuality ? 'opacity-60' : ''}`}
+                            >
+                              <td className="table-cell font-medium text-gray-200">
+                                {p.antibiotic}
+                                {lowQuality && (
+                                  <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-yellow-900/40 text-yellow-400" title={`Model cv_f1=${f1?.toFixed(2)} — predictions may be unreliable`}>
+                                    low-quality model
+                                  </span>
+                                )}
+                              </td>
+                              <td className="table-cell text-sm text-gray-400">{p.drug_class}</td>
+                              <td className="table-cell">
+                                <span className={p.prediction === 'Resistant'
+                                  ? 'text-red-400 font-semibold'
+                                  : 'text-green-400'
+                                }>
+                                  {p.prediction === 'Resistant' ? 'R' : 'S'}
+                                </span>
+                              </td>
+                              <td className="table-cell">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-16 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                                    <div
+                                      className={`h-full rounded-full ${p.prediction === 'Resistant' ? 'bg-red-500' : 'bg-green-500'}`}
+                                      style={{ width: `${(p.probability * 100).toFixed(0)}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-xs text-gray-400 w-10">{(p.probability * 100).toFixed(0)}%</span>
+                                </div>
+                              </td>
+                              <td className="table-cell">
+                                {f1 !== undefined && f1 !== null ? (
+                                  <span className={
+                                    lowQuality ? 'text-yellow-400 font-semibold' :
+                                    warnQuality ? 'text-yellow-300' :
+                                    'text-gray-400'
+                                  } title={`Cross-validation F1 score (n=${p.model_quality?.n_samples}, ${p.model_quality?.r_percent?.toFixed(0)}% resistant in training)`}>
+                                    {f1.toFixed(2)}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-600">-</span>
+                                )}
+                              </td>
+                              <td className="table-cell text-xs text-gray-500">
+                                {p.key_genes.length > 0 || p.key_mutations.length > 0 ? (
+                                  <span title={[...p.key_genes, ...p.key_mutations].join(', ')}>
+                                    {[...p.key_genes.slice(0, 3), ...p.key_mutations.slice(0, 2)].join(', ')}
+                                    {(p.key_genes.length + p.key_mutations.length) > 5 && '...'}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-700">-</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Quality legend */}
+                <div className="mt-3 pt-3 border-t border-gray-800 text-xs text-gray-500">
+                  Model F1: cross-validation F1 score. Values below 0.60 are flagged as low-quality (predictions may be unreliable).
+                  Hover F1 values for training set details.
+                </div>
+              </>
             )}
           </div>
         </div>

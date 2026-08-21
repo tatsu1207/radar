@@ -165,6 +165,7 @@ export default function RiskPage() {
                 <th className="px-3 py-2">AWaRe Tier</th>
                 <th className="px-3 py-2">Trans. Level</th>
                 <th className="px-3 py-2">Worst-Case ARG</th>
+                <th className="px-3 py-2">Drug Class</th>
                 <th className="px-3 py-2">Location</th>
                 <th className="px-3 py-2">MDR</th>
                 <th className="px-3 py-2">Classes</th>
@@ -192,6 +193,7 @@ export default function RiskPage() {
                     </td>
                     <td className="px-3 py-2 text-gray-300">{score.transmissibility_level ?? '-'}</td>
                     <td className="px-3 py-2 font-mono text-gray-300 text-xs">{score.worst_case_arg || '-'}</td>
+                    <td className="px-3 py-2 text-gray-400 text-xs">{score.worst_case_drug_class || '-'}</td>
                     <td className="px-3 py-2 text-gray-400 text-xs">{score.worst_case_location || '-'}</td>
                     <td className="px-3 py-2">
                       {score.mdr_flag ? (
