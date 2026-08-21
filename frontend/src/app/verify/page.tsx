@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Radar } from 'lucide-react';
 
-export default function VerifyPage() {
+function VerifyContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
   const [message, setMessage] = useState('Verifying...');
@@ -31,6 +31,20 @@ export default function VerifyPage() {
   }, [token]);
 
   return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
+      <p className={isError ? 'text-red-400' : 'text-green-400'}>{message}</p>
+      <Link
+        href="/login"
+        className="inline-block px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+      >
+        Go to Sign in
+      </Link>
+    </div>
+  );
+}
+
+export default function VerifyPage() {
+  return (
     <div className="min-h-screen flex items-center justify-center bg-gray-950">
       <div className="w-full max-w-sm mx-auto text-center">
         <div className="flex items-center justify-center gap-3 mb-8">
@@ -40,15 +54,13 @@ export default function VerifyPage() {
           </div>
         </div>
 
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
-          <p className={isError ? 'text-red-400' : 'text-green-400'}>{message}</p>
-          <Link
-            href="/login"
-            className="inline-block px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-          >
-            Go to Sign in
-          </Link>
-        </div>
+        <Suspense fallback={
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+            <p className="text-gray-400">Verifying...</p>
+          </div>
+        }>
+          <VerifyContent />
+        </Suspense>
       </div>
     </div>
   );

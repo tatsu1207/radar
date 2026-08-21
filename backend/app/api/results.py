@@ -1846,7 +1846,7 @@ def get_ml_predictions(sample_id: uuid.UUID, db: Session = Depends(get_db), curr
     model_meta = {}
     if species:
         import json as _json
-        MODELS_DIR = os.environ.get("RADAR_ML_MODELS_DIR", "/data/ml_models")
+        from app.core.ml_phenotype import MODELS_DIR
         species_map = {
             "Escherichia coli": "Escherichia_coli",
             "Salmonella enterica": "Salmonella_enterica",

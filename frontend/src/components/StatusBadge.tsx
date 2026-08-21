@@ -26,9 +26,9 @@ const riskColors: Record<string, string> = {
 // Each rank has a distinct hue. Tier label is appended as a non-colour cue.
 //
 // Contrast ratios (white #fff against Tailwind bg):
-//   red-800    #991b1b  → 7.28:1   R1
-//   red-700    #b91c1c  → 5.30:1   R2
-//   red-900    #7f1d1d  → 9.48:1   R3
+//   red-900    #7f1d1d  → 9.48:1   R1 (most severe = darkest)
+//   red-800    #991b1b  → 7.28:1   R2
+//   red-700    #b91c1c  → 5.30:1   R3
 //   orange-800 #9a3412  → 5.58:1   R4
 //   orange-700 #c2410c  → 4.57:1   R5
 //   yellow-800 #854d0e  → 5.15:1   R6
@@ -40,9 +40,9 @@ const riskColors: Record<string, string> = {
 //   green-700  #15803d  → 5.17:1   R12
 //   gray-700   #374151  → 7.53:1   NG
 const hazardColors: Record<string, string> = {
-  R1:  'bg-red-800 text-white',
-  R2:  'bg-red-700 text-white',
-  R3:  'bg-red-900 text-white',
+  R1:  'bg-red-900 text-white',
+  R2:  'bg-red-800 text-white',
+  R3:  'bg-red-700 text-white',
   R4:  'bg-orange-800 text-white',
   R5:  'bg-orange-700 text-white',
   R6:  'bg-yellow-800 text-white',
