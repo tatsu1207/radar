@@ -171,11 +171,18 @@ _GENE_FAMILY_TIER = {
 # Non-antimicrobial drug classes (STRESS/BIOCIDE/METAL) — excluded from
 # AWaRe tier assignment and MDR counting per the paper ("only Type=AMR").
 _NON_AMR_CLASSES = {
-    "efflux", "arsenic", "arsenate", "copper", "copper/silver", "silver",
+    "arsenic", "arsenate", "copper", "copper/silver", "silver",
     "mercury", "organomercury", "zinc", "cadmium", "chromium", "lead",
     "tellurium", "nickel", "cobalt", "quaternary ammonium", "hydrogen peroxide",
     "triclosan", "benzalkonium", "chlorhexidine", "na",
 }
+
+# Classes excluded from MDR counting but NOT from hazard ranking.
+# Efflux is a resistance mechanism, not an antibiotic class — it should not
+# count toward MDR (≥3 distinct classes), but efflux pump genes that
+# AMRFinderPlus labels Type=AMR should still participate in worst-case
+# selection (they map to no AWaRe tier, so they won't drive the rank).
+_MDR_EXCLUDED_CLASSES = _NON_AMR_CLASSES | {"efflux"}
 
 # AMRFinderPlus mechanism values that indicate non-antimicrobial resistance
 _NON_AMR_MECHANISMS = {"BIOCIDE", "METAL", "ACID", "STRESS"}
@@ -293,11 +300,17 @@ _IS_ACTIVATION_DISTANCE = 500
 
 
 def _is_amr_entry(arg: ARGResult) -> bool:
-    """Check if an ARGResult is an antimicrobial resistance entry (not STRESS/METAL/BIOCIDE)."""
+    """Check if an ARGResult is an antimicrobial resistance entry.
+
+    Excludes STRESS/METAL/BIOCIDE/ACID mechanism types and their drug classes.
+    Efflux pump genes with AMRFinderPlus Type=AMR are INCLUDED — they participate
+    in hazard ranking (though they map to no AWaRe tier). They are excluded from
+    MDR counting separately via _MDR_EXCLUDED_CLASSES.
+    """
     mechanism = (arg.mechanism or "").upper()
     if mechanism in _NON_AMR_MECHANISMS:
         return False
-    # Also check drug class
+    # Check drug class — exclude non-AMR classes but keep efflux
     if arg.drug_class:
         main_class = arg.drug_class.split(";")[0].strip().lower()
         if main_class in _NON_AMR_CLASSES:
@@ -529,19 +542,50 @@ def _gene_family_fallback(gene: str) -> Optional[str]:
 _TIER_ORDER = {"Reserve": 3, "Watch": 2, "Access": 1}
 
 
+def _extract_genus(species_name: Optional[str]) -> Optional[str]:
+    """Extract genus from a species string like 'Escherichia coli' → 'escherichia'."""
+    if not species_name:
+        return None
+    parts = species_name.strip().split()
+    return parts[0].lower() if parts else None
+
+
+def _is_broad_host_range(plasmid, isolate_species: Optional[str]) -> bool:
+    """Determine if a conjugative plasmid has broad host range.
+
+    Per the paper: broad = predicted host-range rank >= family.
+    We compare the genus of the plasmid's nearest mash neighbor against the
+    isolate's genus. Different genus → broad (level 5), same genus → narrow (4).
+    Unknown neighbor → broad (conservative default).
+    """
+    neighbor = plasmid.mash_neighbor_identification if hasattr(plasmid, 'mash_neighbor_identification') else None
+    if not neighbor or not isolate_species:
+        return True  # Unknown → default to broad (conservative)
+
+    isolate_genus = _extract_genus(isolate_species)
+    neighbor_genus = _extract_genus(neighbor)
+
+    if not isolate_genus or not neighbor_genus:
+        return True  # Can't determine → broad
+
+    # Different genus = broad host range
+    return isolate_genus != neighbor_genus
+
+
 def _get_transmissibility_level(
     arg: ARGResult,
     plasmids: list,
     ice_results: list,
     plasmid_contigs: dict,
+    isolate_species: Optional[str] = None,
 ) -> Tuple[int, str]:
     """Determine transmissibility level (1-5) for an ARG.
 
     Returns (level, location_description).
 
     Levels:
-      5 = conjugative plasmid (broad host range or unknown)
-      4 = conjugative plasmid (narrow host range) or ICE-borne chromosomal
+      5 = conjugative plasmid (broad host range: neighbor genus != isolate genus)
+      4 = conjugative plasmid (narrow host range: same genus) or ICE-borne chromosomal
       3 = mobilizable plasmid with co-occurring conjugative plasmid
       2 = mobilizable plasmid without helper
       1 = non-mobilizable / chromosome / unknown
@@ -562,10 +606,10 @@ def _get_transmissibility_level(
             mobility = (plasmid.predicted_mobility or "").lower()
 
             if mobility == "conjugative":
-                # Conjugative: check host range
-                # Default to broad (5) when no host range info available,
-                # as conjugative plasmids are high concern regardless.
-                return 5, f"plasmid (conjugative, {cluster_id})"
+                if _is_broad_host_range(plasmid, isolate_species):
+                    return 5, f"plasmid (conjugative-broad, {cluster_id})"
+                else:
+                    return 4, f"plasmid (conjugative-narrow, {cluster_id})"
 
             elif mobility == "mobilizable":
                 # Check if a conjugative helper exists in same isolate
@@ -728,16 +772,17 @@ def calculate_composite_risk(sample_id: str, db=None, **kwargs) -> RiskScore:
     for arg in amr_args:
         # Collect drug classes for MDR counting
         # Handle multi-class format ("AMINOGLYCOSIDE/QUINOLONE; ...")
+        # Uses _MDR_EXCLUDED_CLASSES which includes efflux (a mechanism, not a class)
         if arg.drug_class:
             main_part = arg.drug_class.split(";")[0].strip()
             for mc in main_part.split("/"):
                 mc = mc.strip().lower()
-                if mc and mc not in _NON_AMR_CLASSES:
+                if mc and mc not in _MDR_EXCLUDED_CLASSES:
                     drug_classes.add(mc)
 
         tier = _get_aware_tier(arg.gene, arg.drug_class, arg.mechanism)
         level, location = _get_transmissibility_level(
-            arg, plasmids, ice_results, plasmid_contigs
+            arg, plasmids, ice_results, plasmid_contigs, isolate_species=species
         )
 
         # Filter intrinsic/species-core chromosomal genes from worst-case
