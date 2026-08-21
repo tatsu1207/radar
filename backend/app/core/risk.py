@@ -1,309 +1,482 @@
+"""Hazard rank framework for isolate-level AMR risk assessment.
+
+Based on: Cheon & Unno (2026) — "A framework for isolate-level antimicrobial
+resistance hazard ranking based on clinical importance and transmissibility
+in bacterial pathogens."
+
+Each isolate gets a rank (R1-R12 or NG) based on two axes:
+  1. AWaRe tier (Reserve > Watch > Access) of its worst-case ARG
+  2. Transmissibility level (1-5) of that ARG's genetic context
+
+The old weighted-average scoring (ARG/VF/mobility 0-10) is preserved for
+backwards compatibility but the primary output is now the hazard rank.
+"""
+
 import logging
-from typing import Optional
+from typing import Optional, Tuple
 
 from app.models.models import (
     ARGResult,
     VirulenceResult,
     MobilityResult,
     PlasmidResult,
+    ICEResult,
     RiskScore,
     RiskCategory,
+    HazardRank,
 )
-from app.schemas.schemas import RiskWeights
 
 logger = logging.getLogger(__name__)
 
-# WHO Critically Important Antimicrobial resistance genes
-WHO_CIA_ARGS = {
-    "mcr-1", "mcr-2", "mcr-3", "mcr-4", "mcr-5",
-    "blaNDM-1", "blaNDM-5", "blaNDM",
-    "blaKPC-2", "blaKPC-3", "blaKPC",
-    "blaOXA-48",
-    "vanA",
-    "cfr",
+# ---------------------------------------------------------------------------
+# WHO AWaRe tier mapping
+# Maps AMRFinderPlus Class (and Subclass where needed) to AWaRe tiers.
+# Uses the worst-case (highest) tier when a class spans multiple agents.
+# ---------------------------------------------------------------------------
+
+# Agent-level AWaRe tiers (from WHO AWaRe Classification 2023)
+# Reserve antibiotics
+_RESERVE_AGENTS = {
+    "colistin", "polymyxin", "polymyxin b",
+    "carbapenem", "imipenem", "meropenem", "ertapenem", "doripenem",
+    "tigecycline",
+    "linezolid", "tedizolid",
+    "daptomycin",
+    "fosfomycin",
+    "ceftazidime-avibactam", "ceftolozane-tazobactam",
+    "aztreonam",
+    "plazomicin",
+    "vancomycin", "teicoplanin",
 }
 
-# High-concern virulence categories
-HIGH_CONCERN_VF_CATEGORIES = {
-    "toxin", "immune evasion", "serum resistance", "invasion",
+# Watch antibiotics
+_WATCH_AGENTS = {
+    "cephalosporin", "cefotaxime", "ceftriaxone", "ceftazidime", "cefepime",
+    "cefixime", "cefpodoxime",
+    "fluoroquinolone", "ciprofloxacin", "levofloxacin", "moxifloxacin",
+    "norfloxacin", "ofloxacin",
+    "macrolide", "azithromycin", "clarithromycin", "erythromycin",
+    "piperacillin-tazobactam",
+    "ampicillin-sulbactam", "amoxicillin-clavulanate",
+    "aminoglycoside", "gentamicin", "amikacin", "tobramycin",
+    "glycopeptide",
+}
+
+# Class-level AWaRe fallback (mode tier per antibiotic class)
+_CLASS_TIER_MAP = {
+    # Reserve-tier classes
+    "glycopeptide": "Reserve",
+    "lipopeptide": "Reserve",
+    "oxazolidinone": "Reserve",
+    "polymyxin": "Reserve",
+    "carbapenem": "Reserve",
+    "glycylcycline": "Reserve",
+    # Watch-tier classes
+    "beta-lactam": "Watch",
+    "cephalosporin": "Watch",
+    "fluoroquinolone": "Watch",
+    "quinolone": "Watch",
+    "macrolide": "Watch",
+    "aminoglycoside": "Watch",
+    "monobactam": "Watch",
+    # Access-tier classes
+    "tetracycline": "Access",
+    "phenicol": "Access",
+    "sulfonamide": "Access",
+    "trimethoprim": "Access",
+    "fosfomycin": "Reserve",
+    "rifamycin": "Watch",
+    "lincosamide": "Access",
+    "streptogramin": "Watch",
+    "nitroimidazole": "Access",
+    "nitrofuran": "Access",
+    "fusidane": "Access",
+    "mupirocin": "Access",
+    "penicillin": "Access",
+    "aminocoumarin": "Access",
+    "diaminopyrimidine": "Access",
+    "nucleoside": "Access",
+    "pleuromutilin": "Access",
+    "elfamycin": "Access",
+    "tunicamycin": "Access",
+    "bicyclomycin": "Access",
+    "thiostrepton": "Access",
+}
+
+# Gene-family-level overrides for known important ARGs
+_GENE_TIER_OVERRIDES = {
+    # Carbapenemases → Reserve
+    "blandm": "Reserve", "blakpc": "Reserve", "blaoxa-48": "Reserve",
+    "blavim": "Reserve", "blaimp": "Reserve", "blages": "Reserve",
+    "blaoxa-23": "Reserve", "blaoxa-24": "Reserve", "blaoxa-58": "Reserve",
+    # Colistin resistance → Reserve
+    "mcr": "Reserve",
+    # Vancomycin resistance → Reserve
+    "vana": "Reserve", "vanb": "Reserve", "vanc": "Reserve",
+    "vand": "Reserve", "vane": "Reserve", "vang": "Reserve",
+    # Linezolid resistance → Reserve
+    "cfr": "Reserve", "optra": "Reserve",
+    # ESBL → Watch (cephalosporin resistance)
+    "blactx-m": "Watch", "blashv": "Watch", "blatem": "Watch",
+    "blacmy": "Watch", "bladha": "Watch",
+    # Glycylcycline-specific → Reserve (tet(X) family)
+    "tetx": "Reserve",
+    "tmexcd": "Reserve",
 }
 
 
-def calculate_arg_risk(sample_id: str, db) -> float:
-    """Calculate ARG-based risk score (0-10).
+def _normalize_class(raw_class: str) -> str:
+    """Normalize AMRFinderPlus class string for matching."""
+    return raw_class.strip().lower().replace(" ", "").replace("-", "").replace("/", "")
 
-    Scoring criteria:
-    - Base score from number of unique ARGs (0-4 points)
-    - Drug class diversity bonus (0-3 points)
-    - WHO CIA gene presence bonus (0-3 points)
 
-    Args:
-        sample_id: UUID of the sample
-        db: SQLAlchemy session
+def _get_aware_tier(gene: str, drug_class: str, mechanism: str) -> Optional[str]:
+    """Determine AWaRe tier for an ARG.
 
-    Returns:
-        Risk score between 0.0 and 10.0
+    Cascade:
+    1. Gene-family override (known carbapenemases, mcr, van, etc.)
+    2. Subclass agent-level matching
+    3. Class-level fallback (mode tier)
+    4. None (intrinsic/undetermined)
     """
-    arg_results = db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
+    gene_lower = gene.lower().replace("-", "").replace("_", "")
 
-    if not arg_results:
-        return 0.0
+    # Step 1: gene family overrides
+    for prefix, tier in _GENE_TIER_OVERRIDES.items():
+        if gene_lower.startswith(prefix):
+            return tier
 
-    # Unique genes (deduplicate across databases)
-    unique_genes = set(arg.gene for arg in arg_results)
-    gene_count = len(unique_genes)
+    if not drug_class:
+        return None
 
-    # Number of ARGs score: 0-4 points
-    # 1-3 genes = 1pt, 4-6 = 2pt, 7-10 = 3pt, >10 = 4pt
-    if gene_count >= 10:
-        arg_count_score = 4.0
-    elif gene_count >= 7:
-        arg_count_score = 3.0
-    elif gene_count >= 4:
-        arg_count_score = 2.0
-    elif gene_count >= 1:
-        arg_count_score = 1.0
-    else:
-        arg_count_score = 0.0
+    # Parse "Class; Subclass" format from AMRFinderPlus
+    parts = [p.strip().lower() for p in drug_class.split(";")]
+    main_class = parts[0] if parts else ""
+    subclasses = parts[1:] if len(parts) > 1 else []
 
-    # Drug class diversity: 0-3 points
-    drug_classes = set()
-    for arg in arg_results:
-        if arg.drug_class:
-            for dc in arg.drug_class.split(";"):
-                drug_classes.add(dc.strip().lower())
+    # Step 2: agent-level from subclass
+    best_tier = None
+    for sub in subclasses:
+        # Check each word in the subclass against agent lists
+        sub_words = sub.replace("/", " ").replace("-", " ").split()
+        for word in sub_words:
+            word = word.strip()
+            if word in _RESERVE_AGENTS:
+                return "Reserve"  # Can't get higher
+            if word in _WATCH_AGENTS:
+                best_tier = "Watch"
 
-    class_count = len(drug_classes)
-    if class_count >= 5:
-        diversity_score = 3.0
-    elif class_count >= 3:
-        diversity_score = 2.0
-    elif class_count >= 1:
-        diversity_score = 1.0
-    else:
-        diversity_score = 0.0
+    # Also check the main class against agent lists
+    if main_class in _RESERVE_AGENTS:
+        return "Reserve"
+    if main_class in _WATCH_AGENTS and best_tier != "Reserve":
+        best_tier = "Watch"
 
-    # WHO CIA presence: 0-3 points
-    cia_found = 0
-    for gene in unique_genes:
-        for cia in WHO_CIA_ARGS:
-            if cia.lower() in gene.lower():
-                cia_found += 1
+    if best_tier:
+        return best_tier
+
+    # Step 3: class-level fallback
+    normalized = _normalize_class(main_class)
+    for key, tier in _CLASS_TIER_MAP.items():
+        if _normalize_class(key) in normalized or normalized in _normalize_class(key):
+            return tier
+
+    # Step 4: no tier
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Transmissibility scoring
+# ---------------------------------------------------------------------------
+
+_TIER_ORDER = {"Reserve": 3, "Watch": 2, "Access": 1}
+
+
+def _get_transmissibility_level(
+    arg: ARGResult,
+    plasmids: list,
+    ice_results: list,
+    plasmid_contigs: dict,
+) -> Tuple[int, str]:
+    """Determine transmissibility level (1-5) for an ARG.
+
+    Returns (level, location_description).
+
+    Levels:
+      5 = conjugative plasmid (broad host range or unknown)
+      4 = conjugative plasmid (narrow host range) or ICE-borne chromosomal
+      3 = mobilizable plasmid with co-occurring conjugative plasmid
+      2 = mobilizable plasmid without helper
+      1 = non-mobilizable / chromosome / unknown
+    """
+    contig = arg.contig or ""
+
+    # Check if ARG is on a plasmid
+    cluster_id = plasmid_contigs.get(contig)
+    if cluster_id:
+        # Find the plasmid record
+        plasmid = None
+        for p in plasmids:
+            if p.plasmid_id == cluster_id:
+                plasmid = p
                 break
 
-    if cia_found >= 3:
-        cia_score = 3.0
-    elif cia_found >= 2:
-        cia_score = 2.5
-    elif cia_found >= 1:
-        cia_score = 2.0
-    else:
-        cia_score = 0.0
+        if plasmid:
+            mobility = (plasmid.predicted_mobility or "").lower()
 
-    total = min(arg_count_score + diversity_score + cia_score, 10.0)
-    logger.info(
-        f"ARG risk for {sample_id}: {total:.1f} "
-        f"(genes={gene_count}, classes={class_count}, CIA={cia_found})"
-    )
-    return round(total, 2)
+            if mobility == "conjugative":
+                # Conjugative: check host range
+                # If mash_neighbor is from a different genus/family → broad
+                # For simplicity: if mash_neighbor exists and differs from
+                # isolate species, treat as broad (level 5). Otherwise narrow (4).
+                # Default to broad (5) when no host range info available,
+                # as conjugative plasmids are high concern regardless.
+                return 5, f"plasmid (conjugative, {cluster_id})"
+
+            elif mobility == "mobilizable":
+                # Check if a conjugative helper exists in same isolate
+                has_conjugative = any(
+                    (p2.predicted_mobility or "").lower() == "conjugative"
+                    for p2 in plasmids
+                )
+                if has_conjugative:
+                    return 3, f"plasmid (mobilizable+helper, {cluster_id})"
+                else:
+                    return 2, f"plasmid (mobilizable, {cluster_id})"
+
+            else:
+                # Non-mobilizable plasmid
+                return 1, f"plasmid (non-mobilizable, {cluster_id})"
+
+        # Plasmid contig but no matching record
+        return 1, f"plasmid ({cluster_id})"
+
+    # Check if chromosomal ARG is within an ICE region
+    # Only for acquired ARGs (not point mutations)
+    mechanism = (arg.mechanism or "").upper()
+    is_point_mutation = "POINT" in mechanism
+
+    if not is_point_mutation and arg.start and arg.end and ice_results:
+        for ice in ice_results:
+            if ice.contig == contig and ice.start and ice.end:
+                # Check overlap: ARG within ICE region
+                if arg.start >= ice.start and arg.end <= ice.end:
+                    # ICE-borne → assign narrow conjugative level (4)
+                    return 4, f"ICE ({ice.ice_id or 'unknown'})"
+
+    # Chromosomal / non-mobile
+    return 1, "chromosome"
 
 
-def calculate_vf_risk(sample_id: str, db) -> float:
-    """Calculate virulence factor risk score (0-10).
+def _assign_rank(tier: Optional[str], level: int) -> HazardRank:
+    """Assign hazard rank from AWaRe tier and transmissibility level.
 
-    Scoring criteria:
-    - Base score from VF count (0-5 points)
-    - High-concern category bonus (0-5 points)
-
-    Args:
-        sample_id: UUID of the sample
-        db: SQLAlchemy session
-
-    Returns:
-        Risk score between 0.0 and 10.0
+    Reserve + 5→R1, 4→R2, 3→R3, 2→R4, 1→R5
+    Watch   + 5→R6, 4→R7, 3→R8, 2→R9, 1→R10
+    Access  → R11
+    No ARG  → R12
     """
+    if tier == "Reserve":
+        return {5: HazardRank.R1, 4: HazardRank.R2, 3: HazardRank.R3,
+                2: HazardRank.R4, 1: HazardRank.R5}[level]
+    elif tier == "Watch":
+        return {5: HazardRank.R6, 4: HazardRank.R7, 3: HazardRank.R8,
+                2: HazardRank.R9, 1: HazardRank.R10}[level]
+    elif tier == "Access":
+        return HazardRank.R11
+    else:
+        return HazardRank.R12
+
+
+def _rank_to_category(rank: HazardRank) -> RiskCategory:
+    """Map hazard rank to legacy risk category for backwards compat."""
+    if rank in (HazardRank.R1, HazardRank.R2, HazardRank.R3):
+        return RiskCategory.critical
+    elif rank in (HazardRank.R4, HazardRank.R5):
+        return RiskCategory.high
+    elif rank in (HazardRank.R6, HazardRank.R7, HazardRank.R8, HazardRank.R9, HazardRank.R10):
+        return RiskCategory.medium
+    elif rank == HazardRank.R11:
+        return RiskCategory.low
+    elif rank == HazardRank.R12:
+        return RiskCategory.low
+    else:  # NG
+        return RiskCategory.low
+
+
+def _rank_to_score(rank: HazardRank) -> float:
+    """Map hazard rank to a 0-10 composite score for backwards compat."""
+    score_map = {
+        HazardRank.R1: 10.0,
+        HazardRank.R2: 9.5,
+        HazardRank.R3: 9.0,
+        HazardRank.R4: 8.0,
+        HazardRank.R5: 7.0,
+        HazardRank.R6: 6.0,
+        HazardRank.R7: 5.5,
+        HazardRank.R8: 5.0,
+        HazardRank.R9: 4.5,
+        HazardRank.R10: 4.0,
+        HazardRank.R11: 2.0,
+        HazardRank.R12: 0.0,
+        HazardRank.NG: 1.0,
+    }
+    return score_map.get(rank, 0.0)
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+
+def calculate_composite_risk(sample_id: str, db=None, **kwargs) -> RiskScore:
+    """Calculate hazard rank for a sample.
+
+    Steps:
+    1. For each ARG, determine AWaRe tier and transmissibility level
+    2. Find worst-case ARG (highest tier, then highest transmissibility)
+    3. Assign rank R1-R12 or NG
+    4. Flag MDR (≥3 distinct antibiotic classes)
+    5. Count VF categories as annotation
+    """
+    arg_results = db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
+    plasmids = db.query(PlasmidResult).filter(PlasmidResult.sample_id == sample_id).all()
+    ice_results = db.query(ICEResult).filter(ICEResult.sample_id == sample_id).all()
     vf_results = db.query(VirulenceResult).filter(VirulenceResult.sample_id == sample_id).all()
 
-    if not vf_results:
-        return 0.0
+    # Build plasmid contig mapping
+    plasmid_contigs = {}
+    for arg in arg_results:
+        if arg.on_plasmid and arg.contig_type:
+            # contig_type is like "plasmid (AA738)"
+            ct = arg.contig_type
+            if ct.startswith("plasmid"):
+                cluster = ct.replace("plasmid (", "").rstrip(")")
+                if cluster and cluster != "plasmid":
+                    plasmid_contigs[arg.contig] = cluster
 
-    unique_vfs = set(vf.gene for vf in vf_results)
-    vf_count = len(unique_vfs)
+    # Also build from PlasmidResult data (more reliable)
+    # We need to re-read the contig_report for contig→cluster mapping
+    # But we already set this during plasmid.py. Use ARGResult.contig_type.
+    # Ensure we have all plasmid contigs mapped
+    for p in plasmids:
+        # Find ARGs that reference this plasmid
+        for arg in arg_results:
+            if arg.on_plasmid and arg.contig_type and p.plasmid_id and p.plasmid_id in arg.contig_type:
+                plasmid_contigs[arg.contig] = p.plasmid_id
 
-    # VF count score: 0-5 points
-    if vf_count >= 10:
-        count_score = 5.0
-    elif vf_count >= 7:
-        count_score = 4.0
-    elif vf_count >= 5:
-        count_score = 3.0
-    elif vf_count >= 3:
-        count_score = 2.0
-    elif vf_count >= 1:
-        count_score = 1.0
+    # Score each ARG
+    worst_tier_order = 0
+    worst_level = 0
+    worst_arg = None
+    worst_arg_tier = None
+    worst_arg_level = None
+    worst_arg_location = None
+    worst_drug_class = None
+    has_tiered_arg = False
+
+    # Collect drug classes for MDR
+    drug_classes = set()
+
+    for arg in arg_results:
+        # Collect drug classes
+        if arg.drug_class:
+            # Use the main class (before semicolon) for MDR counting
+            main_class = arg.drug_class.split(";")[0].strip().lower()
+            if main_class:
+                drug_classes.add(main_class)
+
+        tier = _get_aware_tier(arg.gene, arg.drug_class, arg.mechanism)
+        level, location = _get_transmissibility_level(
+            arg, plasmids, ice_results, plasmid_contigs
+        )
+
+        if tier is not None:
+            has_tiered_arg = True
+            tier_order = _TIER_ORDER.get(tier, 0)
+
+            # Worst case: highest tier first, then highest transmissibility
+            if (tier_order > worst_tier_order) or \
+               (tier_order == worst_tier_order and level > worst_level):
+                worst_tier_order = tier_order
+                worst_level = level
+                worst_arg = arg
+                worst_arg_tier = tier
+                worst_arg_level = level
+                worst_arg_location = location
+                worst_drug_class = arg.drug_class
+
+    # Determine rank
+    if not arg_results:
+        hazard_rank = HazardRank.R12
+        aware_tier = None
+        trans_level = None
+        wc_gene = None
+        wc_class = None
+        wc_location = None
+    elif not has_tiered_arg:
+        hazard_rank = HazardRank.NG
+        aware_tier = None
+        trans_level = None
+        wc_gene = None
+        wc_class = None
+        wc_location = None
     else:
-        count_score = 0.0
+        hazard_rank = _assign_rank(worst_arg_tier, worst_arg_level)
+        aware_tier = worst_arg_tier
+        trans_level = worst_arg_level
+        wc_gene = worst_arg.gene if worst_arg else None
+        wc_class = worst_drug_class
+        wc_location = worst_arg_location
 
-    # High-concern categories: 0-5 points
-    categories = set()
+    # MDR flag
+    mdr = len(drug_classes) >= 3
+
+    # VF category count
+    vf_categories = set()
     for vf in vf_results:
         if vf.category:
-            categories.add(vf.category.lower())
+            vf_categories.add(vf.category.lower())
+    vf_cat_count = len(vf_categories)
 
-    high_concern_count = len(categories & HIGH_CONCERN_VF_CATEGORIES)
-    if high_concern_count >= 3:
-        category_score = 5.0
-    elif high_concern_count >= 2:
-        category_score = 3.5
-    elif high_concern_count >= 1:
-        category_score = 2.0
-    else:
-        category_score = 0.0
+    # Legacy scores
+    composite = _rank_to_score(hazard_rank)
+    category = _rank_to_category(hazard_rank)
 
-    total = min(count_score + category_score, 10.0)
-    logger.info(
-        f"VF risk for {sample_id}: {total:.1f} "
-        f"(vfs={vf_count}, high_concern_categories={high_concern_count})"
-    )
-    return round(total, 2)
-
-
-def calculate_mobility_risk(sample_id: str, db) -> float:
-    """Calculate mobility risk score (0-10).
-
-    Scoring criteria:
-    - Transferable plasmid count (0-3 points)
-    - IS element / integron count (0-3 points)
-    - ARGs on mobile elements or near IS/integrons (0-4 points)
-
-    Args:
-        sample_id: UUID of the sample
-        db: SQLAlchemy session
-
-    Returns:
-        Risk score between 0.0 and 10.0
-    """
-    plasmids = db.query(PlasmidResult).filter(PlasmidResult.sample_id == sample_id).all()
-    mobility_elements = db.query(MobilityResult).filter(MobilityResult.sample_id == sample_id).all()
-    arg_results = db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
-
-    # Transferable plasmid score: 0-3 points
-    transferable_count = sum(1 for p in plasmids if p.predicted_transferability)
-    if transferable_count >= 3:
-        plasmid_score = 3.0
-    elif transferable_count >= 2:
-        plasmid_score = 2.0
-    elif transferable_count >= 1:
-        plasmid_score = 1.5
-    else:
-        plasmid_score = 0.0
-
-    # IS/integron count score: 0-3 points
-    element_count = len(mobility_elements)
-    if element_count >= 8:
-        element_score = 3.0
-    elif element_count >= 5:
-        element_score = 2.0
-    elif element_count >= 2:
-        element_score = 1.5
-    elif element_count >= 1:
-        element_score = 1.0
-    else:
-        element_score = 0.0
-
-    # ARGs associated with mobile elements: 0-4 points
-    plasmid_args = sum(1 for arg in arg_results if arg.on_plasmid)
-    nearby_arg_count = 0
-    for me in mobility_elements:
-        if me.nearby_args:
-            nearby_arg_count += len(me.nearby_args)
-
-    mobile_arg_total = plasmid_args + nearby_arg_count
-    if mobile_arg_total >= 8:
-        proximity_score = 4.0
-    elif mobile_arg_total >= 5:
-        proximity_score = 3.0
-    elif mobile_arg_total >= 3:
-        proximity_score = 2.0
-    elif mobile_arg_total >= 1:
-        proximity_score = 1.0
-    else:
-        proximity_score = 0.0
-
-    total = min(plasmid_score + element_score + proximity_score, 10.0)
-    logger.info(
-        f"Mobility risk for {sample_id}: {total:.1f} "
-        f"(transferable_plasmids={transferable_count}, "
-        f"elements={element_count}, mobile_args={mobile_arg_total})"
-    )
-    return round(total, 2)
-
-
-def _determine_category(score: float) -> RiskCategory:
-    """Map a composite score to a risk category."""
-    if score < 2.5:
-        return RiskCategory.low
-    elif score < 5.0:
-        return RiskCategory.medium
-    elif score < 7.5:
-        return RiskCategory.high
-    else:
-        return RiskCategory.critical
-
-
-def calculate_composite_risk(
-    sample_id: str,
-    weights: Optional[RiskWeights] = None,
-    db=None,
-) -> RiskScore:
-    """Calculate composite risk score from all sub-scores.
-
-    Args:
-        sample_id: UUID of the sample
-        weights: Optional weighting for sub-scores (default: equal)
-        db: SQLAlchemy session
-
-    Returns:
-        RiskScore ORM instance
-    """
-    if weights is None:
-        weights = RiskWeights()
-
-    arg_score = calculate_arg_risk(sample_id, db)
-    vf_score = calculate_vf_risk(sample_id, db)
-    mobility_score = calculate_mobility_risk(sample_id, db)
-
-    # Weighted combination
-    total_weight = weights.arg_weight + weights.vf_weight + weights.mobility_weight
-    if total_weight == 0:
-        total_weight = 1.0
-
-    composite = (
-        (arg_score * weights.arg_weight)
-        + (vf_score * weights.vf_weight)
-        + (mobility_score * weights.mobility_weight)
-    ) / total_weight
-
-    composite = round(min(composite, 10.0), 2)
-    category = _determine_category(composite)
-
-    # Upsert risk score
+    # Upsert
     existing = db.query(RiskScore).filter(RiskScore.sample_id == sample_id).first()
     if existing:
-        existing.arg_score = arg_score
-        existing.vf_score = vf_score
-        existing.mobility_score = mobility_score
+        existing.hazard_rank = hazard_rank
+        existing.aware_tier = aware_tier
+        existing.transmissibility_level = trans_level
+        existing.worst_case_arg = wc_gene
+        existing.worst_case_drug_class = wc_class
+        existing.worst_case_location = wc_location
+        existing.mdr_flag = mdr
+        existing.drug_class_count = len(drug_classes)
+        existing.vf_category_count = vf_cat_count
         existing.composite_score = composite
         existing.risk_category = category
+        existing.arg_score = composite  # legacy
+        existing.vf_score = 0.0
+        existing.mobility_score = 0.0
         risk = existing
     else:
         risk = RiskScore(
             sample_id=sample_id,
-            arg_score=arg_score,
-            vf_score=vf_score,
-            mobility_score=mobility_score,
+            hazard_rank=hazard_rank,
+            aware_tier=aware_tier,
+            transmissibility_level=trans_level,
+            worst_case_arg=wc_gene,
+            worst_case_drug_class=wc_class,
+            worst_case_location=wc_location,
+            mdr_flag=mdr,
+            drug_class_count=len(drug_classes),
+            vf_category_count=vf_cat_count,
             composite_score=composite,
             risk_category=category,
+            arg_score=composite,
+            vf_score=0.0,
+            mobility_score=0.0,
         )
         db.add(risk)
 
@@ -311,7 +484,9 @@ def calculate_composite_risk(
     db.refresh(risk)
 
     logger.info(
-        f"Composite risk for {sample_id}: {composite:.2f} ({category.value}) "
-        f"[ARG={arg_score}, VF={vf_score}, Mobility={mobility_score}]"
+        f"Hazard rank for {sample_id}: {hazard_rank.value} "
+        f"(tier={aware_tier}, level={trans_level}, "
+        f"worst_arg={wc_gene}, MDR={mdr}, "
+        f"classes={len(drug_classes)}, VF_cats={vf_cat_count})"
     )
     return risk

@@ -1,10 +1,33 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { listProjects, calculateRisk } from '@/lib/api';
 import type { Project, RiskScore } from '@/lib/api';
 import StatusBadge from '@/components/StatusBadge';
+
+const RANK_DESCRIPTIONS: Record<string, string> = {
+  R1: 'Reserve + conjugative plasmid (broad)',
+  R2: 'Reserve + conjugative plasmid (narrow) / ICE',
+  R3: 'Reserve + mobilizable plasmid (with helper)',
+  R4: 'Reserve + mobilizable plasmid (no helper)',
+  R5: 'Reserve + non-mobile / chromosome',
+  R6: 'Watch + conjugative plasmid (broad)',
+  R7: 'Watch + conjugative plasmid (narrow) / ICE',
+  R8: 'Watch + mobilizable plasmid (with helper)',
+  R9: 'Watch + mobilizable plasmid (no helper)',
+  R10: 'Watch + non-mobile / chromosome',
+  R11: 'Access-tier ARG only',
+  R12: 'No ARG detected',
+  NG: 'Not graded (intrinsic only)',
+};
+
+function rankSortKey(rank: string | null): number {
+  if (!rank) return 99;
+  if (rank === 'NG') return 13;
+  const n = parseInt(rank.replace('R', ''), 10);
+  return isNaN(n) ? 99 : n;
+}
 
 export default function RiskPage() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -13,12 +36,6 @@ export default function RiskPage() {
   const [loading, setLoading] = useState(true);
   const [calculating, setCalculating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showWeights, setShowWeights] = useState(false);
-
-  // Weights
-  const [argWeight, setArgWeight] = useState(0.4);
-  const [vfWeight, setVfWeight] = useState(0.3);
-  const [mobilityWeight, setMobilityWeight] = useState(0.3);
 
   useEffect(() => {
     listProjects()
@@ -33,9 +50,9 @@ export default function RiskPage() {
     setError(null);
     try {
       const scores = await calculateRisk(selectedProject, {
-        arg_weight: argWeight,
-        vf_weight: vfWeight,
-        mobility_weight: mobilityWeight,
+        arg_weight: 0.4,
+        vf_weight: 0.3,
+        mobility_weight: 0.3,
       });
       setRiskScores(scores);
     } catch (err) {
@@ -45,20 +62,10 @@ export default function RiskPage() {
     }
   }
 
-  const stats = {
-    total: riskScores.length,
-    low: riskScores.filter((r) => r.risk_category === 'low').length,
-    medium: riskScores.filter((r) => r.risk_category === 'medium').length,
-    high: riskScores.filter((r) => r.risk_category === 'high').length,
-    critical: riskScores.filter((r) => r.risk_category === 'critical').length,
-  };
-
-  const riskColorMap: Record<string, string> = {
-    low: 'border-green-600/50',
-    medium: 'border-yellow-600/50',
-    high: 'border-orange-600/50',
-    critical: 'border-red-600/50',
-  };
+  const highRisk = riskScores.filter((r) =>
+    r.hazard_rank && ['R1', 'R2', 'R3'].includes(r.hazard_rank)
+  ).length;
+  const mdrCount = riskScores.filter((r) => r.mdr_flag).length;
 
   if (loading) {
     return (
@@ -72,8 +79,10 @@ export default function RiskPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-white">Risk Assessment</h1>
-          <p className="text-gray-400 text-sm mt-1">Evaluate resistance risk across samples</p>
+          <h1 className="text-2xl font-bold text-white">Hazard Ranking</h1>
+          <p className="text-gray-400 text-sm mt-1">
+            AMR hazard ranks based on clinical importance (AWaRe tier) and transmissibility
+          </p>
         </div>
       </div>
 
@@ -101,13 +110,6 @@ export default function RiskPage() {
             </select>
           </div>
           <button
-            onClick={() => setShowWeights(!showWeights)}
-            className="btn-secondary flex items-center gap-2"
-          >
-            <SlidersHorizontal className="w-4 h-4" />
-            Weights
-          </button>
-          <button
             onClick={handleCalculate}
             disabled={!selectedProject || calculating}
             className="btn-primary flex items-center gap-2"
@@ -116,131 +118,107 @@ export default function RiskPage() {
             {calculating ? 'Calculating...' : 'Calculate Risk'}
           </button>
         </div>
-
-        {showWeights && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-6 pt-6 border-t border-gray-800">
-            <div>
-              <label className="flex items-center justify-between text-sm text-gray-400 mb-2">
-                <span>ARG Weight</span>
-                <span className="font-mono text-gray-300">{argWeight.toFixed(2)}</span>
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={argWeight}
-                onChange={(e) => setArgWeight(Number(e.target.value))}
-                className="w-full accent-blue-500"
-              />
-            </div>
-            <div>
-              <label className="flex items-center justify-between text-sm text-gray-400 mb-2">
-                <span>Virulence Weight</span>
-                <span className="font-mono text-gray-300">{vfWeight.toFixed(2)}</span>
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={vfWeight}
-                onChange={(e) => setVfWeight(Number(e.target.value))}
-                className="w-full accent-blue-500"
-              />
-            </div>
-            <div>
-              <label className="flex items-center justify-between text-sm text-gray-400 mb-2">
-                <span>Mobility Weight</span>
-                <span className="font-mono text-gray-300">{mobilityWeight.toFixed(2)}</span>
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={mobilityWeight}
-                onChange={(e) => setMobilityWeight(Number(e.target.value))}
-                className="w-full accent-blue-500"
-              />
-            </div>
-            <div className="sm:col-span-3">
-              <p className="text-xs text-gray-500">
-                Total weight: {(argWeight + vfWeight + mobilityWeight).toFixed(2)} (should sum to 1.0 for normalized scores)
-              </p>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Summary stats */}
       {riskScores.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
           <div className="card text-center">
-            <p className="text-2xl font-bold text-white">{stats.total}</p>
-            <p className="text-xs text-gray-400">Total</p>
-          </div>
-          <div className="card text-center border-green-600/30">
-            <p className="text-2xl font-bold text-green-400">{stats.low}</p>
-            <p className="text-xs text-gray-400">Low</p>
-          </div>
-          <div className="card text-center border-yellow-600/30">
-            <p className="text-2xl font-bold text-yellow-400">{stats.medium}</p>
-            <p className="text-xs text-gray-400">Medium</p>
-          </div>
-          <div className="card text-center border-orange-600/30">
-            <p className="text-2xl font-bold text-orange-400">{stats.high}</p>
-            <p className="text-xs text-gray-400">High</p>
+            <p className="text-2xl font-bold text-white">{riskScores.length}</p>
+            <p className="text-xs text-gray-400">Total Samples</p>
           </div>
           <div className="card text-center border-red-600/30">
-            <p className="text-2xl font-bold text-red-400">{stats.critical}</p>
-            <p className="text-xs text-gray-400">Critical</p>
+            <p className="text-2xl font-bold text-red-400">{highRisk}</p>
+            <p className="text-xs text-gray-400">High-Risk (R1-R3)</p>
+          </div>
+          <div className="card text-center border-yellow-600/30">
+            <p className="text-2xl font-bold text-yellow-400">{mdrCount}</p>
+            <p className="text-xs text-gray-400">MDR</p>
+          </div>
+          <div className="card text-center border-blue-600/30">
+            <p className="text-2xl font-bold text-blue-400">
+              {riskScores.length > 0
+                ? ((highRisk / riskScores.length) * 100).toFixed(1)
+                : '0'}%
+            </p>
+            <p className="text-xs text-gray-400">High-Risk Rate</p>
           </div>
         </div>
       )}
 
-      {/* Sample cards */}
+      {/* Results table */}
       {!selectedProject ? (
         <div className="card text-center py-16">
           <p className="text-gray-500">Select a project and calculate risk to view results.</p>
         </div>
       ) : riskScores.length === 0 ? (
         <div className="card text-center py-16">
-          <p className="text-gray-500">No risk scores yet. Click "Calculate Risk" to assess samples.</p>
+          <p className="text-gray-500">No risk scores yet. Click &quot;Calculate Risk&quot; to assess samples.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {riskScores
-            .sort((a, b) => b.composite_score - a.composite_score)
-            .map((score) => (
-              <div
-                key={score.sample_id}
-                className={`card border ${riskColorMap[score.risk_category] || 'border-gray-800'}`}
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-gray-100">{score.sample_name}</h3>
-                  <StatusBadge status={score.risk_category} type="risk" />
+        <div className="card overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-800 text-left text-gray-400 text-xs uppercase tracking-wider">
+                <th className="px-3 py-2">Sample</th>
+                <th className="px-3 py-2">Rank</th>
+                <th className="px-3 py-2">AWaRe Tier</th>
+                <th className="px-3 py-2">Trans. Level</th>
+                <th className="px-3 py-2">Worst-Case ARG</th>
+                <th className="px-3 py-2">Location</th>
+                <th className="px-3 py-2">MDR</th>
+                <th className="px-3 py-2">Classes</th>
+                <th className="px-3 py-2">VF Categories</th>
+              </tr>
+            </thead>
+            <tbody>
+              {riskScores
+                .sort((a, b) => rankSortKey(a.hazard_rank) - rankSortKey(b.hazard_rank))
+                .map((score) => (
+                  <tr key={score.sample_id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
+                    <td className="px-3 py-2 font-medium text-gray-200">{score.sample_name}</td>
+                    <td className="px-3 py-2">
+                      <StatusBadge status={score.hazard_rank || 'NG'} type="hazard" />
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={
+                        score.aware_tier === 'Reserve' ? 'text-red-400 font-semibold' :
+                        score.aware_tier === 'Watch' ? 'text-yellow-400' :
+                        score.aware_tier === 'Access' ? 'text-green-400' :
+                        'text-gray-500'
+                      }>
+                        {score.aware_tier || '-'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-gray-300">{score.transmissibility_level ?? '-'}</td>
+                    <td className="px-3 py-2 font-mono text-gray-300 text-xs">{score.worst_case_arg || '-'}</td>
+                    <td className="px-3 py-2 text-gray-400 text-xs">{score.worst_case_location || '-'}</td>
+                    <td className="px-3 py-2">
+                      {score.mdr_flag ? (
+                        <span className="text-orange-400 font-semibold">MDR</span>
+                      ) : (
+                        <span className="text-gray-600">-</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-gray-300">{score.drug_class_count ?? '-'}</td>
+                    <td className="px-3 py-2 text-gray-300">{score.vf_category_count ?? '-'}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+
+          {/* Legend */}
+          <div className="mt-4 pt-4 border-t border-gray-800">
+            <p className="text-xs text-gray-500 mb-2 font-semibold">Hazard Rank Legend</p>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1 text-xs text-gray-500">
+              {Object.entries(RANK_DESCRIPTIONS).map(([rank, desc]) => (
+                <div key={rank} className="flex items-center gap-2">
+                  <StatusBadge status={rank} type="hazard" />
+                  <span>{desc}</span>
                 </div>
-                <div className="text-center my-4">
-                  <p className="text-3xl font-bold text-white">{score.composite_score.toFixed(3)}</p>
-                  <p className="text-xs text-gray-500">Composite Score</p>
-                </div>
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className="p-2 bg-gray-800/50 rounded-lg">
-                    <p className="text-sm font-semibold text-gray-200">{score.arg_score.toFixed(2)}</p>
-                    <p className="text-[10px] text-gray-500">ARG</p>
-                  </div>
-                  <div className="p-2 bg-gray-800/50 rounded-lg">
-                    <p className="text-sm font-semibold text-gray-200">{score.vf_score.toFixed(2)}</p>
-                    <p className="text-[10px] text-gray-500">VF</p>
-                  </div>
-                  <div className="p-2 bg-gray-800/50 rounded-lg">
-                    <p className="text-sm font-semibold text-gray-200">{score.mobility_score.toFixed(2)}</p>
-                    <p className="text-[10px] text-gray-500">Mobility</p>
-                  </div>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>

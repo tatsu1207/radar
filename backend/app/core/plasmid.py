@@ -75,6 +75,13 @@ def run_mob_recon(sample_id: str, assembly_path: str, db, threads: int = 4) -> L
                 mpf_type = row.get("mpf_type", "-")
                 mobility = row.get("predicted_mobility", "").strip("-").strip()
                 mash_id = row.get("mash_neighbor_identification", "")
+                mash_dist_str = row.get("mash_neighbor_distance", "")
+                mash_dist = None
+                if mash_dist_str and mash_dist_str not in ("-", ""):
+                    try:
+                        mash_dist = float(mash_dist_str)
+                    except ValueError:
+                        pass
 
                 # Infer mobility from relaxase + MPF when predicted_mobility is empty
                 has_relaxase = mob_type not in ("-", "", None)
@@ -94,6 +101,8 @@ def run_mob_recon(sample_id: str, assembly_path: str, db, threads: int = 4) -> L
                     replicon=replicon if replicon != "-" else None,
                     predicted_transferability=(mobility in ("conjugative", "mobilizable")),
                     predicted_mobility=mobility,
+                    mash_neighbor_identification=mash_id if mash_id not in ("-", "") else None,
+                    mash_neighbor_distance=mash_dist,
                 )
                 db.add(pr)
                 results.append(pr)

@@ -1514,12 +1514,25 @@ def export_all_annotations(
         # Risk scores
         out = io.StringIO()
         w = csv.writer(out, delimiter="\t")
-        w.writerow(["sample", "arg_score", "vf_score", "mobility_score", "composite_score", "risk_category"])
+        w.writerow(["sample", "hazard_rank", "aware_tier", "transmissibility_level",
+                     "worst_case_arg", "worst_case_drug_class", "worst_case_location",
+                     "mdr_flag", "drug_class_count", "vf_category_count",
+                     "composite_score", "risk_category"])
         for sid in ids:
             name = sample_names.get(sid, sid)
             r = db.query(RiskScore).filter(RiskScore.sample_id == sid).first()
             if r:
-                w.writerow([name, r.arg_score, r.vf_score, r.mobility_score, r.composite_score, r.risk_category.value])
+                w.writerow([name,
+                            r.hazard_rank.value if r.hazard_rank else "",
+                            r.aware_tier or "",
+                            r.transmissibility_level or "",
+                            r.worst_case_arg or "",
+                            r.worst_case_drug_class or "",
+                            r.worst_case_location or "",
+                            r.mdr_flag if r.mdr_flag is not None else "",
+                            r.drug_class_count or "",
+                            r.vf_category_count or "",
+                            r.composite_score, r.risk_category.value])
         zf.writestr("risk_scores.tsv", out.getvalue())
 
         # Prophages

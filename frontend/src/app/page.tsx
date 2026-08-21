@@ -49,7 +49,7 @@ export default function IntroductionPage() {
     ]},
     { category: 'Prediction & Scoring', tools: [
       { name: 'ML Phenotype Prediction', desc: '107 Random Forest models across 5 species, 35 antibiotics' },
-      { name: 'Risk Scoring', desc: 'Composite score (0-10) from ARG burden, virulence, and mobility' },
+      { name: 'Hazard Ranking', desc: 'R1-R12 rank from WHO AWaRe tier and ARG transmissibility' },
     ]},
   ];
 
@@ -73,7 +73,7 @@ export default function IntroductionPage() {
           RADAR takes raw Illumina, ONT, or PacBio sequencing data (or pre-assembled genomes), runs a
           comprehensive annotation pipeline covering resistance genes, virulence factors, mobile genetic elements,
           biocide/metal resistance, and regulatory context, then uses machine learning to predict antibiotic
-          resistance phenotypes and compute composite clinical risk scores.
+          resistance phenotypes and assign hazard ranks based on clinical importance and transmissibility.
         </p>
         <p className="text-gray-500 mt-2 text-sm">
           Supports hybrid assembly (Illumina + ONT), PacBio HiFi, and pre-assembled FASTA input.
@@ -205,8 +205,8 @@ export default function IntroductionPage() {
             <span className="text-gray-300">cgMLST phylogenetic tree (NJ from allelic distances)</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-gray-400">Risk assessment</span>
-            <span className="text-gray-300">Composite score (ARG + VF + mobility)</span>
+            <span className="text-gray-400">Hazard ranking</span>
+            <span className="text-gray-300">R1-R12 rank (AWaRe tier x transmissibility)</span>
           </div>
           <div className="flex justify-between">
             <span className="text-gray-400">Export</span>

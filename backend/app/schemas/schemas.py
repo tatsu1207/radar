@@ -190,6 +190,16 @@ class RiskScoreRead(BaseModel):
     mobility_score: float
     composite_score: float
     risk_category: str
+    # Hazard rank fields
+    hazard_rank: Optional[str] = None
+    aware_tier: Optional[str] = None
+    transmissibility_level: Optional[int] = None
+    worst_case_arg: Optional[str] = None
+    worst_case_drug_class: Optional[str] = None
+    worst_case_location: Optional[str] = None
+    mdr_flag: Optional[bool] = None
+    drug_class_count: Optional[int] = None
+    vf_category_count: Optional[int] = None
 
     model_config = {"from_attributes": True}
 

@@ -86,6 +86,15 @@ export interface RiskScore {
   mobility_score: number;
   composite_score: number;
   risk_category: 'low' | 'medium' | 'high' | 'critical';
+  hazard_rank: string | null;
+  aware_tier: string | null;
+  transmissibility_level: number | null;
+  worst_case_arg: string | null;
+  worst_case_drug_class: string | null;
+  worst_case_location: string | null;
+  mdr_flag: boolean | null;
+  drug_class_count: number | null;
+  vf_category_count: number | null;
 }
 
 export interface HeatmapData {

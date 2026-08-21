@@ -17,7 +17,7 @@ const PIPELINE_STEPS = [
   { tool: 'mob_recon', label: 'MOB-recon', description: 'Plasmid reconstruction & typing' },
   { tool: 'mefinder', label: 'MobileElementFinder', description: 'Mobile genetic element detection' },
   { tool: 'phenotype_prediction', label: 'Phenotype Prediction', description: 'Predict antibiotic susceptibility' },
-  { tool: 'risk_scoring', label: 'Risk Scoring', description: 'Composite risk assessment' },
+  { tool: 'risk_scoring', label: 'Hazard Ranking', description: 'AWaRe tier x transmissibility rank (R1-R12)' },
 ];
 
 function StepIcon({ status }: { status?: string }) {

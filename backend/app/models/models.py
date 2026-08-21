@@ -83,6 +83,28 @@ class RiskCategory(str, enum.Enum):
     critical = "critical"
 
 
+class HazardRank(str, enum.Enum):
+    R1 = "R1"
+    R2 = "R2"
+    R3 = "R3"
+    R4 = "R4"
+    R5 = "R5"
+    R6 = "R6"
+    R7 = "R7"
+    R8 = "R8"
+    R9 = "R9"
+    R10 = "R10"
+    R11 = "R11"
+    R12 = "R12"
+    NG = "NG"
+
+
+class AWaReTier(str, enum.Enum):
+    reserve = "Reserve"
+    watch = "Watch"
+    access = "Access"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -289,6 +311,8 @@ class PlasmidResult(Base):
     replicon = Column(String(255), nullable=True)
     predicted_transferability = Column(Boolean, default=False)
     predicted_mobility = Column(String(50), nullable=True)  # conjugative, mobilizable, non-mobilizable
+    mash_neighbor_identification = Column(String(255), nullable=True)  # species of nearest neighbor
+    mash_neighbor_distance = Column(Float, nullable=True)
 
     sample = relationship("Sample", back_populates="plasmid_results")
 
@@ -357,11 +381,22 @@ class RiskScore(Base):
 
     id = Column(UUID, primary_key=True, default=uuid.uuid4)
     sample_id = Column(UUID, ForeignKey("samples.id", ondelete="CASCADE"), nullable=False, unique=True)
+    # Legacy weighted-average fields (kept for backwards compat)
     arg_score = Column(Float, nullable=False, default=0.0)
     vf_score = Column(Float, nullable=False, default=0.0)
     mobility_score = Column(Float, nullable=False, default=0.0)
     composite_score = Column(Float, nullable=False, default=0.0)
     risk_category = Column(Enum(RiskCategory), nullable=False, default=RiskCategory.low)
+    # Hazard rank framework (Cheon & Unno)
+    hazard_rank = Column(Enum(HazardRank), nullable=True)
+    aware_tier = Column(String(10), nullable=True)  # Reserve, Watch, Access, or None
+    transmissibility_level = Column(Integer, nullable=True)  # 1-5
+    worst_case_arg = Column(String(255), nullable=True)
+    worst_case_drug_class = Column(String(255), nullable=True)
+    worst_case_location = Column(String(100), nullable=True)  # e.g. "plasmid (conjugative)", "ICE", "chromosome"
+    mdr_flag = Column(Boolean, default=False)
+    drug_class_count = Column(Integer, nullable=True)
+    vf_category_count = Column(Integer, nullable=True)
 
     sample = relationship("Sample", back_populates="risk_score")
 
