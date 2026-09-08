@@ -130,12 +130,13 @@ function useSamplePicker() {
 
 // ─── Main Page ───
 export default function ToolsPage() {
-  const [toolTab, setToolTab] = useState<'phenotype' | 'hazard' | 'comparison' | 'sra'>('phenotype');
+  const [toolTab, setToolTab] = useState<'phenotype' | 'hazard' | 'comparison' | 'syntracker' | 'sra'>('phenotype');
 
   const tabs = [
     { key: 'phenotype' as const, label: 'Phenotype Prediction' },
     { key: 'hazard' as const, label: 'Hazard Ranking' },
     { key: 'comparison' as const, label: 'ANI' },
+    { key: 'syntracker' as const, label: 'SynTracker' },
     { key: 'sra' as const, label: 'SRA Submission' },
   ];
 
@@ -155,6 +156,7 @@ export default function ToolsPage() {
       {toolTab === 'phenotype' && <PhenotypePredictionTool />}
       {toolTab === 'hazard' && <HazardRankingTool />}
       {toolTab === 'comparison' && <GenomeComparisonTool />}
+      {toolTab === 'syntracker' && <SynTrackerTool />}
       {toolTab === 'sra' && <SRASubmissionTool />}
     </div>
   );
@@ -1088,6 +1090,210 @@ function GenomeComparisonTool() {
 
       {!hasResults && picker.selectedIds.length >= 2 && !computing && (
         <div className="card text-center py-8 text-gray-500">Click &quot;Analyze&quot; to compute ANI matrix and detect outbreak clusters.</div>
+      )}
+    </div>
+  );
+}
+
+// ─── SynTracker Tool ───
+
+interface SynTrackerResult {
+  job_id: string;
+  status: string;
+  log: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  data?: {
+    samples: string[];
+    sample_ids: string[];
+    apss_matrix: number[][];
+  };
+}
+
+function SynTrackerTool() {
+  const picker = useSamplePicker();
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [result, setResult] = useState<SynTrackerResult | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hoveredCell, setHoveredCell] = useState<{ i: number; j: number } | null>(null);
+
+  // Poll for job completion
+  useEffect(() => {
+    if (!jobId || (result && (result.status === 'complete' || result.status === 'failed'))) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await authFetch(`/api/tools/syntracker/${jobId}`);
+        if (res.ok) {
+          const d: SynTrackerResult = await res.json();
+          setResult(d);
+          if (d.status === 'complete' || d.status === 'failed') {
+            clearInterval(interval);
+          }
+        }
+      } catch { /* ignore poll errors */ }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [jobId, result?.status]);
+
+  async function submitJob() {
+    if (picker.selectedIds.length < 2) return;
+    setSubmitting(true);
+    setError(null);
+    setResult(null);
+    setJobId(null);
+    try {
+      const res = await authPost('/api/tools/syntracker', { sample_ids: picker.selectedIds });
+      if (!res.ok) throw new Error(await res.text());
+      const d = await res.json();
+      setJobId(d.job_id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to submit job');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function apssColor(val: number): string {
+    if (val >= 0.9) return 'bg-green-600/80 text-white';
+    if (val >= 0.7) return 'bg-green-600/40 text-green-200';
+    if (val >= 0.5) return 'bg-yellow-600/40 text-yellow-200';
+    if (val >= 0.3) return 'bg-orange-600/40 text-orange-200';
+    return 'bg-red-600/40 text-red-200';
+  }
+
+  function downloadAPSS() {
+    if (!result?.data) return;
+    const { samples, apss_matrix } = result.data;
+    const headers = ['', ...samples];
+    const rows = samples.map((s, i) => [s, ...apss_matrix[i].map((v) => v.toFixed(4))]);
+    const tsv = [headers.join('\t'), ...rows.map((r) => r.join('\t'))].join('\n');
+    const blob = new Blob([tsv], { type: 'text/tab-separated-values' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'syntracker_apss_matrix.tsv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  const isRunning = result && (result.status === 'running' || result.status === 'pending');
+  const isComplete = result?.status === 'complete';
+  const isFailed = result?.status === 'failed';
+  const hasMatrix = isComplete && result?.data?.apss_matrix && result.data.apss_matrix.length > 0;
+
+  return (
+    <div className="space-y-6">
+      <p className="text-gray-400 text-sm">
+        SynTracker measures synteny conservation (gene order preservation) between genomes.
+        High synteny + high ANI = clonal; high ANI + low synteny = recombination or rearrangement.
+        Select 2+ isolates for all-vs-all comparison.
+      </p>
+
+      <SamplePicker samples={picker.allSamples} selected={picker.selected} onToggle={picker.toggle} onSelectAll={picker.selectAll} onDeselectAll={picker.deselectAll} loading={picker.loading} />
+
+      <button onClick={submitJob} disabled={picker.selectedIds.length < 2 || submitting || !!isRunning} className="btn-primary flex items-center gap-2 text-sm">
+        <RefreshCw className={`w-4 h-4 ${submitting || isRunning ? 'animate-spin' : ''}`} />
+        {submitting ? 'Submitting...' : isRunning ? 'Running...' : `Run SynTracker (${picker.selectedIds.length} selected)`}
+      </button>
+
+      {error && <div className="p-4 bg-red-600/20 border border-red-600/50 rounded-lg text-red-300 text-sm">{error}</div>}
+
+      {/* Running status */}
+      {isRunning && (
+        <div className="card">
+          <div className="flex items-center gap-3">
+            <div className="animate-spin w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full" />
+            <div>
+              <p className="text-sm text-gray-200">SynTracker is running...</p>
+              <p className="text-xs text-gray-500">This may take several minutes depending on sample count and genome size.</p>
+            </div>
+          </div>
+          {result?.log && (
+            <pre className="mt-3 text-xs text-gray-500 bg-gray-800/50 rounded p-2 max-h-32 overflow-y-auto whitespace-pre-wrap">{result.log}</pre>
+          )}
+        </div>
+      )}
+
+      {/* Failed */}
+      {isFailed && (
+        <div className="card border-red-600/50">
+          <p className="text-sm text-red-400 font-medium mb-2">SynTracker failed</p>
+          {result?.log && (
+            <pre className="text-xs text-gray-500 bg-gray-800/50 rounded p-2 max-h-48 overflow-y-auto whitespace-pre-wrap">{result.log}</pre>
+          )}
+        </div>
+      )}
+
+      {/* Results: APSS matrix */}
+      {hasMatrix && result.data && (
+        <div className="card">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-gray-100">APSS Matrix ({result.data.samples.length} samples)</h2>
+            <button onClick={downloadAPSS} className="btn-secondary text-xs flex items-center gap-1.5">
+              <Download className="w-3.5 h-3.5" />
+              Download TSV
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 mb-4 text-xs text-gray-400">
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-600/80" /> &ge;0.9 (high conservation)</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-600/40" /> 0.7-0.9</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-yellow-600/40" /> 0.5-0.7</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-orange-600/40" /> 0.3-0.5</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-600/40" /> &lt;0.3 (low conservation)</span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="text-xs">
+              <thead>
+                <tr>
+                  <th className="px-2 py-1.5 text-left text-gray-400 font-medium sticky left-0 bg-gray-900 z-10" />
+                  {result.data.samples.map((s, j) => (
+                    <th key={j} className="px-2 py-1.5 text-gray-400 font-medium whitespace-nowrap" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', maxWidth: '2rem' }}>{s}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {result.data.samples.map((rowName, i) => (
+                  <tr key={i}>
+                    <td className="px-2 py-1 text-gray-300 font-medium whitespace-nowrap sticky left-0 bg-gray-900 z-10">{rowName}</td>
+                    {result.data!.apss_matrix[i].map((val, j) => {
+                      const isHovered = hoveredCell?.i === i && hoveredCell?.j === j;
+                      const isDiag = i === j;
+                      return (
+                        <td key={j}
+                          className={`px-2 py-1 text-center font-mono cursor-default transition-all ${isDiag ? 'bg-gray-800/50 text-gray-600' : apssColor(val)} ${isHovered ? 'ring-2 ring-blue-400' : ''}`}
+                          onMouseEnter={() => setHoveredCell({ i, j })}
+                          onMouseLeave={() => setHoveredCell(null)}
+                          title={isDiag ? '' : `${rowName} vs ${result.data!.samples[j]}\nAPSS: ${val.toFixed(4)}`}
+                        >{isDiag ? '-' : val.toFixed(3)}</td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {hoveredCell && hoveredCell.i !== hoveredCell.j && result.data && (
+            <div className="mt-3 p-3 bg-gray-800/50 rounded-lg border border-gray-700 text-sm">
+              <span className="text-gray-200 font-medium">{result.data.samples[hoveredCell.i]}</span>
+              <span className="text-gray-500"> vs </span>
+              <span className="text-gray-200 font-medium">{result.data.samples[hoveredCell.j]}</span>
+              <span className="text-gray-400 ml-3">APSS: <span className="text-white font-mono">{result.data.apss_matrix[hoveredCell.i][hoveredCell.j].toFixed(4)}</span></span>
+              {result.data.apss_matrix[hoveredCell.i][hoveredCell.j] >= 0.9 && (
+                <span className="ml-3 px-2 py-0.5 bg-green-600/30 text-green-300 rounded text-xs">High synteny conservation</span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {isComplete && !hasMatrix && (
+        <div className="card text-center py-8 text-gray-500">
+          SynTracker completed but no APSS matrix was generated. Check the job log for details.
+          {result?.log && <pre className="mt-3 text-xs text-gray-600 text-left max-h-32 overflow-y-auto">{result.log}</pre>}
+        </div>
       )}
     </div>
   );

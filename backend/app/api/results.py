@@ -148,6 +148,91 @@ def detect_clusters_for_samples(
     )
 
 
+@router.post("/tools/syntracker")
+def submit_syntracker(
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Submit a SynTracker all-vs-all job for selected samples."""
+    from app.models.models import AnalysisJob, JobStatus
+    sample_ids = body.get("sample_ids", [])
+    if len(sample_ids) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 samples")
+
+    # Create a tracking job
+    job = AnalysisJob(
+        sample_id=sample_ids[0],  # associate with first sample
+        tool="syntracker",
+        status=JobStatus.pending,
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    from app.core.syntracker import run_syntracker_task
+    run_syntracker_task.delay(sample_ids, str(job.id))
+
+    return {"job_id": str(job.id), "status": "submitted"}
+
+
+@router.get("/tools/syntracker/{job_id}")
+def get_syntracker_result(
+    job_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get SynTracker job status and results."""
+    from app.models.models import AnalysisJob
+    import json as _json
+
+    job = db.query(AnalysisJob).filter(AnalysisJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    result = {
+        "job_id": str(job.id),
+        "status": job.status.value if job.status else "unknown",
+        "log": job.log,
+        "started_at": str(job.started_at) if job.started_at else None,
+        "finished_at": str(job.finished_at) if job.finished_at else None,
+    }
+
+    # If complete, load result file
+    if job.status and job.status.value == "complete":
+        result_file = os.path.join(settings.RESULTS_DIR, "syntracker", f"{job_id}.json")
+        if os.path.exists(result_file):
+            with open(result_file) as f:
+                result["data"] = _json.load(f)
+
+    return result
+
+
+@router.get("/tools/syntracker")
+def list_syntracker_jobs(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List recent SynTracker jobs."""
+    from app.models.models import AnalysisJob
+    jobs = (
+        db.query(AnalysisJob)
+        .filter(AnalysisJob.tool == "syntracker")
+        .order_by(AnalysisJob.started_at.desc().nullslast())
+        .limit(20)
+        .all()
+    )
+    return [
+        {
+            "job_id": str(j.id),
+            "status": j.status.value if j.status else "unknown",
+            "started_at": str(j.started_at) if j.started_at else None,
+            "finished_at": str(j.finished_at) if j.finished_at else None,
+        }
+        for j in jobs
+    ]
+
+
 @router.get("/samples/{sample_id}/summary")
 def get_sample_summary(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Aggregate summary of all annotation results for a sample."""
