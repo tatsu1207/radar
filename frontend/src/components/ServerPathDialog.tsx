@@ -187,11 +187,11 @@ export default function ServerPathDialog({ isOpen, onClose, projectId, onSubmit 
                     </td>
                     <td className="px-2 py-1.5 flex items-center gap-2">
                       {entry.is_dir ? (
-                        <Folder className="w-4 h-4 text-yellow-400 shrink-0" />
+                        <Folder className="w-4 h-4 text-blue-500 shrink-0" />
                       ) : (
                         <FileText className="w-4 h-4 text-gray-500 shrink-0" />
                       )}
-                      <span className={`truncate ${entry.is_dir ? 'text-yellow-300' : 'text-gray-300'}`}>
+                      <span className={`truncate ${entry.is_dir ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-700 dark:text-gray-300'}`}>
                         {entry.name}
                       </span>
                       {entry.is_dir && (
