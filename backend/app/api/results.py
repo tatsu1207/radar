@@ -39,6 +39,119 @@ from app.schemas.schemas import (
 router = APIRouter(tags=["results"])
 
 
+# ---------------------------------------------------------------------------
+# Sample picker: list completed samples with species/ST for tool UIs
+# ---------------------------------------------------------------------------
+
+@router.get("/tools/samples")
+def list_tool_samples(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """List all completed samples with species, ST, and project info for tool UIs."""
+    from app.models.models import SampleStatus
+    samples = (
+        db.query(Sample)
+        .filter(Sample.status == SampleStatus.complete)
+        .order_by(Sample.name)
+        .all()
+    )
+    results = []
+    for s in samples:
+        sr = db.query(SpeciesResult).filter(SpeciesResult.sample_id == s.id).first()
+        mlst = db.query(MLSTResult).filter(MLSTResult.sample_id == s.id).first()
+        proj = db.query(Project).filter(Project.id == s.project_id).first()
+        results.append({
+            "sample_id": str(s.id),
+            "name": s.name,
+            "species": sr.species if sr else None,
+            "st": mlst.sequence_type if mlst else None,
+            "project_name": proj.name if proj else None,
+        })
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Sample-ID-based tool endpoints (accept list of sample IDs via POST body)
+# ---------------------------------------------------------------------------
+
+@router.post("/tools/risk")
+def calculate_risk_for_samples(
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Calculate hazard rank for selected samples."""
+    sample_ids = body.get("sample_ids", [])
+    if not sample_ids:
+        raise HTTPException(status_code=400, detail="No sample_ids provided")
+
+    from app.core.risk import calculate_composite_risk
+    results = []
+    for sid in sample_ids:
+        sample = db.query(Sample).filter(Sample.id == sid).first()
+        if not sample:
+            continue
+        try:
+            risk = calculate_composite_risk(str(sample.id), db=db)
+        except Exception:
+            risk = db.query(RiskScore).filter(RiskScore.sample_id == sample.id).first()
+        if risk:
+            results.append({
+                "sample_id": str(sample.id),
+                "sample_name": sample.name,
+                "hazard_rank": risk.hazard_rank.value if risk.hazard_rank else None,
+                "aware_tier": risk.aware_tier,
+                "transmissibility_level": risk.transmissibility_level,
+                "worst_case_arg": risk.worst_case_arg,
+                "worst_case_drug_class": risk.worst_case_drug_class,
+                "worst_case_location": risk.worst_case_location,
+                "mdr_flag": risk.mdr_flag,
+                "drug_class_count": risk.drug_class_count,
+                "vf_category_count": risk.vf_category_count,
+                "composite_score": risk.composite_score,
+                "risk_category": risk.risk_category.value if risk.risk_category else None,
+            })
+    return results
+
+
+@router.post("/tools/ani")
+def compute_ani_for_samples(
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Compute all-vs-all ANI for selected samples."""
+    sample_ids = body.get("sample_ids", [])
+    if len(sample_ids) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 samples")
+
+    from app.core.ani import compute_ani_for_samples as _compute
+    return _compute(sample_ids, db)
+
+
+@router.post("/tools/clusters")
+def detect_clusters_for_samples(
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Detect outbreak clusters among selected samples."""
+    sample_ids = body.get("sample_ids", [])
+    threshold = body.get("threshold")
+    if len(sample_ids) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 samples")
+
+    # Get ANI first
+    from app.core.ani import compute_ani_for_samples as _compute_ani
+    ani_result = _compute_ani(sample_ids, db)
+
+    from app.core.outbreak import detect_clusters_for_samples
+    return detect_clusters_for_samples(
+        sample_ids, db,
+        ani_matrix=ani_result.get("ani_matrix"),
+        ani_sample_ids=ani_result.get("sample_ids"),
+        cgmlst_threshold=threshold,
+    )
+
+
 @router.get("/samples/{sample_id}/summary")
 def get_sample_summary(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Aggregate summary of all annotation results for a sample."""

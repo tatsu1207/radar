@@ -18,6 +18,116 @@ async function authFetch(url: string): Promise<Response> {
   return res;
 }
 
+async function authPost(url: string, body: object): Promise<Response> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 401 && typeof window !== 'undefined') {
+    localStorage.removeItem('radar_token');
+    window.location.href = '/login';
+  }
+  return res;
+}
+
+// ─── Shared Sample Picker ───
+interface PickerSample {
+  sample_id: string;
+  name: string;
+  species: string | null;
+  st: string | null;
+  project_name: string | null;
+}
+
+function SamplePicker({
+  samples, selected, onToggle, onSelectAll, onDeselectAll, loading,
+}: {
+  samples: PickerSample[];
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+  onSelectAll: () => void;
+  onDeselectAll: () => void;
+  loading: boolean;
+}) {
+  const [search, setSearch] = useState('');
+  const [speciesFilter, setSpeciesFilter] = useState('');
+
+  const species = Array.from(new Set(samples.map((s) => s.species).filter(Boolean) as string[])).sort();
+
+  const filtered = samples.filter((s) => {
+    if (search && !s.name.toLowerCase().includes(search.toLowerCase())) return false;
+    if (speciesFilter && s.species !== speciesFilter) return false;
+    return true;
+  });
+
+  if (loading) return <div className="flex items-center justify-center h-20"><div className="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full" /></div>;
+
+  return (
+    <div className="card">
+      <div className="flex flex-wrap items-center gap-3 mb-3">
+        <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name..." className="input text-xs py-1.5 px-2 w-44" />
+        {species.length > 1 && (
+          <select value={speciesFilter} onChange={(e) => setSpeciesFilter(e.target.value)} className="input text-xs py-1.5 px-2">
+            <option value="">All species</option>
+            {species.map((sp) => <option key={sp} value={sp}>{sp}</option>)}
+          </select>
+        )}
+        <button onClick={onSelectAll} className="text-xs text-blue-400 hover:text-blue-300">Select all ({filtered.length})</button>
+        <button onClick={onDeselectAll} className="text-xs text-gray-500 hover:text-gray-300">Deselect all</button>
+        <span className="text-xs text-gray-500 ml-auto">{selected.size} selected</span>
+      </div>
+      <div className="max-h-60 overflow-y-auto border border-gray-800 rounded-lg">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 bg-gray-900">
+            <tr className="border-b border-gray-800">
+              <th className="w-8 px-2 py-1.5" />
+              <th className="text-left px-2 py-1.5 text-gray-400 font-medium">Sample</th>
+              <th className="text-left px-2 py-1.5 text-gray-400 font-medium">Species</th>
+              <th className="text-left px-2 py-1.5 text-gray-400 font-medium">ST</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((s) => (
+              <tr key={s.sample_id} className={`cursor-pointer hover:bg-gray-800/50 ${selected.has(s.sample_id) ? 'bg-blue-600/10' : ''}`} onClick={() => onToggle(s.sample_id)}>
+                <td className="px-2 py-1 text-center">
+                  <input type="checkbox" checked={selected.has(s.sample_id)} onChange={() => onToggle(s.sample_id)} className="rounded border-gray-600" onClick={(e) => e.stopPropagation()} />
+                </td>
+                <td className="px-2 py-1 text-gray-200 font-medium">{s.name}</td>
+                <td className="px-2 py-1 text-gray-400 italic">{s.species || '-'}</td>
+                <td className="px-2 py-1 text-gray-400">{s.st ? `ST${s.st}` : '-'}</td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr><td colSpan={4} className="text-center py-4 text-gray-600">No samples match filters</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function useSamplePicker() {
+  const [allSamples, setAllSamples] = useState<PickerSample[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    authFetch('/api/tools/samples')
+      .then((r) => r.json())
+      .then((d) => setAllSamples(d))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const toggle = (id: string) => setSelected((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  const selectAll = () => setSelected(new Set(allSamples.map((s) => s.sample_id)));
+  const deselectAll = () => setSelected(new Set());
+
+  return { allSamples, selected, toggle, selectAll, deselectAll, loading, selectedIds: Array.from(selected) };
+}
+
 // ─── Main Page ───
 export default function ToolsPage() {
   const [toolTab, setToolTab] = useState<'phenotype' | 'hazard' | 'comparison' | 'sra'>('phenotype');
@@ -437,7 +547,6 @@ const RANK_COLORS: Record<string, string> = {
   R11: 'bg-green-700 text-white', R12: 'bg-gray-700 text-white', NG: 'bg-gray-600 text-white',
 };
 
-interface HazardProject { id: string; name: string }
 interface HazardScore {
   sample_id: string;
   sample_name: string;
@@ -453,32 +562,18 @@ interface HazardScore {
 }
 
 function HazardRankingTool() {
-  const [projects, setProjects] = useState<HazardProject[]>([]);
-  const [selectedProject, setSelectedProject] = useState('');
+  const picker = useSamplePicker();
   const [scores, setScores] = useState<HazardScore[]>([]);
-  const [loading, setLoading] = useState(true);
   const [calculating, setCalculating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedSample, setExpandedSample] = useState<string | null>(null);
 
-  useEffect(() => {
-    authFetch('/api/projects')
-      .then((r) => r.json())
-      .then((d) => setProjects(d.items || d))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
   async function handleCalculate() {
-    if (!selectedProject) return;
+    if (picker.selectedIds.length === 0) return;
     setCalculating(true);
     setError(null);
     try {
-      const res = await fetch(`/api/risk/${selectedProject}/calculate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({}),
-      });
+      const res = await authPost('/api/tools/risk', { sample_ids: picker.selectedIds });
       if (!res.ok) throw new Error(await res.text());
       setScores(await res.json());
     } catch (err) {
@@ -540,31 +635,19 @@ function HazardRankingTool() {
   const highRisk = scores.filter((r) => r.hazard_rank && ['R1', 'R2', 'R3'].includes(r.hazard_rank)).length;
   const mdrCount = scores.filter((r) => r.mdr_flag).length;
 
-  if (loading) return <div className="flex items-center justify-center h-32"><div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full" /></div>;
-
   return (
     <div className="space-y-6">
       <p className="text-gray-400 text-sm">
         Assess isolate-level AMR hazard based on the WHO AWaRe classification and ARG transmissibility context.
-        Ranks R1 (highest risk) through R12 (no ARGs detected). Select a project to calculate or refresh scores.
+        Ranks R1 (highest risk) through R12 (no ARGs detected). Select isolates to score.
       </p>
 
-      {/* Project selector */}
-      <div className="card">
-        <div className="flex flex-wrap items-end gap-4">
-          <div className="flex-1 min-w-[200px]">
-            <label className="block text-sm text-gray-400 mb-1">Project</label>
-            <select value={selectedProject} onChange={(e) => { setSelectedProject(e.target.value); setScores([]); }} className="input w-full text-sm">
-              <option value="">Select a project...</option>
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          </div>
-          <button onClick={handleCalculate} disabled={!selectedProject || calculating} className="btn-primary flex items-center gap-2 text-sm">
-            <RefreshCw className={`w-4 h-4 ${calculating ? 'animate-spin' : ''}`} />
-            {calculating ? 'Calculating...' : 'Calculate Risk'}
-          </button>
-        </div>
-      </div>
+      <SamplePicker samples={picker.allSamples} selected={picker.selected} onToggle={picker.toggle} onSelectAll={picker.selectAll} onDeselectAll={picker.deselectAll} loading={picker.loading} />
+
+      <button onClick={handleCalculate} disabled={picker.selectedIds.length === 0 || calculating} className="btn-primary flex items-center gap-2 text-sm">
+        <RefreshCw className={`w-4 h-4 ${calculating ? 'animate-spin' : ''}`} />
+        {calculating ? 'Calculating...' : `Calculate Risk (${picker.selectedIds.length})`}
+      </button>
 
       {error && <div className="p-4 bg-red-600/20 border border-red-600/50 rounded-lg text-red-300 text-sm">{error}</div>}
 
@@ -674,8 +757,8 @@ function HazardRankingTool() {
         </div>
       )}
 
-      {selectedProject && scores.length === 0 && !calculating && (
-        <div className="card text-center py-8 text-gray-500">Click &quot;Calculate Risk&quot; to assess samples in this project.</div>
+      {scores.length === 0 && picker.selectedIds.length > 0 && !calculating && (
+        <div className="card text-center py-8 text-gray-500">Click &quot;Calculate Risk&quot; to assess selected isolates.</div>
       )}
     </div>
   );
@@ -715,35 +798,25 @@ interface ClusterResult {
 }
 
 function GenomeComparisonTool() {
-  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
-  const [selectedProject, setSelectedProject] = useState('');
+  const picker = useSamplePicker();
   const [subTab, setSubTab] = useState<'ani' | 'clusters'>('ani');
   const [aniData, setAniData] = useState<ANIData | null>(null);
   const [clusterData, setClusterData] = useState<ClusterResult | null>(null);
-  const [loading, setLoading] = useState(true);
   const [computing, setComputing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hoveredCell, setHoveredCell] = useState<{ i: number; j: number } | null>(null);
 
-  useEffect(() => {
-    authFetch('/api/projects')
-      .then((r) => r.json())
-      .then((d) => setProjects(d.items || d))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
   async function runAnalysis() {
-    if (!selectedProject) return;
+    if (picker.selectedIds.length < 2) return;
     setComputing(true);
     setError(null);
     setAniData(null);
     setClusterData(null);
     try {
-      // Fetch ANI and clusters in parallel
+      const body = { sample_ids: picker.selectedIds };
       const [aniRes, clusterRes] = await Promise.all([
-        authFetch(`/api/projects/${selectedProject}/ani`),
-        authFetch(`/api/projects/${selectedProject}/clusters`),
+        authPost('/api/tools/ani', body),
+        authPost('/api/tools/clusters', body),
       ]);
       if (!aniRes.ok) throw new Error(await aniRes.text());
       if (!clusterRes.ok) throw new Error(await clusterRes.text());
@@ -805,32 +878,20 @@ function GenomeComparisonTool() {
     URL.revokeObjectURL(a.href);
   }
 
-  if (loading) return <div className="flex items-center justify-center h-32"><div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full" /></div>;
-
   const hasResults = aniData || clusterData;
 
   return (
     <div className="space-y-6">
       <p className="text-gray-400 text-sm">
-        Compare genomes across samples: ANI pairwise identity and outbreak cluster detection using cgMLST distances + ANI thresholds.
+        Compare genomes: ANI pairwise identity and outbreak cluster detection using cgMLST distances + ANI thresholds. Select 2 or more isolates.
       </p>
 
-      {/* Project selector */}
-      <div className="card">
-        <div className="flex flex-wrap items-end gap-4">
-          <div className="flex-1 min-w-[200px]">
-            <label className="block text-sm text-gray-400 mb-1">Project</label>
-            <select value={selectedProject} onChange={(e) => { setSelectedProject(e.target.value); setAniData(null); setClusterData(null); }} className="input w-full text-sm">
-              <option value="">Select a project...</option>
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          </div>
-          <button onClick={runAnalysis} disabled={!selectedProject || computing} className="btn-primary flex items-center gap-2 text-sm">
-            <RefreshCw className={`w-4 h-4 ${computing ? 'animate-spin' : ''}`} />
-            {computing ? 'Analyzing...' : 'Analyze'}
-          </button>
-        </div>
-      </div>
+      <SamplePicker samples={picker.allSamples} selected={picker.selected} onToggle={picker.toggle} onSelectAll={picker.selectAll} onDeselectAll={picker.deselectAll} loading={picker.loading} />
+
+      <button onClick={runAnalysis} disabled={picker.selectedIds.length < 2 || computing} className="btn-primary flex items-center gap-2 text-sm">
+        <RefreshCw className={`w-4 h-4 ${computing ? 'animate-spin' : ''}`} />
+        {computing ? 'Analyzing...' : `Analyze (${picker.selectedIds.length} selected)`}
+      </button>
 
       {error && <div className="p-4 bg-red-600/20 border border-red-600/50 rounded-lg text-red-300 text-sm">{error}</div>}
 
@@ -1025,7 +1086,7 @@ function GenomeComparisonTool() {
         </div>
       )}
 
-      {selectedProject && !hasResults && !computing && (
+      {!hasResults && picker.selectedIds.length >= 2 && !computing && (
         <div className="card text-center py-8 text-gray-500">Click &quot;Analyze&quot; to compute ANI matrix and detect outbreak clusters.</div>
       )}
     </div>

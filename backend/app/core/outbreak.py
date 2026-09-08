@@ -91,6 +91,22 @@ def _single_linkage_clusters(n: int, pairs: List[Tuple[int, int]]) -> List[List[
     return [members for members in groups.values() if len(members) >= 2]
 
 
+def detect_clusters_for_samples(
+    sample_ids_list: List[str],
+    db,
+    ani_matrix: Optional[List[List[float]]] = None,
+    ani_sample_ids: Optional[List[str]] = None,
+    cgmlst_threshold: Optional[int] = None,
+) -> Dict:
+    """Detect outbreak clusters among specific sample IDs."""
+    samples = []
+    for sid in sample_ids_list:
+        s = db.query(Sample).filter(Sample.id == sid).first()
+        if s:
+            samples.append(s)
+    return _detect_clusters_core(samples, db, ani_matrix, ani_sample_ids, cgmlst_threshold)
+
+
 def detect_clusters(
     project_id: str,
     db,
@@ -98,9 +114,24 @@ def detect_clusters(
     ani_sample_ids: Optional[List[str]] = None,
     cgmlst_threshold: Optional[int] = None,
 ) -> Dict:
-    """Detect outbreak clusters in a project.
+    """Detect outbreak clusters in a project."""
+    samples = (
+        db.query(Sample)
+        .filter(Sample.project_id == project_id, Sample.status == SampleStatus.complete)
+        .order_by(Sample.name)
+        .all()
+    )
+    return _detect_clusters_core(samples, db, ani_matrix, ani_sample_ids, cgmlst_threshold)
 
-    Uses cgMLST allelic distances and/or ANI values.
+
+def _detect_clusters_core(
+    samples: list,
+    db,
+    ani_matrix: Optional[List[List[float]]] = None,
+    ani_sample_ids: Optional[List[str]] = None,
+    cgmlst_threshold: Optional[int] = None,
+) -> Dict:
+    """Core cluster detection logic.
 
     Returns:
         {
@@ -127,12 +158,6 @@ def detect_clusters(
             "species": str,
         }
     """
-    samples = (
-        db.query(Sample)
-        .filter(Sample.project_id == project_id, Sample.status == SampleStatus.complete)
-        .order_by(Sample.name)
-        .all()
-    )
     if len(samples) < 2:
         return {"clusters": [], "total_samples": len(samples), "clustered_samples": 0,
                 "threshold_used": 0, "species": None}

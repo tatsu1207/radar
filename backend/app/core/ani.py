@@ -29,31 +29,8 @@ def _get_assembly_path(sample_id: str) -> Optional[str]:
     return None
 
 
-def compute_project_ani(project_id: str, db, threads: int = 4) -> Dict:
-    """Compute all-vs-all ANI for completed samples in a project.
-
-    Returns:
-        {
-            "samples": ["name1", "name2", ...],
-            "sample_ids": ["id1", "id2", ...],
-            "ani_matrix": [[100.0, 98.5, ...], ...],
-            "af_matrix": [[1.0, 0.85, ...], ...],
-        }
-    """
-    samples = (
-        db.query(Sample)
-        .filter(Sample.project_id == project_id, Sample.status == SampleStatus.complete)
-        .order_by(Sample.name)
-        .all()
-    )
-
-    # Collect assemblies
-    sample_info = []  # [(sample, assembly_path)]
-    for s in samples:
-        asm = _get_assembly_path(str(s.id))
-        if asm:
-            sample_info.append((s, asm))
-
+def _run_skani_triangle(sample_info: List[tuple], threads: int = 4) -> Dict:
+    """Core function: run skani triangle on a list of (Sample, assembly_path) tuples."""
     if len(sample_info) < 2:
         return {
             "samples": [s.name for s, _ in sample_info],
@@ -65,7 +42,6 @@ def compute_project_ani(project_id: str, db, threads: int = 4) -> Dict:
 
     n = len(sample_info)
 
-    # Write file list for skani triangle
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
         list_file = f.name
         for _, asm_path in sample_info:
@@ -87,30 +63,23 @@ def compute_project_ani(project_id: str, db, threads: int = 4) -> Dict:
             logger.error(f"skani triangle failed: {result.stderr[:500]}")
             raise RuntimeError(f"skani triangle failed: {result.stderr[:200]}")
 
-        # Parse output: Ref_file, Query_file, ANI, Align_fraction_ref, Align_fraction_query, ...
-        # Build path → index mapping
         path_to_idx = {asm: i for i, (_, asm) in enumerate(sample_info)}
 
-        # Initialize matrices (diagonal = 100% ANI, 1.0 AF)
         ani_matrix = [[100.0] * n for _ in range(n)]
         af_matrix = [[1.0] * n for _ in range(n)]
 
         if os.path.exists(output_file):
-            with open(output_file) as f:
-                for line in f:
+            with open(output_file) as fh:
+                for line in fh:
                     line = line.strip()
                     if not line or line.startswith("Ref_file"):
                         continue
                     parts = line.split("\t")
                     if len(parts) < 5:
                         continue
-
-                    ref_path = parts[0]
-                    query_path = parts[1]
+                    ref_path, query_path = parts[0], parts[1]
                     ani = float(parts[2])
-                    af_ref = float(parts[3])
-                    af_query = float(parts[4])
-
+                    af_ref, af_query = float(parts[3]), float(parts[4])
                     i = path_to_idx.get(ref_path)
                     j = path_to_idx.get(query_path)
                     if i is not None and j is not None:
@@ -130,3 +99,27 @@ def compute_project_ani(project_id: str, db, threads: int = 4) -> Dict:
         for f in [list_file, output_file]:
             if os.path.exists(f):
                 os.unlink(f)
+
+
+def compute_project_ani(project_id: str, db, threads: int = 4) -> Dict:
+    """Compute all-vs-all ANI for completed samples in a project."""
+    samples = (
+        db.query(Sample)
+        .filter(Sample.project_id == project_id, Sample.status == SampleStatus.complete)
+        .order_by(Sample.name)
+        .all()
+    )
+    sample_info = [(s, asm) for s in samples for asm in [_get_assembly_path(str(s.id))] if asm]
+    return _run_skani_triangle(sample_info, threads)
+
+
+def compute_ani_for_samples(sample_ids: List[str], db, threads: int = 4) -> Dict:
+    """Compute all-vs-all ANI for a list of sample IDs."""
+    sample_info = []
+    for sid in sample_ids:
+        s = db.query(Sample).filter(Sample.id == sid).first()
+        if s:
+            asm = _get_assembly_path(str(s.id))
+            if asm:
+                sample_info.append((s, asm))
+    return _run_skani_triangle(sample_info, threads)
