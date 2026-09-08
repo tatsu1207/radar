@@ -1,0 +1,365 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { Download, AlertTriangle, Info } from 'lucide-react';
+import { authFetch } from '@/components/tools/shared';
+
+interface ModelQuality {
+  n_samples: number;
+  r_percent: number;
+  cv_f1: number;
+}
+
+interface MLPrediction {
+  id: string;
+  antibiotic: string;
+  drug_class: string;
+  prediction: string;
+  probability: number;
+  confidence: string;
+  key_genes: string[];
+  key_mutations: string[];
+  model_quality: ModelQuality | null;
+}
+
+interface MLPredictionResponse {
+  species: string | null;
+  mlst_st: string | null;
+  n_antibiotics: number;
+  n_resistant: number;
+  n_susceptible: number;
+  predictions: MLPrediction[];
+}
+
+export default function PhenotypePredictionTool() {
+  const [samples, setSamples] = useState<{ id: string; name: string; status: string }[]>([]);
+  const [selectedSample, setSelectedSample] = useState('');
+  const [data, setData] = useState<MLPredictionResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [predLoading, setPredLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'all' | 'resistant' | 'susceptible'>('all');
+  const [drugClassFilter, setDrugClassFilter] = useState<Set<string>>(new Set());
+  const [confidenceFilter, setConfidenceFilter] = useState<Set<string>>(new Set());
+  const [searchText, setSearchText] = useState('');
+
+  useEffect(() => {
+    authFetch('/api/pipeline/status')
+      .then((r) => r.json())
+      .then((d: { sample_id: string; sample_name: string; status: string }[]) => {
+        const completed = d.filter((s) => s.status === 'complete');
+        setSamples(completed.map((s) => ({ id: s.sample_id, name: s.sample_name, status: s.status })));
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function loadPredictions(sampleId: string) {
+    setSelectedSample(sampleId);
+    setData(null);
+    setError(null);
+    if (!sampleId) return;
+    setPredLoading(true);
+    try {
+      const res = await authFetch(`/api/samples/${sampleId}/ml-predictions`);
+      if (!res.ok) throw new Error(await res.text());
+      const d: MLPredictionResponse = await res.json();
+      setData(d);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load predictions');
+    } finally {
+      setPredLoading(false);
+    }
+  }
+
+  const drugClasses = Array.from(new Set(data?.predictions.map((p) => p.drug_class).filter(Boolean) || [])).sort();
+
+  function downloadPredictions() {
+    if (!data || !filtered.length) return;
+    const sampleName = samples.find((s) => s.id === selectedSample)?.name || 'sample';
+    const headers = ['Antibiotic', 'Drug Class', 'Prediction', 'P(Resistant)', 'Confidence', 'Key Genes', 'Key Mutations'];
+    const rows = filtered.map((p) => [
+      p.antibiotic, p.drug_class, p.prediction,
+      p.probability.toFixed(3), p.confidence,
+      p.key_genes.join('; '), p.key_mutations.join('; '),
+    ]);
+    const tsv = [headers.join('\t'), ...rows.map((r) => r.join('\t'))].join('\n');
+    const blob = new Blob([tsv], { type: 'text/tab-separated-values' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${sampleName}_phenotype_prediction.tsv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  const filtered = data?.predictions.filter((p) => {
+    if (filter === 'resistant' && p.prediction !== 'Resistant') return false;
+    if (filter === 'susceptible' && p.prediction !== 'Susceptible') return false;
+    if (drugClassFilter.size > 0 && !drugClassFilter.has(p.drug_class)) return false;
+    if (confidenceFilter.size > 0 && !confidenceFilter.has(p.confidence)) return false;
+    if (searchText && !p.antibiotic.toLowerCase().includes(searchText.toLowerCase()) && !p.drug_class.toLowerCase().includes(searchText.toLowerCase())) return false;
+    return true;
+  }) || [];
+
+  if (loading) return <div className="flex items-center justify-center h-32"><div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full" /></div>;
+
+  return (
+    <div className="space-y-6">
+      <p className="text-gray-400 text-sm">
+        ML-based phenotype prediction using pre-trained Random Forest models. Select a completed sample to view per-antibiotic resistance predictions.
+      </p>
+
+      <div className="card">
+        <div className="flex items-center gap-4">
+          <label className="text-sm text-gray-300 font-medium whitespace-nowrap">Sample:</label>
+          <select
+            value={selectedSample}
+            onChange={(e) => loadPredictions(e.target.value)}
+            className="input flex-1 text-sm"
+          >
+            <option value="">Select a completed sample...</option>
+            {samples.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {predLoading && (
+        <div className="flex items-center justify-center py-8">
+          <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full" />
+        </div>
+      )}
+
+      {error && (
+        <div className="p-4 bg-red-600/20 border border-red-600/50 rounded-lg text-red-300 text-sm">{error}</div>
+      )}
+
+      {data && data.predictions.length === 0 && (
+        <div className="card text-center py-8 text-gray-500">
+          No predictions available. This species may not be supported (Salmonella, E. coli, Klebsiella, S. aureus, A. baumannii), or the pipeline may not have completed annotation.
+        </div>
+      )}
+
+      {data && data.predictions.length > 0 && (
+        <>
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="card text-center">
+              <p className="text-xs text-gray-400">Species</p>
+              <p className="text-sm font-medium text-gray-100 mt-1">{data.species || 'Unknown'}</p>
+            </div>
+            <div className="card text-center">
+              <p className="text-xs text-gray-400">MLST</p>
+              <p className="text-sm font-medium text-gray-100 mt-1">ST{data.mlst_st || '?'}</p>
+            </div>
+            <div className="card text-center">
+              <p className="text-xs text-gray-400">Resistant</p>
+              <p className="text-2xl font-bold text-red-400 mt-1">{data.n_resistant}</p>
+            </div>
+            <div className="card text-center">
+              <p className="text-xs text-gray-400">Susceptible</p>
+              <p className="text-2xl font-bold text-green-400 mt-1">{data.n_susceptible}</p>
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="card space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              {/* R/S filter */}
+              <div className="flex gap-1">
+                {(['all', 'resistant', 'susceptible'] as const).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setFilter(f)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      filter === f ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                    }`}
+                  >
+                    {f === 'all' ? `All (${data.predictions.length})` : f === 'resistant' ? `R (${data.n_resistant})` : `S (${data.n_susceptible})`}
+                  </button>
+                ))}
+              </div>
+              {/* Confidence */}
+              <div className="flex gap-1">
+                {(['High', 'Moderate', 'Low'] as const).map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setConfidenceFilter((prev) => { const next = new Set(prev); next.has(c) ? next.delete(c) : next.add(c); return next; })}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      confidenceFilter.has(c)
+                        ? c === 'High' ? 'bg-green-600/30 text-green-300 border border-green-500/40'
+                        : c === 'Moderate' ? 'bg-yellow-600/30 text-yellow-300 border border-yellow-500/40'
+                        : 'bg-gray-600/30 text-gray-300 border border-gray-500/40'
+                        : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+              {/* Search */}
+              <input
+                type="text"
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                placeholder="Search antibiotic..."
+                className="input text-xs py-1.5 px-2 w-40"
+              />
+              {/* Clear all */}
+              {(drugClassFilter.size > 0 || confidenceFilter.size > 0 || searchText || filter !== 'all') && (
+                <button
+                  onClick={() => { setFilter('all'); setDrugClassFilter(new Set()); setConfidenceFilter(new Set()); setSearchText(''); }}
+                  className="text-xs text-gray-500 hover:text-gray-300"
+                >Clear all</button>
+              )}
+              {/* Result count + download */}
+              <span className="text-xs text-gray-500 ml-auto">{filtered.length} of {data.predictions.length}</span>
+              <button
+                onClick={downloadPredictions}
+                className="btn-secondary text-xs flex items-center gap-1.5"
+                title="Download predictions as TSV"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Download TSV
+              </button>
+            </div>
+            {/* Drug class chips */}
+            {drugClasses.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                <span className="text-xs text-gray-500 py-1">Drug class:</span>
+                {drugClasses.map((dc) => (
+                  <button
+                    key={dc}
+                    onClick={() => setDrugClassFilter((prev) => { const next = new Set(prev); next.has(dc) ? next.delete(dc) : next.add(dc); return next; })}
+                    className={`px-2 py-1 rounded text-xs transition-colors ${
+                      drugClassFilter.has(dc)
+                        ? 'bg-blue-600/30 text-blue-300 border border-blue-500/40'
+                        : 'bg-gray-800 text-gray-500 hover:bg-gray-700 hover:text-gray-300'
+                    }`}
+                  >
+                    {dc}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Predictions table */}
+          <div className="card">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-800">
+                    <th className="text-left py-2 px-3 text-gray-400 font-medium">Antibiotic</th>
+                    <th className="text-left py-2 px-3 text-gray-400 font-medium">Drug Class</th>
+                    <th className="text-center py-2 px-3 text-gray-400 font-medium">Prediction</th>
+                    <th className="text-center py-2 px-3 text-gray-400 font-medium" title="Probability of resistance (0-100%)">P(Resistant)</th>
+                    <th className="text-center py-2 px-3 text-gray-400 font-medium">Confidence</th>
+                    <th className="text-left py-2 px-3 text-gray-400 font-medium">Key Genes</th>
+                    <th className="text-center py-2 px-3 text-gray-400 font-medium" title="Model quality: F1, training size, R%">Model</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800/50">
+                  {filtered.map((p) => {
+                    const q = p.model_quality;
+                    const lowF1 = q && q.cv_f1 < 0.70;
+                    const highRBias = q && q.r_percent >= 70;
+                    const rowClass = lowF1
+                      ? 'opacity-40 hover:opacity-70'
+                      : 'hover:bg-gray-800/30';
+
+                    return (
+                      <tr key={p.id} className={rowClass}>
+                        <td className="py-2 px-3 font-medium text-gray-200 capitalize">
+                          <div className="flex items-center gap-1.5">
+                            {p.antibiotic.replace(/_/g, ' ')}
+                            {lowF1 && (
+                              <span className="text-red-400" title={`Low model performance (F1=${q!.cv_f1.toFixed(2)}). Prediction unreliable.`}>
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                              </span>
+                            )}
+                            {!lowF1 && highRBias && (
+                              <span className="text-yellow-400" title={`Training data bias: ${q!.r_percent}% resistant. May over-predict resistance.`}>
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2 px-3 text-gray-400 text-xs">{p.drug_class}</td>
+                        <td className="py-2 px-3 text-center">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                            lowF1
+                              ? 'bg-gray-700/30 text-gray-500 border border-gray-600/30'
+                              : p.prediction === 'Resistant'
+                              ? 'bg-red-600/20 text-red-400 border border-red-500/30'
+                              : 'bg-green-600/20 text-green-400 border border-green-500/30'
+                          }`}>
+                            {p.prediction === 'Resistant' ? 'R' : 'S'}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            <div className="w-16 bg-gray-800 rounded-full h-1.5">
+                              <div
+                                className={`h-1.5 rounded-full ${lowF1 ? 'bg-gray-600' : p.prediction === 'Resistant' ? 'bg-red-500' : 'bg-green-500'}`}
+                                style={{ width: `${Math.round(p.probability * 100)}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-gray-400 font-mono w-10">
+                              {(p.probability * 100).toFixed(0)}%
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <span className={`text-xs ${
+                            lowF1 ? 'text-gray-600' :
+                            p.confidence === 'High' ? 'text-green-400' : p.confidence === 'Moderate' ? 'text-yellow-400' : 'text-gray-500'
+                          }`}>
+                            {p.confidence}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3">
+                          <div className="flex flex-wrap gap-1">
+                            {p.key_genes.map((g, i) => (
+                              <span key={i} className="px-1.5 py-0.5 bg-gray-800 rounded text-xs text-gray-300 font-mono">{g}</span>
+                            ))}
+                            {p.key_mutations.map((m, i) => (
+                              <span key={`m${i}`} className="px-1.5 py-0.5 bg-orange-900/30 rounded text-xs text-orange-300 font-mono">{m}</span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          {q ? (
+                            <div className="group relative inline-flex items-center gap-1">
+                              <span className={`text-xs font-mono ${
+                                lowF1 ? 'text-red-400' : q.cv_f1 >= 0.90 ? 'text-green-400' : q.cv_f1 >= 0.80 ? 'text-yellow-400' : 'text-gray-400'
+                              }`}>
+                                {q.cv_f1.toFixed(2)}
+                              </span>
+                              <Info className="w-3 h-3 text-gray-600" />
+                              <div className="absolute bottom-full right-0 mb-1 hidden group-hover:block z-10 w-48 p-2 bg-gray-900 border border-gray-700 rounded-lg shadow-lg text-xs">
+                                <div className="text-gray-300 mb-1 font-medium">Model Info</div>
+                                <div className="text-gray-400">F1 score: <span className="text-gray-200">{q.cv_f1.toFixed(3)}</span></div>
+                                <div className="text-gray-400">Training: <span className="text-gray-200">n={q.n_samples.toLocaleString()}</span></div>
+                                <div className="text-gray-400">R% in training: <span className={q.r_percent >= 70 ? 'text-yellow-400' : 'text-gray-200'}>{q.r_percent}%</span></div>
+                                {lowF1 && <div className="text-red-400 mt-1">Unreliable — low F1</div>}
+                                {!lowF1 && highRBias && <div className="text-yellow-400 mt-1">R-biased training data</div>}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-gray-600 text-xs">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
