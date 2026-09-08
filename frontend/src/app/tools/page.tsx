@@ -1592,10 +1592,21 @@ function PangenomeTool() {
                     stroke="#3B82F6" strokeWidth={ringWidth - 1} fill="none" opacity={0.6} />
                 );
               })}
-              {/* Label */}
-              <text x={cx + r + ringWidth / 2 + 4} y={cy - 2} fill="#9CA3AF" fontSize="9" textAnchor="start">
-                {ring.name}
-              </text>
+              {/* Label — positioned at a unique angle per ring */}
+              {(() => {
+                const labelAngle = -90 + (rIdx + 1) * (360 / (sample_rings.length + 1));
+                const labelRad = (labelAngle * Math.PI) / 180;
+                const lx = cx + (r + ringWidth / 2 + 8) * Math.cos(labelRad);
+                const ly = cy + (r + ringWidth / 2 + 8) * Math.sin(labelRad);
+                const anchor = labelAngle > 90 || labelAngle < -90 ? 'end' : 'start';
+                const rotate = labelAngle > 90 ? labelAngle + 180 : labelAngle < -90 ? labelAngle + 180 : labelAngle;
+                return (
+                  <text x={lx} y={ly} fill="#9CA3AF" fontSize="9" textAnchor={anchor}
+                    transform={`rotate(${rotate}, ${lx}, ${ly})`} dominantBaseline="central">
+                    {ring.name}
+                  </text>
+                );
+              })()}
             </g>
           );
         })}
