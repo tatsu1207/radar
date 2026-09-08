@@ -11,7 +11,7 @@ import tempfile
 from typing import Dict, List, Optional, Tuple
 
 from app.config import settings
-from app.models.models import Sample
+from app.models.models import Sample, ARGResult, VirulenceResult, MobilityResult, BacMetResult
 
 logger = logging.getLogger(__name__)
 
@@ -175,11 +175,47 @@ def compute_easyfig(sample_ids: List[str], db, threads: int = 4) -> Dict:
 
     genomes = []
     for info in sample_info:
+        sid = info["sample"].id
+        features = []
+
+        # ARGs
+        for a in db.query(ARGResult).filter(ARGResult.sample_id == sid).all():
+            if a.contig and a.start is not None and a.end is not None:
+                features.append({
+                    "type": "arg", "name": a.gene, "contig": a.contig,
+                    "start": a.start, "end": a.end,
+                })
+
+        # Virulence factors
+        for v in db.query(VirulenceResult).filter(VirulenceResult.sample_id == sid).all():
+            if hasattr(v, 'contig') and v.contig and hasattr(v, 'start') and v.start is not None:
+                features.append({
+                    "type": "vf", "name": v.gene, "contig": v.contig,
+                    "start": v.start, "end": getattr(v, 'end', v.start + 500),
+                })
+
+        # Mobile elements (IS elements)
+        for m in db.query(MobilityResult).filter(MobilityResult.sample_id == sid).all():
+            if m.contig and m.start is not None and m.end is not None:
+                features.append({
+                    "type": "mge", "name": m.element_type or m.family or "IS",
+                    "contig": m.contig, "start": m.start, "end": m.end,
+                })
+
+        # Metal/biocide resistance (BacMet)
+        for b in db.query(BacMetResult).filter(BacMetResult.sample_id == sid).all():
+            if hasattr(b, 'contig') and b.contig and hasattr(b, 'start') and b.start is not None:
+                features.append({
+                    "type": "mrg", "name": b.gene, "contig": b.contig,
+                    "start": b.start, "end": getattr(b, 'end', b.start + 500),
+                })
+
         genomes.append({
             "sample_name": info["sample"].name,
             "sample_id": str(info["sample"].id),
-            "contigs": info["contigs"][:20],  # Top 20 contigs
+            "contigs": info["contigs"][:20],
             "total_length": info["total_length"],
+            "features": features,
         })
 
     # Run pairwise BLASTn for adjacent pairs

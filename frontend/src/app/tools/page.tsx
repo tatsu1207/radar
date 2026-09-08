@@ -1261,7 +1261,8 @@ function SynTrackerTool() {
 // ─── EasyFig Tool ───
 
 interface EasyFigContig { name: string; length: number }
-interface EasyFigGenome { sample_name: string; sample_id: string; contigs: EasyFigContig[]; total_length: number }
+interface EasyFigFeature { type: 'arg' | 'vf' | 'mge' | 'mrg'; name: string; contig: string; start: number; end: number }
+interface EasyFigGenome { sample_name: string; sample_id: string; contigs: EasyFigContig[]; total_length: number; features?: EasyFigFeature[] }
 interface EasyFigBlock { query_contig: string; subject_contig: string; identity: number; length: number; query_start: number; query_end: number; subject_start: number; subject_end: number; inverted: boolean }
 interface EasyFigAlignment { query_idx: number; subject_idx: number; blocks: EasyFigBlock[] }
 interface EasyFigData { genomes: EasyFigGenome[]; alignments: EasyFigAlignment[]; message?: string }
@@ -1340,6 +1341,25 @@ function EasyFigTool() {
                   </rect>
                 );
               })}
+              {/* Gene features (ARGs, VFs, MGEs, MRGs) */}
+              {genome.features && (() => {
+                const contigOffsets: Record<string, number> = {};
+                let off = 0;
+                for (const c of genome.contigs) { contigOffsets[c.name] = off; off += c.length; }
+                const featureColors: Record<string, string> = { arg: '#EF4444', vf: '#FB923C', mge: '#A855F7', mrg: '#06B6D4' };
+                return genome.features.map((feat, fIdx) => {
+                  const cOff = contigOffsets[feat.contig];
+                  if (cOff === undefined) return null;
+                  const fx = marginLeft + scale(cOff + feat.start);
+                  const fw = Math.max(2, scale(feat.end - feat.start));
+                  return (
+                    <rect key={`f-${fIdx}`} x={fx} y={y - 1} width={fw} height={genomeHeight + 2}
+                      fill={featureColors[feat.type] || '#9CA3AF'} opacity={0.9} rx={1}>
+                      <title>{feat.name} ({feat.type.toUpperCase()})</title>
+                    </rect>
+                  );
+                });
+              })()}
               {/* Length label */}
               <text x={marginLeft + scale(genome.total_length) + 5} y={y + genomeHeight / 2 + 4} className="fill-gray-500 text-xs" fontSize="9">
                 {(genome.total_length / 1e6).toFixed(2)} Mb
@@ -1429,10 +1449,16 @@ function EasyFigTool() {
 
           {/* Legend */}
           <div className="flex flex-wrap items-center gap-4 mb-4 text-xs text-gray-400">
+            <span className="font-medium text-gray-300">Alignment:</span>
             <span className="flex items-center gap-1"><span className="w-4 h-3 rounded" style={{ background: 'rgba(59,130,246,0.5)' }} /> Forward (&ge;99%)</span>
             <span className="flex items-center gap-1"><span className="w-4 h-3 rounded" style={{ background: 'rgba(59,130,246,0.25)' }} /> Forward (90-99%)</span>
             <span className="flex items-center gap-1"><span className="w-4 h-3 rounded" style={{ background: 'rgba(239,68,68,0.5)' }} /> Inverted (&ge;99%)</span>
             <span className="flex items-center gap-1"><span className="w-4 h-3 rounded" style={{ background: 'rgba(239,68,68,0.25)' }} /> Inverted (90-99%)</span>
+            <span className="ml-2 font-medium text-gray-300">Genes:</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#EF4444' }} /> ARG</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#FB923C' }} /> Virulence</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#A855F7' }} /> MGE</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#06B6D4' }} /> MRG</span>
           </div>
 
           <div className="overflow-x-auto">
