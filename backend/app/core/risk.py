@@ -13,6 +13,7 @@ backwards compatibility but the primary output is now the hazard rank.
 """
 
 import logging
+import re
 from typing import Optional, Tuple
 
 from app.models.models import (
@@ -146,6 +147,8 @@ _CLASS_MODE_TIER = {
     "bicyclomycin": "Access",
     "thiostrepton": "Access",
 }
+
+_TIER_ORDER = {"Reserve": 3, "Watch": 2, "Access": 1}
 
 # Step 3: Gene-family worst-case tier (fallback when class/agent unknown)
 # Only used when neither step 1 nor step 2 produces a tier.
@@ -529,9 +532,13 @@ def _get_aware_tier(gene: str, drug_class: str, mechanism: str) -> Optional[str]
 
 
 def _gene_family_fallback(gene: str) -> Optional[str]:
-    """Step 3: Map gene name to AWaRe tier by gene family prefix."""
+    """Step 3: Map gene name to AWaRe tier by gene family prefix.
+
+    Matches longest prefix first so e.g. 'blaoxa-48' beats 'blaoxa-23'.
+    """
     gene_lower = gene.lower().replace("-", "").replace("_", "")
-    for prefix, tier in _GENE_FAMILY_TIER.items():
+    # Sort by prefix length descending so longest match wins
+    for prefix, tier in sorted(_GENE_FAMILY_TIER.items(), key=lambda x: len(x[0]), reverse=True):
         if gene_lower.startswith(prefix):
             return tier
     return None
@@ -540,8 +547,6 @@ def _gene_family_fallback(gene: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 # Transmissibility scoring
 # ---------------------------------------------------------------------------
-
-_TIER_ORDER = {"Reserve": 3, "Watch": 2, "Access": 1}
 
 
 def _extract_genus(species_name: Optional[str]) -> Optional[str]:
@@ -741,14 +746,14 @@ def calculate_composite_risk(sample_id: str, db=None, **kwargs) -> RiskScore:
     amr_args = [a for a in all_arg_results if _is_amr_entry(a)]
 
     # Build plasmid contig mapping from ARGResult.contig_type
+    # Format set by plasmid.py: "plasmid (cluster_id)"
+    _plasmid_re = re.compile(r'^plasmid\s*\((.+)\)$')
     plasmid_contigs = {}
     for arg in all_arg_results:
         if arg.on_plasmid and arg.contig_type:
-            ct = arg.contig_type
-            if ct.startswith("plasmid"):
-                cluster = ct.replace("plasmid (", "").rstrip(")")
-                if cluster and cluster != "plasmid":
-                    plasmid_contigs[arg.contig] = cluster
+            m = _plasmid_re.match(arg.contig_type)
+            if m:
+                plasmid_contigs[arg.contig] = m.group(1)
 
     # Also ensure plasmid contigs are mapped via PlasmidResult
     for p in plasmids:
