@@ -26,6 +26,8 @@ export async function authPost(url: string, body: object): Promise<Response> {
   if (res.status === 401 && typeof window !== 'undefined') {
     localStorage.removeItem('radar_token');
     window.location.href = '/login';
+    // Throw so callers don't try to parse the 401 body as data
+    throw new Error('Session expired. Redirecting to login...');
   }
   return res;
 }
