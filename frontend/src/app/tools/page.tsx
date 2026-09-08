@@ -2148,7 +2148,7 @@ function ResistomeTrackerTool() {
                     <RechartsTooltip contentStyle={{ background: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: 11 }} />
                     <Legend wrapperStyle={{ fontSize: 10 }} />
                     {data.temporal.drug_classes.map((dc, i) => (
-                      <Bar key={dc} dataKey={dc} fill={colors[i % colors.length]} stackId="a" />
+                      <Bar key={dc} dataKey={dc} fill={colors[i % colors.length]} />
                     ))}
                   </BarChart>
                 </ResponsiveContainer>
