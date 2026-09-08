@@ -273,7 +273,7 @@ export default function GlobalFilesPage() {
     setPipelineStarting(sampleId);
     setError(null);
     try {
-      await startPipeline(sampleId, 12);
+      await startPipeline(sampleId, 32);
       // Optimistically update UI to show running status
       setSamples((prev) =>
         prev.map((s) =>
