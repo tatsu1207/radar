@@ -14,6 +14,9 @@ interface MobileARG {
   mge_names: string[];
   min_distance: number;
   on_plasmid: boolean;
+  replicons: string[];
+  same_plasmid_family: boolean;
+  strain_replicons: Record<string, string>;
   strain_count: number;
   strains: string[];
   present_in: Record<string, boolean>;
@@ -203,9 +206,10 @@ export default function SynTrackerTool() {
       {data?.mobile_args && data.mobile_args.genes.length > 0 && (() => {
         const ma = data.mobile_args!;
         const downloadMobileArgs = () => {
-          const headers = ['Gene', 'Drug Class', 'Associated MGE', 'Distance (bp)', 'Plasmid', 'Strain Count', ...ma.sample_names];
+          const headers = ['Gene', 'Drug Class', 'Associated MGE', 'Distance (bp)', 'Plasmid', 'Replicon', 'Same Plasmid Family', 'Strain Count', ...ma.sample_names];
           const rows = ma.genes.map((g) => [
-            g.gene, g.drug_class, g.mge_names.join('; '), g.min_distance, g.on_plasmid ? 'Yes' : 'No', g.strain_count,
+            g.gene, g.drug_class, g.mge_names.join('; '), g.min_distance, g.on_plasmid ? 'Yes' : 'No',
+            g.replicons.join('; '), g.same_plasmid_family ? 'Yes' : 'No', g.strain_count,
             ...ma.sample_names.map((s) => g.present_in[s] ? '1' : '0'),
           ]);
           const tsv = [headers.join('\t'), ...rows.map((r) => r.join('\t'))].join('\n');
@@ -240,6 +244,7 @@ export default function SynTrackerTool() {
                     <th className="text-left px-2 py-1.5 text-gray-400 font-medium">Associated MGE</th>
                     <th className="text-center px-2 py-1.5 text-gray-400 font-medium">Distance</th>
                     <th className="text-center px-2 py-1.5 text-gray-400 font-medium">Plasmid</th>
+                    <th className="text-left px-2 py-1.5 text-gray-400 font-medium">Replicon</th>
                     {ma.sample_names.map((s) => (
                       <th key={s} className="text-center px-2 py-1.5 text-gray-400 font-medium whitespace-nowrap">{s}</th>
                     ))}
@@ -257,6 +262,18 @@ export default function SynTrackerTool() {
                       </td>
                       <td className="px-2 py-1.5 text-center text-gray-400 font-mono">{g.min_distance === 0 ? 'overlap' : `${(g.min_distance / 1000).toFixed(1)}kb`}</td>
                       <td className="px-2 py-1.5 text-center">{g.on_plasmid ? <span className="text-orange-400">Yes</span> : <span className="text-gray-600">No</span>}</td>
+                      <td className="px-2 py-1.5">
+                        {g.replicons.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {g.replicons.map((r) => (
+                              <span key={r} className="px-1.5 py-0.5 bg-blue-900/30 rounded text-blue-300 text-[10px]">{r}</span>
+                            ))}
+                            {g.same_plasmid_family && (
+                              <span className="px-1.5 py-0.5 bg-red-900/40 rounded text-red-300 text-[10px] font-bold" title="Same plasmid replicon found in multiple strains — likely plasmid-mediated transfer">SHARED</span>
+                            )}
+                          </div>
+                        ) : <span className="text-gray-700">—</span>}
+                      </td>
                       {ma.sample_names.map((s) => (
                         <td key={s} className="px-2 py-1.5 text-center">
                           {g.present_in[s] ? <span className="text-red-400 font-bold">+</span> : <span className="text-gray-700">·</span>}
