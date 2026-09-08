@@ -338,6 +338,21 @@ def get_resistome_for_samples(
     }
 
 
+@router.post("/tools/pangenome")
+def compute_pangenome_endpoint(
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Compute pangenome analysis for selected samples."""
+    sample_ids = body.get("sample_ids", [])
+    if len(sample_ids) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 samples")
+
+    from app.core.pangenome import compute_pangenome
+    return compute_pangenome(sample_ids, db)
+
+
 @router.post("/tools/easyfig")
 def compute_easyfig_endpoint(
     body: dict,

@@ -137,7 +137,7 @@ function useSamplePicker() {
 
 // ─── Main Page ───
 export default function ToolsPage() {
-  const [toolTab, setToolTab] = useState<'phenotype' | 'hazard' | 'comparison' | 'syntracker' | 'easyfig' | 'resistome' | 'sra'>('phenotype');
+  const [toolTab, setToolTab] = useState<'phenotype' | 'hazard' | 'comparison' | 'syntracker' | 'easyfig' | 'pangenome' | 'resistome' | 'sra'>('phenotype');
 
   const tabs = [
     { key: 'phenotype' as const, label: 'Phenotype Prediction' },
@@ -145,6 +145,7 @@ export default function ToolsPage() {
     { key: 'comparison' as const, label: 'ANI' },
     { key: 'syntracker' as const, label: 'SynTracker' },
     { key: 'easyfig' as const, label: 'EasyFig' },
+    { key: 'pangenome' as const, label: 'Pangenome' },
     { key: 'resistome' as const, label: 'Resistome Tracker' },
     { key: 'sra' as const, label: 'SRA Submission' },
   ];
@@ -167,6 +168,7 @@ export default function ToolsPage() {
       {toolTab === 'comparison' && <GenomeComparisonTool />}
       {toolTab === 'syntracker' && <SynTrackerTool />}
       {toolTab === 'easyfig' && <EasyFigTool />}
+      {toolTab === 'pangenome' && <PangenomeTool />}
       {toolTab === 'resistome' && <ResistomeTrackerTool />}
       {toolTab === 'sra' && <SRASubmissionTool />}
     </div>
@@ -1472,6 +1474,274 @@ function EasyFigTool() {
       )}
       {picker.selectedIds.length > 4 && (
         <div className="p-4 bg-yellow-600/20 border border-yellow-600/50 rounded-lg text-yellow-300 text-sm">Maximum 4 isolates for EasyFig visualization. Please deselect some.</div>
+      )}
+    </div>
+  );
+}
+
+// ─── Pangenome Tool ───
+
+interface PangenomeStats { total_genes: number; core: number; accessory: number; unique: number; n_samples: number }
+interface PangenomeFeature { start: number; end: number; hash: string; strand: number; type: string; name: string | null; n_samples: number }
+interface PangenomeRingSegment { start: number; end: number; present: boolean }
+interface PangenomeRing { name: string; sample_id: string; gene_count: number; shared_with_ref: number; segments: PangenomeRingSegment[] }
+interface PangenomeFreq { count: number; genes: number }
+interface PangenomeData {
+  reference: { name: string; sample_id: string; total_length: number; gene_count: number };
+  samples: { name: string; sample_id: string; gene_count: number }[];
+  stats: PangenomeStats;
+  rings: { reference_features: PangenomeFeature[]; sample_rings: PangenomeRing[]; total_length: number };
+  gene_frequency: PangenomeFreq[];
+  error?: string;
+}
+
+const PAN_COLORS: Record<string, string> = {
+  core: '#3B82F6',
+  accessory: '#9CA3AF',
+  arg: '#EF4444',
+  vf: '#FB923C',
+};
+
+function PangenomeTool() {
+  const picker = useSamplePicker();
+  const [data, setData] = useState<PangenomeData | null>(null);
+  const [computing, setComputing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hoveredGene, setHoveredGene] = useState<PangenomeFeature | null>(null);
+
+  async function runAnalysis() {
+    if (picker.selectedIds.length < 2) return;
+    setComputing(true);
+    setError(null);
+    setData(null);
+    try {
+      const res = await authPost('/api/tools/pangenome', { sample_ids: picker.selectedIds });
+      if (!res.ok) throw new Error(await res.text());
+      const d = await res.json();
+      if (d.error) { setError(d.error); return; }
+      setData(d);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Analysis failed');
+    } finally {
+      setComputing(false);
+    }
+  }
+
+  function renderCircularMap() {
+    if (!data) return null;
+    const { rings, reference } = data;
+    const { reference_features, sample_rings, total_length } = rings;
+
+    const size = 600;
+    const cx = size / 2;
+    const cy = size / 2;
+    const refRadius = 180;
+    const ringWidth = 14;
+    const ringGap = 3;
+
+    function toAngle(pos: number): number {
+      return (pos / total_length) * 360 - 90;
+    }
+
+    function arcPath(r: number, startAngle: number, endAngle: number): string {
+      const s = (startAngle * Math.PI) / 180;
+      const e = (endAngle * Math.PI) / 180;
+      const x1 = cx + r * Math.cos(s);
+      const y1 = cy + r * Math.sin(s);
+      const x2 = cx + r * Math.cos(e);
+      const y2 = cy + r * Math.sin(e);
+      const large = endAngle - startAngle > 180 ? 1 : 0;
+      return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
+    }
+
+    return (
+      <svg width={size} height={size} className="bg-gray-900 rounded-lg">
+        {/* Reference ring (innermost) */}
+        <circle cx={cx} cy={cy} r={refRadius} fill="none" stroke="#374151" strokeWidth={ringWidth} />
+        {reference_features.map((feat, i) => {
+          const a1 = toAngle(feat.start);
+          const a2 = toAngle(feat.end);
+          if (a2 - a1 < 0.1) return null;
+          const color = PAN_COLORS[feat.type] || PAN_COLORS.accessory;
+          return (
+            <path key={`ref-${i}`} d={arcPath(refRadius, a1, a2)}
+              stroke={color} strokeWidth={ringWidth - 1} fill="none" opacity={0.9}
+              onMouseEnter={() => setHoveredGene(feat)}
+              onMouseLeave={() => setHoveredGene(null)}
+              style={{ cursor: 'pointer' }}
+            >
+              <title>{feat.name || feat.type} ({feat.n_samples}/{data.stats.n_samples} samples)</title>
+            </path>
+          );
+        })}
+
+        {/* Sample rings (outer) */}
+        {sample_rings.map((ring, rIdx) => {
+          const r = refRadius + (rIdx + 1) * (ringWidth + ringGap);
+          return (
+            <g key={ring.sample_id}>
+              <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1F2937" strokeWidth={ringWidth} />
+              {ring.segments.map((seg, sIdx) => {
+                if (!seg.present) return null;
+                const a1 = toAngle(seg.start);
+                const a2 = toAngle(seg.end);
+                if (a2 - a1 < 0.1) return null;
+                return (
+                  <path key={`r${rIdx}-s${sIdx}`} d={arcPath(r, a1, a2)}
+                    stroke="#3B82F6" strokeWidth={ringWidth - 1} fill="none" opacity={0.6} />
+                );
+              })}
+              {/* Label */}
+              <text x={cx + r + ringWidth / 2 + 4} y={cy - 2} fill="#9CA3AF" fontSize="9" textAnchor="start">
+                {ring.name}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Center text */}
+        <text x={cx} y={cy - 10} textAnchor="middle" fill="#E5E7EB" fontSize="11" fontWeight="bold">
+          {reference.name}
+        </text>
+        <text x={cx} y={cy + 5} textAnchor="middle" fill="#9CA3AF" fontSize="9">
+          {reference.gene_count} genes
+        </text>
+        <text x={cx} y={cy + 18} textAnchor="middle" fill="#9CA3AF" fontSize="9">
+          {(reference.total_length / 1e6).toFixed(2)} Mb
+        </text>
+      </svg>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <p className="text-gray-400 text-sm">
+        Circular pangenome map (BRIG-style). Reference genome = inner ring, each additional isolate = outer ring.
+        Colored by gene type: <span className="text-blue-400">core</span>, <span className="text-gray-400">accessory</span>,
+        <span className="text-red-400"> ARG</span>, <span className="text-orange-400">virulence</span>.
+        Gaps in outer rings = missing genes.
+      </p>
+
+      <SamplePicker samples={picker.allSamples} selected={picker.selected} onToggle={picker.toggle} onSelectAll={picker.selectAll} onDeselectAll={picker.deselectAll} loading={picker.loading} />
+
+      <button onClick={runAnalysis} disabled={picker.selectedIds.length < 2 || computing} className="btn-primary flex items-center gap-2 text-sm">
+        <RefreshCw className={`w-4 h-4 ${computing ? 'animate-spin' : ''}`} />
+        {computing ? 'Computing...' : `Run Pangenome (${picker.selectedIds.length} selected)`}
+      </button>
+
+      {error && <div className="p-4 bg-red-600/20 border border-red-600/50 rounded-lg text-red-300 text-sm">{error}</div>}
+
+      {data && (
+        <>
+          {/* Stats cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <div className="card text-center">
+              <p className="text-xl font-bold text-white">{data.stats.total_genes}</p>
+              <p className="text-xs text-gray-400">Total Genes</p>
+            </div>
+            <div className="card text-center">
+              <p className="text-xl font-bold text-blue-400">{data.stats.core}</p>
+              <p className="text-xs text-gray-400">Core ({(data.stats.core / data.stats.total_genes * 100).toFixed(0)}%)</p>
+            </div>
+            <div className="card text-center">
+              <p className="text-xl font-bold text-gray-400">{data.stats.accessory}</p>
+              <p className="text-xs text-gray-400">Accessory</p>
+            </div>
+            <div className="card text-center">
+              <p className="text-xl font-bold text-yellow-400">{data.stats.unique}</p>
+              <p className="text-xs text-gray-400">Unique</p>
+            </div>
+            <div className="card text-center">
+              <p className="text-xl font-bold text-gray-300">{data.stats.n_samples}</p>
+              <p className="text-xs text-gray-400">Samples</p>
+            </div>
+          </div>
+
+          {/* Circular map + hover detail */}
+          <div className="card">
+            <div className="flex items-start gap-6">
+              <div className="flex-shrink-0">
+                {renderCircularMap()}
+              </div>
+              <div className="flex-1 space-y-4">
+                {/* Legend */}
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-300 mb-2">Legend</h3>
+                  <div className="space-y-1 text-xs">
+                    <div className="flex items-center gap-2"><span className="w-3 h-3 rounded" style={{ background: '#3B82F6' }} /> Core gene (all samples)</div>
+                    <div className="flex items-center gap-2"><span className="w-3 h-3 rounded" style={{ background: '#9CA3AF' }} /> Accessory gene</div>
+                    <div className="flex items-center gap-2"><span className="w-3 h-3 rounded" style={{ background: '#EF4444' }} /> Resistance gene (ARG)</div>
+                    <div className="flex items-center gap-2"><span className="w-3 h-3 rounded" style={{ background: '#FB923C' }} /> Virulence factor</div>
+                    <div className="flex items-center gap-2"><span className="w-3 h-1 bg-gray-700 rounded" /> Gap = gene absent</div>
+                  </div>
+                </div>
+
+                {/* Hovered gene detail */}
+                {hoveredGene && (
+                  <div className="p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+                    <p className="text-sm text-gray-200 font-medium">{hoveredGene.name || 'CDS'}</p>
+                    <p className="text-xs text-gray-400">
+                      Type: <span className={hoveredGene.type === 'arg' ? 'text-red-400' : hoveredGene.type === 'vf' ? 'text-orange-400' : 'text-blue-400'}>{hoveredGene.type}</span>
+                    </p>
+                    <p className="text-xs text-gray-400">Present in: {hoveredGene.n_samples}/{data.stats.n_samples} samples</p>
+                    <p className="text-xs text-gray-500">Position: {hoveredGene.start}-{hoveredGene.end}</p>
+                  </div>
+                )}
+
+                {/* Sample comparison table */}
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-300 mb-2">Sample Comparison</h3>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-gray-800">
+                        <th className="text-left px-2 py-1 text-gray-400">Sample</th>
+                        <th className="text-center px-2 py-1 text-gray-400">Genes</th>
+                        <th className="text-center px-2 py-1 text-gray-400">Shared w/ Ref</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-b border-gray-800/30">
+                        <td className="px-2 py-1 text-gray-200 font-medium">{data.reference.name} (ref)</td>
+                        <td className="px-2 py-1 text-center text-gray-300">{data.reference.gene_count}</td>
+                        <td className="px-2 py-1 text-center text-gray-300">—</td>
+                      </tr>
+                      {data.rings.sample_rings.map((r) => (
+                        <tr key={r.sample_id} className="border-b border-gray-800/30">
+                          <td className="px-2 py-1 text-gray-200">{r.name}</td>
+                          <td className="px-2 py-1 text-center text-gray-300">{r.gene_count}</td>
+                          <td className="px-2 py-1 text-center text-gray-300">{r.shared_with_ref} ({(r.shared_with_ref / data.reference.gene_count * 100).toFixed(0)}%)</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Gene frequency chart */}
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-300 mb-2">Gene Frequency</h3>
+                  <div className="flex items-end gap-1 h-20">
+                    {data.gene_frequency.map((f) => {
+                      const maxGenes = Math.max(...data.gene_frequency.map((x) => x.genes));
+                      const h = (f.genes / maxGenes) * 100;
+                      return (
+                        <div key={f.count} className="flex flex-col items-center flex-1" title={`${f.genes} genes in ${f.count} sample(s)`}>
+                          <div className={`w-full rounded-t ${f.count === data.stats.n_samples ? 'bg-blue-500' : f.count === 1 ? 'bg-yellow-500' : 'bg-gray-500'}`}
+                            style={{ height: `${h}%`, minHeight: '2px' }} />
+                          <span className="text-[9px] text-gray-500 mt-0.5">{f.count}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[9px] text-gray-600 text-center mt-1">Samples containing gene →</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {picker.selectedIds.length >= 2 && !data && !computing && (
+        <div className="card text-center py-8 text-gray-500">Click &quot;Run Pangenome&quot; to compute core/accessory genome.</div>
       )}
     </div>
   );
