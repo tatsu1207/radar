@@ -289,6 +289,8 @@ class FileManagerSample(BaseModel):
     has_metadata: bool = False
     project_id: Optional[uuid.UUID] = None
     project_name: Optional[str] = None
+    collection_date: Optional[str] = None
+    location: Optional[str] = None
     pipeline_status: Optional[str] = None  # not_started, running, complete, failed
     pipeline_job_id: Optional[str] = None
     pipeline_progress: int = 0  # 0-100

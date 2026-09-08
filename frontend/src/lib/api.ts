@@ -739,6 +739,8 @@ export interface FileManagerSample {
   assembly: FileSlot | null;
   source: string;
   has_metadata: boolean;
+  collection_date: string | null;
+  location: string | null;
   project_id: string | null;
   project_name: string | null;
   pipeline_status: string | null;

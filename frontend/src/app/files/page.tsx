@@ -13,9 +13,75 @@ import {
   retrySRADownload,
   startPipeline,
   cancelJob,
+  updateMetadata,
 } from '@/lib/api';
 import type { FileManagerSample, SRADownload } from '@/lib/api';
 import ServerPathDialog from '@/components/ServerPathDialog';
+
+const KOREAN_CITIES = [
+  'Seoul', 'Busan', 'Daegu', 'Incheon', 'Gwangju', 'Daejeon', 'Ulsan', 'Sejong',
+  'Suwon', 'Seongnam', 'Goyang', 'Yongin', 'Cheongju', 'Chungju', 'Cheonan',
+  'Jeonju', 'Pohang', 'Changwon', 'Gimhae', 'Wonju', 'Chuncheon', 'Gangneung',
+  'Andong', 'Gumi', 'Gyeongju', 'Jinju', 'Mokpo', 'Suncheon', 'Yeosu',
+  'Gimcheon', 'Seosan', 'Asan', 'Iksan', 'Gunsan', 'Gimpo', 'Paju',
+  'Uijeongbu', 'Pyeongtaek', 'Ansan', 'Anyang', 'Bucheon', 'Hanam', 'Icheon',
+  'Yangsan', 'Geoje', 'Naju', 'Jeju', 'Seogwipo', 'Nonsan', 'Gongju', 'Dangjin',
+].sort();
+
+function InlineDatePicker({ value, onSave }: { value: string | null; onSave: (val: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  if (editing) {
+    return (
+      <input type="date" defaultValue={value || ''} autoFocus
+        onBlur={(e) => { onSave(e.target.value); setEditing(false); }}
+        onKeyDown={(e) => { if (e.key === 'Escape') setEditing(false); }}
+        className="input text-xs py-0.5 px-1 w-28" />
+    );
+  }
+  return (
+    <span onClick={() => setEditing(true)} className="cursor-pointer hover:bg-gray-800/50 rounded px-1 py-0.5 block text-xs">
+      {value || <span className="text-red-400">required</span>}
+    </span>
+  );
+}
+
+function InlineCityPicker({ value, onSave }: { value: string | null; onSave: (val: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [search, setSearch] = useState(value || '');
+  const [showDrop, setShowDrop] = useState(false);
+  const filtered = KOREAN_CITIES.filter((c) => c.toLowerCase().includes(search.toLowerCase()));
+
+  function select(city: string) {
+    onSave(city);
+    setEditing(false);
+    setShowDrop(false);
+  }
+
+  if (editing) {
+    return (
+      <div className="relative">
+        <input type="text" value={search} autoFocus
+          onChange={(e) => { setSearch(e.target.value); setShowDrop(true); }}
+          onFocus={() => setShowDrop(true)}
+          onBlur={() => setTimeout(() => { setShowDrop(false); setEditing(false); }, 200)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && filtered.length > 0) select(filtered[0]); if (e.key === 'Escape') setEditing(false); }}
+          className="input text-xs py-0.5 px-1 w-28" placeholder="City..." />
+        {showDrop && filtered.length > 0 && (
+          <div className="absolute z-20 top-full left-0 mt-1 w-32 max-h-32 overflow-y-auto bg-gray-800 border border-gray-700 rounded shadow-lg">
+            {filtered.slice(0, 15).map((c) => (
+              <button key={c} onMouseDown={() => select(c)} className="block w-full text-left px-2 py-1 text-xs text-gray-200 hover:bg-blue-600/30">{c}</button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+  return (
+    <span onClick={() => { setSearch(value || ''); setEditing(true); }} className="cursor-pointer hover:bg-gray-800/50 rounded px-1 py-0.5 block text-xs">
+      {value || <span className="text-red-400">required</span>}
+    </span>
+  );
+}
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -190,6 +256,19 @@ export default function GlobalFilesPage() {
     }
   }
 
+  async function handleMetaSave(sampleId: string, field: string, value: string) {
+    try {
+      await updateMetadata(sampleId, { [field]: value || null } as any);
+      setSamples((prev) =>
+        prev.map((s) =>
+          s.sample_id === sampleId ? { ...s, [field]: value || null } : s
+        )
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save metadata');
+    }
+  }
+
   async function handleStartPipeline(sampleId: string) {
     setPipelineStarting(sampleId);
     setError(null);
@@ -240,6 +319,15 @@ export default function GlobalFilesPage() {
 
   async function handleStartSelected() {
     if (selectedSamples.size === 0) return;
+    // Check all selected samples have required metadata
+    const missing = Array.from(selectedSamples).filter((id) => {
+      const s = samples.find((s) => s.sample_id === id);
+      return s && (!s.location || !s.collection_date);
+    });
+    if (missing.length > 0) {
+      setError(`${missing.length} selected sample(s) missing Location or Date. Fill metadata before starting pipeline.`);
+      return;
+    }
     setStartingSelected(true);
     setError(null);
     try {
@@ -488,6 +576,8 @@ export default function GlobalFilesPage() {
                   <th className="table-header">R2</th>
                   <th className="table-header">ONT</th>
                   <th className="table-header">PacBio</th>
+                  <th className="table-header">Location *</th>
+                  <th className="table-header">Date *</th>
                   <th className="table-header">Pipeline</th>
                   <th className="table-header">Completeness</th>
                   <th className="table-header w-10"></th>
@@ -537,6 +627,12 @@ export default function GlobalFilesPage() {
                         <FileSlotCell file={sample.long_read_platform === 'pacbio' ? sample.long_read : null} isMissingPair={false} />
                       </td>
                       <td className="table-cell">
+                        <InlineCityPicker value={sample.location} onSave={(v) => handleMetaSave(sample.sample_id, 'location', v)} />
+                      </td>
+                      <td className="table-cell">
+                        <InlineDatePicker value={sample.collection_date} onSave={(v) => handleMetaSave(sample.sample_id, 'collection_date', v)} />
+                      </td>
+                      <td className="table-cell">
                         {sraInProgress ? (
                           <div className="flex items-center gap-1.5">
                             <Download className="w-4 h-4 text-yellow-400 animate-pulse" />
@@ -578,6 +674,10 @@ export default function GlobalFilesPage() {
                               Start
                             </button>
                           </div>
+                        ) : !sample.location || !sample.collection_date ? (
+                          <span className="text-xs text-yellow-400" title="Location and Date are required before starting the pipeline">
+                            Fill metadata
+                          </span>
                         ) : (
                           <button
                             onClick={() => handleStartPipeline(sample.sample_id)}
