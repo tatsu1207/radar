@@ -73,26 +73,22 @@ def list_tool_samples(db: Session = Depends(get_db), current_user: User = Depend
 # ---------------------------------------------------------------------------
 
 @router.post("/tools/risk")
-def calculate_risk_for_samples(
+def get_risk_for_samples(
     body: dict,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Calculate hazard rank for selected samples."""
+    """Get stored hazard ranks for selected samples."""
     sample_ids = body.get("sample_ids", [])
     if not sample_ids:
         raise HTTPException(status_code=400, detail="No sample_ids provided")
 
-    from app.core.risk import calculate_composite_risk
     results = []
     for sid in sample_ids:
         sample = db.query(Sample).filter(Sample.id == sid).first()
         if not sample:
             continue
-        try:
-            risk = calculate_composite_risk(str(sample.id), db=db)
-        except Exception:
-            risk = db.query(RiskScore).filter(RiskScore.sample_id == sample.id).first()
+        risk = db.query(RiskScore).filter(RiskScore.sample_id == sample.id).first()
         if risk:
             results.append({
                 "sample_id": str(sample.id),

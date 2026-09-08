@@ -646,7 +646,7 @@ function HazardRankingTool() {
 
       <button onClick={handleCalculate} disabled={picker.selectedIds.length === 0 || calculating} className="btn-primary flex items-center gap-2 text-sm">
         <RefreshCw className={`w-4 h-4 ${calculating ? 'animate-spin' : ''}`} />
-        {calculating ? 'Calculating...' : `Calculate Risk (${picker.selectedIds.length})`}
+        {calculating ? 'Loading...' : `Show Risk (${picker.selectedIds.length})`}
       </button>
 
       {error && <div className="p-4 bg-red-600/20 border border-red-600/50 rounded-lg text-red-300 text-sm">{error}</div>}
@@ -758,7 +758,7 @@ function HazardRankingTool() {
       )}
 
       {scores.length === 0 && picker.selectedIds.length > 0 && !calculating && (
-        <div className="card text-center py-8 text-gray-500">Click &quot;Calculate Risk&quot; to assess selected isolates.</div>
+        <div className="card text-center py-8 text-gray-500">Click &quot;Show Risk&quot; to view hazard ranks for selected isolates.</div>
       )}
     </div>
   );
