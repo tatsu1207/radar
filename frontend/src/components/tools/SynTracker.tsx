@@ -180,99 +180,116 @@ export default function SynTrackerTool() {
         </div>
       )}
 
-      {/* Region diagrams (EasyFig-style linear view for ARG+mobilome regions) */}
+      {/* Region diagrams — one mini-diagram per ARG/MGE region */}
       {data?.region_diagrams && data.region_diagrams.length >= 2 && (() => {
         const diagrams = data.region_diagrams!;
         const geneColor: Record<string, string> = { arg: '#EF4444', mge: '#A855F7', cds: '#4B5563' };
         const svgWidth = 800;
         const barHeight = 16;
-        const gapHeight = 50;
+        const gapHeight = 40;
         const marginLeft = 110;
-        const drawWidth = svgWidth - marginLeft - 20;
+        const drawWidth = svgWidth - marginLeft - 40;
 
-        // Flatten: each sample contributes all its regions concatenated into one linear track
-        // This way we compare all genes regardless of contig name
-        const tracks = diagrams.map((d) => {
-          const allGenes: RegionGene[] = [];
-          let offset = 0;
-          for (const r of d.regions) {
-            for (const g of r.genes) {
-              allGenes.push({ ...g, start: offset + g.start, end: offset + g.end });
+        // Use the first sample's regions as reference anchors
+        const refRegions = diagrams[0].regions;
+        const nSamples = diagrams.length;
+        const totalHeight = nSamples * barHeight + (nSamples - 1) * gapHeight + 30;
+
+        // For each reference region, find matching regions in other samples by shared gene hashes
+        const regionDiagrams: { anchor: string; regionLen: number; tracks: { name: string; genes: RegionGene[] }[] }[] = [];
+        for (const refReg of refRegions) {
+          const refHashes = new Set(refReg.genes.map((g) => g.hash));
+          const tracks: { name: string; genes: RegionGene[] }[] = [{ name: diagrams[0].name, genes: refReg.genes }];
+
+          for (let si = 1; si < nSamples; si++) {
+            // Find the region in this sample with most shared hashes
+            let bestRegion: Region | null = null;
+            let bestOverlap = 0;
+            for (const r of diagrams[si].regions) {
+              const overlap = r.genes.filter((g) => refHashes.has(g.hash)).length;
+              if (overlap > bestOverlap) { bestOverlap = overlap; bestRegion = r; }
             }
-            offset += r.length + 1000; // gap between regions
-          }
-          return { name: d.name, totalLen: offset, genes: allGenes };
-        });
-
-        const maxLen = Math.max(...tracks.map((t) => t.totalLen), 1);
-        const scale = (pos: number) => (pos / maxLen) * drawWidth;
-        const totalHeight = tracks.length * barHeight + (tracks.length - 1) * gapHeight + 30;
-
-        // Build hash→position map per track
-        const hashMaps = tracks.map((t) => {
-          const map: Record<string, { x: number; w: number }> = {};
-          for (const g of t.genes) {
-            if (!map[g.hash]) {
-              map[g.hash] = { x: marginLeft + scale(g.start), w: Math.max(3, scale(g.end - g.start)) };
+            if (bestRegion && bestOverlap >= 2) {
+              tracks.push({ name: diagrams[si].name, genes: bestRegion.genes });
             }
           }
-          return map;
-        });
+
+          if (tracks.length >= 2) {
+            const anchorGene = refReg.genes.find((g) => g.type === 'arg') || refReg.genes.find((g) => g.type === 'mge');
+            regionDiagrams.push({
+              anchor: anchorGene?.name || refReg.contig,
+              regionLen: refReg.length,
+              tracks,
+            });
+          }
+        }
+
+        if (regionDiagrams.length === 0) return null;
 
         return (
           <div className="card">
-            <h2 className="text-sm font-semibold text-gray-100 mb-2">Region Synteny Diagrams</h2>
+            <h2 className="text-sm font-semibold text-gray-100 mb-2">Region Synteny Diagrams ({regionDiagrams.length} regions)</h2>
             <p className="text-xs text-gray-500 mb-4">
-              Linear gene maps around ARG/mobilome anchors. Shared genes (same protein) connected by lines.
+              Each diagram = one {((data.flanking || 20000) * 2 / 1000).toFixed(0)} kb window around an ARG/MGE anchor.
               <span className="text-red-400 ml-1">Red</span> = ARG, <span className="text-purple-400 ml-1">Purple</span> = MGE, <span className="text-gray-400 ml-1">Gray</span> = CDS.
-              Crossed lines = rearrangement. Parallel lines = conserved order.
+              Lines connect shared genes (same protein). Crossed = rearrangement.
             </p>
-            <div className="overflow-x-auto">
-              <svg width={svgWidth} height={totalHeight} className="rounded" style={{ background: '#0F172A' }}>
-                {/* Connecting lines first (drawn behind genes) */}
-                {tracks.slice(0, -1).map((_, tIdx) => {
-                  const y1 = 15 + tIdx * (barHeight + gapHeight) + barHeight;
-                  const y2 = 15 + (tIdx + 1) * (barHeight + gapHeight);
-                  const map1 = hashMaps[tIdx];
-                  const map2 = hashMaps[tIdx + 1];
-                  return Object.keys(map1).filter((h) => map2[h]).map((h) => {
-                    const g1 = map1[h];
-                    const g2 = map2[h];
-                    // Color ARG/MGE connections differently
-                    const gene1 = tracks[tIdx].genes.find((g) => g.hash === h);
-                    const isSpecial = gene1 && (gene1.type === 'arg' || gene1.type === 'mge');
-                    return (
-                      <line key={`${tIdx}-${h}`}
-                        x1={g1.x + g1.w / 2} y1={y1}
-                        x2={g2.x + g2.w / 2} y2={y2}
-                        stroke={isSpecial ? (gene1!.type === 'arg' ? '#EF4444' : '#A855F7') : '#475569'}
-                        strokeWidth={isSpecial ? 1.5 : 0.5}
-                        opacity={isSpecial ? 0.7 : 0.3} />
-                    );
-                  });
-                })}
+            <div className="space-y-4 max-h-[600px] overflow-y-auto">
+              {regionDiagrams.map((rd, rdIdx) => {
+                const scale = (pos: number) => (pos / rd.regionLen) * drawWidth;
 
-                {/* Gene tracks */}
-                {tracks.map((track, tIdx) => {
-                  const y = 15 + tIdx * (barHeight + gapHeight);
-                  return (
-                    <g key={track.name}>
-                      <text x={5} y={y + barHeight / 2 + 4} fill="#D1D5DB" fontSize="10" fontWeight="500">{track.name}</text>
-                      <rect x={marginLeft} y={y} width={scale(track.totalLen)} height={barHeight} fill="#1E293B" stroke="#334155" strokeWidth={0.5} rx={2} />
-                      {track.genes.map((g, gIdx) => (
-                        <rect key={gIdx} x={marginLeft + scale(g.start)} y={y - (g.type !== 'cds' ? 2 : 0)} width={Math.max(3, scale(g.end - g.start))}
-                          height={barHeight + (g.type !== 'cds' ? 4 : 0)}
-                          fill={geneColor[g.type] || geneColor.cds} opacity={0.9} rx={1}>
-                          <title>{g.name || g.type} ({g.type})</title>
-                        </rect>
-                      ))}
-                      <text x={marginLeft + scale(track.totalLen) + 5} y={y + barHeight / 2 + 4} fill="#6B7280" fontSize="9">
-                        {(track.totalLen / 1000).toFixed(0)} kb
-                      </text>
-                    </g>
-                  );
-                })}
-              </svg>
+                // Build hash maps per track
+                const hashMaps = rd.tracks.map((t) => {
+                  const map: Record<string, { x: number; w: number }> = {};
+                  for (const g of t.genes) {
+                    if (!map[g.hash]) {
+                      map[g.hash] = { x: marginLeft + scale(g.start), w: Math.max(3, scale(g.end - g.start)) };
+                    }
+                  }
+                  return map;
+                });
+
+                return (
+                  <div key={rdIdx}>
+                    <p className="text-xs text-gray-400 mb-1 font-medium">{rd.anchor} <span className="text-gray-600">({(rd.regionLen / 1000).toFixed(0)} kb)</span></p>
+                    <svg width={svgWidth} height={rd.tracks.length * barHeight + (rd.tracks.length - 1) * gapHeight + 20} className="rounded" style={{ background: '#0F172A' }}>
+                      {/* Connecting lines */}
+                      {rd.tracks.slice(0, -1).map((_, tIdx) => {
+                        const y1 = 10 + tIdx * (barHeight + gapHeight) + barHeight;
+                        const y2 = 10 + (tIdx + 1) * (barHeight + gapHeight);
+                        return Object.keys(hashMaps[tIdx]).filter((h) => hashMaps[tIdx + 1][h]).map((h) => {
+                          const g1 = hashMaps[tIdx][h];
+                          const g2 = hashMaps[tIdx + 1][h];
+                          const gene = rd.tracks[tIdx].genes.find((g) => g.hash === h);
+                          const isSpecial = gene && (gene.type === 'arg' || gene.type === 'mge');
+                          return (
+                            <line key={`${tIdx}-${h}`} x1={g1.x + g1.w / 2} y1={y1} x2={g2.x + g2.w / 2} y2={y2}
+                              stroke={isSpecial ? (gene!.type === 'arg' ? '#EF4444' : '#A855F7') : '#64748B'}
+                              strokeWidth={isSpecial ? 1.5 : 0.5} opacity={isSpecial ? 0.8 : 0.4} />
+                          );
+                        });
+                      })}
+                      {/* Gene tracks */}
+                      {rd.tracks.map((track, tIdx) => {
+                        const y = 10 + tIdx * (barHeight + gapHeight);
+                        return (
+                          <g key={tIdx}>
+                            <text x={5} y={y + barHeight / 2 + 4} fill="#D1D5DB" fontSize="10" fontWeight="500">{track.name}</text>
+                            <rect x={marginLeft} y={y} width={scale(rd.regionLen)} height={barHeight} fill="#1E293B" stroke="#334155" strokeWidth={0.5} rx={2} />
+                            {track.genes.map((g, gIdx) => (
+                              <rect key={gIdx} x={marginLeft + scale(g.start)} y={y - (g.type !== 'cds' ? 2 : 0)}
+                                width={Math.max(4, scale(g.end - g.start))} height={barHeight + (g.type !== 'cds' ? 4 : 0)}
+                                fill={geneColor[g.type] || geneColor.cds} opacity={0.9} rx={1}>
+                                <title>{g.name || g.type} ({g.type})</title>
+                              </rect>
+                            ))}
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  </div>
+                );
+              })}
             </div>
           </div>
         );
