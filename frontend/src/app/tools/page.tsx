@@ -135,7 +135,7 @@ export default function ToolsPage() {
   const tabs = [
     { key: 'phenotype' as const, label: 'Phenotype Prediction' },
     { key: 'hazard' as const, label: 'Hazard Ranking' },
-    { key: 'comparison' as const, label: 'Genome Comparison' },
+    { key: 'comparison' as const, label: 'ANI' },
     { key: 'sra' as const, label: 'SRA Submission' },
   ];
 
