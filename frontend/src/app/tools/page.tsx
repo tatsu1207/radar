@@ -1339,14 +1339,14 @@ function EasyFigTool() {
     const totalHeight = data.genomes.length * genomeHeight + (data.genomes.length - 1) * gapHeight + 60;
 
     return (
-      <svg width={svgWidth} height={totalHeight} className="bg-gray-900 rounded-lg">
+      <svg width={svgWidth} height={totalHeight} className="rounded-lg" style={{ background: '#0F172A' }}>
         {data.genomes.map((genome, gIdx) => {
           const y = 30 + gIdx * (genomeHeight + gapHeight);
           let offset = 0;
           return (
             <g key={gIdx}>
               {/* Label */}
-              <text x={5} y={y + genomeHeight / 2 + 4} className="fill-gray-300 text-xs" fontSize="11">{genome.sample_name}</text>
+              <text x={5} y={y + genomeHeight / 2 + 4} fill="#D1D5DB" fontSize="11" fontWeight="500">{genome.sample_name}</text>
               {/* Genome bar (contigs) */}
               {genome.contigs.map((contig, cIdx) => {
                 const x = marginLeft + scale(offset);
@@ -1378,7 +1378,7 @@ function EasyFigTool() {
                 });
               })()}
               {/* Length label */}
-              <text x={marginLeft + scale(genome.total_length) + 5} y={y + genomeHeight / 2 + 4} className="fill-gray-500 text-xs" fontSize="9">
+              <text x={marginLeft + scale(genome.total_length) + 5} y={y + genomeHeight / 2 + 4} fill="#9CA3AF" fontSize="9">
                 {(genome.total_length / 1e6).toFixed(2)} Mb
               </text>
             </g>
