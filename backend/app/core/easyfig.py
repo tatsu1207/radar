@@ -79,7 +79,7 @@ def _run_blastn_pair(query_fasta: str, subject_fasta: str, threads: int = 4) -> 
                     if len(parts) < 12:
                         continue
                     length = int(parts[3])
-                    if length < 500:  # Skip small alignments
+                    if length < 2000:  # Skip small alignments
                         continue
                     identity = float(parts[2])
                     qstart, qend = int(parts[6]), int(parts[7])
@@ -168,10 +168,9 @@ def compute_easyfig(sample_ids: List[str], db, threads: int = 4) -> Dict:
         return {"genomes": [], "alignments": [],
                 "message": "Need at least 2 samples with assemblies."}
 
-    # For 3+ samples, reorder by similarity so adjacent pairs are most related.
-    # Compute all pairwise aligned bases via quick BLAST, then greedy nearest-neighbor.
-    if len(sample_info) >= 3:
-        sample_info = _reorder_by_similarity(sample_info, threads)
+    # Reorder by genome size (largest first) — simple, fast, no extra BLAST
+    # Previous similarity-based reordering added 6+ BLAST runs and 30+ seconds
+    sample_info.sort(key=lambda x: x["total_length"], reverse=True)
 
     genomes = []
     for info in sample_info:
