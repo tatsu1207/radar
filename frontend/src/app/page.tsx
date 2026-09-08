@@ -214,6 +214,55 @@ export default function IntroductionPage() {
           </div>
         </div>
       </div>
+      <h2 className="text-xl font-semibold text-white mb-4 mt-10">Methodology</h2>
+
+      {/* Phenotype Prediction */}
+      <div className="card mb-4">
+        <h3 className="text-sm font-semibold text-blue-400 mb-2">ML Phenotype Prediction</h3>
+        <p className="text-sm text-gray-400 leading-relaxed">
+          RADAR predicts antibiotic resistance phenotypes using 107 pre-trained Random Forest models
+          covering 5 species (<em>E. coli</em>, <em>Salmonella</em>, <em>Klebsiella</em>, <em>S. aureus</em>, <em>A. baumannii</em>)
+          and up to 35 antibiotics per species. Models were trained on large-scale WGS datasets using
+          discordance analysis between genotypic features (AMR gene presence, point mutations) and
+          phenotypic AST results. Each prediction includes a probability score, confidence level,
+          and the key genetic features driving the prediction. Model quality is reported as cross-validation
+          F1 score; models with F1 &lt; 0.70 are flagged as unreliable (Cheon et al., 2026).
+        </p>
+      </div>
+
+      {/* Hazard Ranking */}
+      <div className="card mb-4">
+        <h3 className="text-sm font-semibold text-blue-400 mb-2">Hazard Ranking</h3>
+        <p className="text-sm text-gray-400 leading-relaxed mb-3">
+          Each isolate receives a hazard rank (R1–R12 or NG) based on two axes (Cheon &amp; Unno, 2026):
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm mb-3">
+          <div>
+            <p className="text-gray-300 font-medium text-xs mb-1">Axis 1: WHO AWaRe Tier</p>
+            <p className="text-gray-500 text-xs">
+              Each detected ARG is mapped to an AWaRe tier (Reserve &gt; Watch &gt; Access) via a 4-step
+              cascade: specific antibiotic agent → class mode tier → gene family → no tier.
+              The worst-case (highest tier) ARG drives the rank.
+            </p>
+          </div>
+          <div>
+            <p className="text-gray-300 font-medium text-xs mb-1">Axis 2: Transmissibility Level (1–5)</p>
+            <p className="text-gray-500 text-xs">
+              5 = broad-host conjugative plasmid, 4 = narrow-host conjugative or ICE-borne,
+              3 = mobilizable with helper, 2 = mobilizable alone, 1 = chromosomal.
+              Species-intrinsic chromosomal genes are excluded unless activated by an IS element or point mutation.
+            </p>
+          </div>
+        </div>
+        <p className="text-sm text-gray-400 leading-relaxed">
+          <strong className="text-gray-300">Reserve</strong> ARGs map to R1–R5 (by transmissibility),{' '}
+          <strong className="text-gray-300">Watch</strong> to R6–R10,{' '}
+          <strong className="text-gray-300">Access</strong> to R11,{' '}
+          no ARGs = R12, intrinsic-only = NG.
+          MDR is flagged independently when ≥3 distinct antimicrobial classes are detected.
+        </p>
+      </div>
+
       <h2 className="text-xl font-semibold text-white mb-4 mt-10">References</h2>
       <div className="card">
         <div className="space-y-3 text-sm">
@@ -224,6 +273,13 @@ export default function IntroductionPage() {
                 Uncovering species- and drug-class-specific antimicrobial resistance mechanisms from large-scale whole-genome sequencing data using discordance analysis and machine learning
               </a>.{' '}
               <em>Briefings in Bioinformatics</em>, 27(4), bbag451.
+            </p>
+          </div>
+          <div>
+            <p className="text-gray-300">
+              Cheon NJ, Unno T. (2026).{' '}
+              A framework for isolate-level antimicrobial resistance hazard ranking based on clinical importance and transmissibility in bacterial pathogens.{' '}
+              <em>Manuscript in preparation</em>.
             </p>
           </div>
         </div>

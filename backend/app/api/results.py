@@ -207,6 +207,48 @@ def get_mobility_results(sample_id: uuid.UUID, db: Session = Depends(get_db), cu
     return db.query(MobilityResult).filter(MobilityResult.sample_id == sample_id).all()
 
 
+@router.post("/risk/{project_id}/calculate")
+@router.get("/risk/{project_id}/calculate")
+def calculate_project_risk(project_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Calculate/refresh risk scores for all completed samples in a project and return them."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    samples = db.query(Sample).filter(Sample.project_id == project_id).all()
+    results = []
+    from app.core.risk import calculate_composite_risk
+    from app.models.models import SampleStatus
+
+    for sample in samples:
+        if sample.status != SampleStatus.complete:
+            continue
+        try:
+            risk = calculate_composite_risk(str(sample.id), db=db)
+        except Exception:
+            risk = db.query(RiskScore).filter(RiskScore.sample_id == sample.id).first()
+        if risk:
+            results.append({
+                "sample_id": str(sample.id),
+                "sample_name": sample.name,
+                "hazard_rank": risk.hazard_rank.value if risk.hazard_rank else None,
+                "aware_tier": risk.aware_tier,
+                "transmissibility_level": risk.transmissibility_level,
+                "worst_case_arg": risk.worst_case_arg,
+                "worst_case_drug_class": risk.worst_case_drug_class,
+                "worst_case_location": risk.worst_case_location,
+                "mdr_flag": risk.mdr_flag,
+                "drug_class_count": risk.drug_class_count,
+                "vf_category_count": risk.vf_category_count,
+                "composite_score": risk.composite_score,
+                "risk_category": risk.risk_category.value if risk.risk_category else None,
+                "arg_score": risk.arg_score,
+                "vf_score": risk.vf_score,
+                "mobility_score": risk.mobility_score,
+            })
+    return results
+
+
 @router.get("/samples/{sample_id}/risk", response_model=RiskScoreRead)
 def get_risk_score(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
