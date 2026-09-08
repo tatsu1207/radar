@@ -120,9 +120,16 @@ def compute_pangenome(sample_ids: List[str], db) -> Dict:
     if len(sample_info) < 2:
         return {"error": "Need at least 2 samples with Prodigal annotations."}
 
-    # Use first sample as reference (largest genome)
+    # Use sample with most genes as reference
     sample_info.sort(key=lambda x: len(x[1]), reverse=True)
     ref_sample, ref_genes = sample_info[0]
+    ref_hash_set = set(g["hash"] for g in ref_genes)
+
+    # Sort remaining samples by similarity to reference (most shared genes first)
+    # so the closest ring to center = most similar genome
+    others = sample_info[1:]
+    others.sort(key=lambda x: len(ref_hash_set & set(g["hash"] for g in x[1])), reverse=True)
+    sample_info = [sample_info[0]] + others
 
     # Build hash sets for all samples
     sample_hashes = []
