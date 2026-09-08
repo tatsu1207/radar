@@ -241,7 +241,7 @@ def compute_pangenome(sample_ids: List[str], db) -> Dict:
         },
         "samples": [
             {"name": s.name, "sample_id": str(s.id), "gene_count": len(genes)}
-            for s, _, genes in sample_info
+            for s, genes in sample_info
         ],
         "stats": {
             "total_genes": total_genes,
