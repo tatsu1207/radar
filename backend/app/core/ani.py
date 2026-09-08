@@ -68,25 +68,58 @@ def _run_skani_triangle(sample_info: List[tuple], threads: int = 4) -> Dict:
         ani_matrix = [[100.0] * n for _ in range(n)]
         af_matrix = [[1.0] * n for _ in range(n)]
 
+        # Parse ANI file (phylip lower-triangular format):
+        # Line 1: count
+        # Line 2: path1
+        # Line 3: path2 \t ani_to_1
+        # Line 4: path3 \t ani_to_1 \t ani_to_2
+        # ...
         if os.path.exists(output_file):
+            file_paths = []  # ordered paths as they appear in the file
             with open(output_file) as fh:
-                for line in fh:
-                    line = line.strip()
-                    if not line or line.startswith("Ref_file"):
-                        continue
+                lines = [l.strip() for l in fh if l.strip()]
+            if lines:
+                # First line is count, skip it
+                for line in lines[1:]:
                     parts = line.split("\t")
-                    if len(parts) < 5:
+                    path = parts[0]
+                    file_paths.append(path)
+                    row_idx = len(file_paths) - 1
+                    for col_idx, val_str in enumerate(parts[1:]):
+                        try:
+                            val = float(val_str)
+                        except ValueError:
+                            continue
+                        i = path_to_idx.get(file_paths[row_idx])
+                        j = path_to_idx.get(file_paths[col_idx])
+                        if i is not None and j is not None:
+                            ani_matrix[i][j] = round(val, 4)
+                            ani_matrix[j][i] = round(val, 4)
+
+        # Parse AF file (full square matrix with path + values per row)
+        af_file = output_file + ".af"
+        if os.path.exists(af_file):
+            with open(af_file) as fh:
+                af_lines = [l.strip() for l in fh if l.strip()]
+            if af_lines:
+                af_paths = []
+                for line in af_lines[1:]:  # skip count line
+                    parts = line.split("\t")
+                    path = parts[0]
+                    af_paths.append(path)
+                    row_idx = path_to_idx.get(path)
+                    if row_idx is None:
                         continue
-                    ref_path, query_path = parts[0], parts[1]
-                    ani = float(parts[2])
-                    af_ref, af_query = float(parts[3]), float(parts[4])
-                    i = path_to_idx.get(ref_path)
-                    j = path_to_idx.get(query_path)
-                    if i is not None and j is not None:
-                        ani_matrix[i][j] = round(ani, 4)
-                        ani_matrix[j][i] = round(ani, 4)
-                        af_matrix[i][j] = round(af_ref, 4)
-                        af_matrix[j][i] = round(af_query, 4)
+                    for col_idx, val_str in enumerate(parts[1:]):
+                        if col_idx >= len(af_paths):
+                            break
+                        col_path = af_paths[col_idx] if col_idx < len(af_paths) else None
+                        j = path_to_idx.get(col_path) if col_path else None
+                        if j is not None:
+                            try:
+                                af_matrix[row_idx][j] = round(float(val_str) / 100.0, 4)
+                            except ValueError:
+                                pass
 
         return {
             "samples": [s.name for s, _ in sample_info],
