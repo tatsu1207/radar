@@ -148,6 +148,122 @@ def detect_clusters_for_samples(
     )
 
 
+@router.post("/tools/resistome")
+def get_resistome_for_samples(
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get resistome matrix, temporal trends, and clustering for selected samples."""
+    sample_ids = body.get("sample_ids", [])
+    if not sample_ids:
+        raise HTTPException(status_code=400, detail="No sample_ids provided")
+
+    from app.models.models import SampleStatus
+    from collections import defaultdict
+
+    samples = []
+    for sid in sample_ids:
+        s = db.query(Sample).filter(Sample.id == sid).first()
+        if s:
+            samples.append(s)
+
+    if not samples:
+        return {"matrix": {}, "temporal": {}, "clustering": {}}
+
+    # --- Resistome matrix ---
+    all_drug_classes: set = set()
+    sample_drug_map = {}
+    sample_gene_map = {}  # sample_id -> {drug_class -> [genes]}
+
+    for s in samples:
+        args = db.query(ARGResult).filter(ARGResult.sample_id == s.id).all()
+        classes = set()
+        gene_map = defaultdict(list)
+        for arg in args:
+            if arg.drug_class:
+                for dc in arg.drug_class.split(";"):
+                    dc_clean = dc.strip().lower()
+                    if dc_clean:
+                        classes.add(dc_clean)
+                        all_drug_classes.add(dc_clean)
+                        gene_map[dc_clean].append(arg.gene)
+        sample_drug_map[str(s.id)] = classes
+        sample_gene_map[str(s.id)] = dict(gene_map)
+
+    drug_classes_sorted = sorted(all_drug_classes)
+    sample_names = [s.name for s in samples]
+
+    matrix_data = []
+    for s in samples:
+        classes = sample_drug_map.get(str(s.id), set())
+        genes = sample_gene_map.get(str(s.id), {})
+        row = []
+        for dc in drug_classes_sorted:
+            row.append({
+                "present": 1 if dc in classes else 0,
+                "genes": genes.get(dc, []),
+            })
+        matrix_data.append(row)
+
+    # --- Temporal data ---
+    from app.models.models import Metadata
+    temporal = {"time_points": [], "drug_classes": [], "series": {}}
+
+    dated_samples = []
+    for s in samples:
+        meta = db.query(Metadata).filter(Metadata.sample_id == s.id).first()
+        if meta and meta.collection_date:
+            dated_samples.append((s, str(meta.collection_date)))
+
+    if dated_samples:
+        dated_samples.sort(key=lambda x: x[1])
+        date_groups = defaultdict(list)
+        for s, date in dated_samples:
+            date_groups[date].append(s)
+
+        time_points = sorted(date_groups.keys())
+        series = {}
+        for dc in drug_classes_sorted:
+            prevalence = []
+            for tp in time_points:
+                tp_samples = date_groups[tp]
+                if not tp_samples:
+                    prevalence.append(0.0)
+                    continue
+                r_count = sum(1 for s in tp_samples if dc in sample_drug_map.get(str(s.id), set()))
+                prevalence.append(round(r_count / len(tp_samples), 3))
+            series[dc] = prevalence
+        temporal = {"time_points": time_points, "drug_classes": drug_classes_sorted, "series": series}
+
+    # --- Clustering (Jaccard distance) ---
+    n = len(samples)
+    binary_matrix = []
+    for s in samples:
+        classes = sample_drug_map.get(str(s.id), set())
+        binary_matrix.append([1 if dc in classes else 0 for dc in drug_classes_sorted])
+
+    distance_matrix = [[0.0] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            set_i = set(k for k, v in enumerate(binary_matrix[i]) if v > 0)
+            set_j = set(k for k, v in enumerate(binary_matrix[j]) if v > 0)
+            union_size = len(set_i | set_j)
+            dist = 1.0 - (len(set_i & set_j) / union_size) if union_size > 0 else 0.0
+            distance_matrix[i][j] = round(dist, 4)
+            distance_matrix[j][i] = round(dist, 4)
+
+    return {
+        "matrix": {
+            "sample_names": sample_names,
+            "drug_classes": drug_classes_sorted,
+            "data": matrix_data,
+        },
+        "temporal": temporal,
+        "distance_matrix": distance_matrix,
+    }
+
+
 @router.post("/tools/easyfig")
 def compute_easyfig_endpoint(
     body: dict,

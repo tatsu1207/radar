@@ -130,7 +130,7 @@ function useSamplePicker() {
 
 // ─── Main Page ───
 export default function ToolsPage() {
-  const [toolTab, setToolTab] = useState<'phenotype' | 'hazard' | 'comparison' | 'syntracker' | 'easyfig' | 'sra'>('phenotype');
+  const [toolTab, setToolTab] = useState<'phenotype' | 'hazard' | 'comparison' | 'syntracker' | 'easyfig' | 'resistome' | 'sra'>('phenotype');
 
   const tabs = [
     { key: 'phenotype' as const, label: 'Phenotype Prediction' },
@@ -138,6 +138,7 @@ export default function ToolsPage() {
     { key: 'comparison' as const, label: 'ANI' },
     { key: 'syntracker' as const, label: 'SynTracker' },
     { key: 'easyfig' as const, label: 'EasyFig' },
+    { key: 'resistome' as const, label: 'Resistome Tracker' },
     { key: 'sra' as const, label: 'SRA Submission' },
   ];
 
@@ -159,6 +160,7 @@ export default function ToolsPage() {
       {toolTab === 'comparison' && <GenomeComparisonTool />}
       {toolTab === 'syntracker' && <SynTrackerTool />}
       {toolTab === 'easyfig' && <EasyFigTool />}
+      {toolTab === 'resistome' && <ResistomeTrackerTool />}
       {toolTab === 'sra' && <SRASubmissionTool />}
     </div>
   );
@@ -1463,6 +1465,260 @@ function EasyFigTool() {
       )}
       {picker.selectedIds.length > 4 && (
         <div className="p-4 bg-yellow-600/20 border border-yellow-600/50 rounded-lg text-yellow-300 text-sm">Maximum 4 isolates for EasyFig visualization. Please deselect some.</div>
+      )}
+    </div>
+  );
+}
+
+// ─── Resistome Tracker Tool ───
+
+interface ResistomeCellData { present: number; genes: string[] }
+interface ResistomeData {
+  matrix: {
+    sample_names: string[];
+    drug_classes: string[];
+    data: ResistomeCellData[][];
+  };
+  temporal: {
+    time_points: string[];
+    drug_classes: string[];
+    series: Record<string, number[]>;
+  };
+  distance_matrix: number[][];
+}
+
+function ResistomeTrackerTool() {
+  const picker = useSamplePicker();
+  const [data, setData] = useState<ResistomeData | null>(null);
+  const [computing, setComputing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [subTab, setSubTab] = useState<'matrix' | 'temporal' | 'distance'>('matrix');
+  const [hoveredCell, setHoveredCell] = useState<{ i: number; j: number } | null>(null);
+
+  async function runAnalysis() {
+    if (picker.selectedIds.length === 0) return;
+    setComputing(true);
+    setError(null);
+    setData(null);
+    try {
+      const res = await authPost('/api/tools/resistome', { sample_ids: picker.selectedIds });
+      if (!res.ok) throw new Error(await res.text());
+      setData(await res.json());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Analysis failed');
+    } finally {
+      setComputing(false);
+    }
+  }
+
+  function downloadMatrix() {
+    if (!data?.matrix) return;
+    const { sample_names, drug_classes, data: mdata } = data.matrix;
+    const headers = ['Sample', ...drug_classes];
+    const rows = sample_names.map((name, i) => [name, ...mdata[i].map((c) => c.present ? c.genes.join('; ') || '1' : '0')]);
+    const tsv = [headers.join('\t'), ...rows.map((r) => r.join('\t'))].join('\n');
+    const blob = new Blob([tsv], { type: 'text/tab-separated-values' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'resistome_matrix.tsv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  const hasData = data && data.matrix.sample_names.length > 0;
+  const hasTemporal = data && data.temporal.time_points.length > 0;
+
+  return (
+    <div className="space-y-6">
+      <p className="text-gray-400 text-sm">
+        Track resistance gene profiles across isolates. Shows drug class presence/absence matrix,
+        temporal resistance trends (if collection dates available), and resistome similarity distances.
+      </p>
+
+      <SamplePicker samples={picker.allSamples} selected={picker.selected} onToggle={picker.toggle} onSelectAll={picker.selectAll} onDeselectAll={picker.deselectAll} loading={picker.loading} />
+
+      <button onClick={runAnalysis} disabled={picker.selectedIds.length === 0 || computing} className="btn-primary flex items-center gap-2 text-sm">
+        <RefreshCw className={`w-4 h-4 ${computing ? 'animate-spin' : ''}`} />
+        {computing ? 'Loading...' : `Show Resistome (${picker.selectedIds.length})`}
+      </button>
+
+      {error && <div className="p-4 bg-red-600/20 border border-red-600/50 rounded-lg text-red-300 text-sm">{error}</div>}
+
+      {/* Sub-tabs */}
+      {hasData && (
+        <div className="flex gap-1">
+          <button onClick={() => setSubTab('matrix')} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${subTab === 'matrix' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+            Resistance Matrix
+          </button>
+          {hasTemporal && (
+            <button onClick={() => setSubTab('temporal')} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${subTab === 'temporal' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+              Temporal Trends
+            </button>
+          )}
+          {data!.matrix.sample_names.length >= 2 && (
+            <button onClick={() => setSubTab('distance')} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${subTab === 'distance' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+              Similarity
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Resistance Matrix ── */}
+      {subTab === 'matrix' && hasData && data && (
+        <div className="card">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-gray-100">
+              Drug Class Resistance ({data.matrix.sample_names.length} samples × {data.matrix.drug_classes.length} classes)
+            </h2>
+            <button onClick={downloadMatrix} className="btn-secondary text-xs flex items-center gap-1.5">
+              <Download className="w-3.5 h-3.5" />
+              Download TSV
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="text-xs">
+              <thead>
+                <tr>
+                  <th className="px-2 py-1.5 text-left text-gray-400 font-medium sticky left-0 bg-gray-900 z-10" />
+                  {data.matrix.drug_classes.map((dc, j) => (
+                    <th key={j} className="px-1 py-1.5 text-gray-400 font-medium whitespace-nowrap" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', maxWidth: '1.5rem' }}>
+                      {dc}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.matrix.sample_names.map((name, i) => (
+                  <tr key={i}>
+                    <td className="px-2 py-1 text-gray-300 font-medium whitespace-nowrap sticky left-0 bg-gray-900 z-10">{name}</td>
+                    {data.matrix.data[i].map((cell, j) => (
+                      <td
+                        key={j}
+                        className={`px-1 py-1 text-center cursor-default ${cell.present ? 'bg-red-600/40' : 'bg-gray-800/30'}`}
+                        onMouseEnter={() => setHoveredCell({ i, j })}
+                        onMouseLeave={() => setHoveredCell(null)}
+                        title={cell.present ? `${name}: ${data.matrix.drug_classes[j]}\nGenes: ${cell.genes.join(', ')}` : ''}
+                      >
+                        {cell.present ? <span className="text-red-300 font-bold">+</span> : <span className="text-gray-700">·</span>}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {hoveredCell && data.matrix.data[hoveredCell.i][hoveredCell.j].present > 0 && (
+            <div className="mt-3 p-3 bg-gray-800/50 rounded-lg border border-gray-700 text-sm">
+              <span className="text-gray-200 font-medium">{data.matrix.sample_names[hoveredCell.i]}</span>
+              <span className="text-gray-500"> — </span>
+              <span className="text-orange-400">{data.matrix.drug_classes[hoveredCell.j]}</span>
+              <span className="text-gray-400 ml-3">Genes: </span>
+              <span className="text-gray-200 font-mono">{data.matrix.data[hoveredCell.i][hoveredCell.j].genes.join(', ')}</span>
+            </div>
+          )}
+          {/* Summary row */}
+          <div className="mt-3 pt-3 border-t border-gray-800 text-xs text-gray-500">
+            {data.matrix.sample_names.map((name, i) => {
+              const count = data.matrix.data[i].filter((c) => c.present).length;
+              return <span key={i} className="mr-4">{name}: <span className="text-gray-300">{count}/{data.matrix.drug_classes.length}</span> classes</span>;
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Temporal Trends ── */}
+      {subTab === 'temporal' && hasTemporal && data && (
+        <div className="card">
+          <h2 className="text-sm font-semibold text-gray-100 mb-4">Resistance Prevalence Over Time</h2>
+          <div className="overflow-x-auto">
+            <table className="text-xs w-full">
+              <thead>
+                <tr className="border-b border-gray-800">
+                  <th className="px-2 py-1.5 text-left text-gray-400 font-medium sticky left-0 bg-gray-900">Drug Class</th>
+                  {data.temporal.time_points.map((tp) => (
+                    <th key={tp} className="px-2 py-1.5 text-gray-400 font-medium text-center">{tp}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.temporal.drug_classes.map((dc) => {
+                  const values = data.temporal.series[dc] || [];
+                  const hasChange = values.length > 1 && values[0] !== values[values.length - 1];
+                  return (
+                    <tr key={dc} className="border-b border-gray-800/30">
+                      <td className="px-2 py-1 text-gray-300 font-medium whitespace-nowrap sticky left-0 bg-gray-900">
+                        {dc}
+                        {hasChange && (
+                          <span className={`ml-1 text-[10px] ${values[values.length - 1] > values[0] ? 'text-red-400' : 'text-green-400'}`}>
+                            {values[values.length - 1] > values[0] ? '↑' : '↓'}
+                          </span>
+                        )}
+                      </td>
+                      {values.map((v, idx) => (
+                        <td key={idx} className="px-2 py-1 text-center">
+                          <span className={`font-mono ${v >= 0.5 ? 'text-red-400' : v > 0 ? 'text-yellow-400' : 'text-gray-600'}`}>
+                            {(v * 100).toFixed(0)}%
+                          </span>
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-xs text-gray-600">Prevalence = fraction of samples at each time point carrying resistance. ↑ increasing ↓ decreasing trend.</p>
+        </div>
+      )}
+
+      {/* ── Similarity (Jaccard distance) ── */}
+      {subTab === 'distance' && hasData && data && data.distance_matrix.length >= 2 && (
+        <div className="card">
+          <h2 className="text-sm font-semibold text-gray-100 mb-4">Resistome Similarity (Jaccard Distance)</h2>
+          <div className="flex flex-wrap items-center gap-3 mb-4 text-xs text-gray-400">
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-600/80" /> 0.0 (identical)</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-yellow-600/40" /> 0.3-0.5</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-600/40" /> &ge;0.7 (very different)</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="text-xs">
+              <thead>
+                <tr>
+                  <th className="px-2 py-1.5 text-left text-gray-400 font-medium sticky left-0 bg-gray-900 z-10" />
+                  {data.matrix.sample_names.map((s, j) => (
+                    <th key={j} className="px-2 py-1.5 text-gray-400 font-medium whitespace-nowrap" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', maxWidth: '2rem' }}>{s}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.matrix.sample_names.map((name, i) => (
+                  <tr key={i}>
+                    <td className="px-2 py-1 text-gray-300 font-medium whitespace-nowrap sticky left-0 bg-gray-900 z-10">{name}</td>
+                    {data.distance_matrix[i].map((val, j) => {
+                      const isDiag = i === j;
+                      const color = isDiag ? 'bg-gray-800/50 text-gray-600'
+                        : val <= 0.1 ? 'bg-green-600/80 text-white'
+                        : val <= 0.3 ? 'bg-green-600/40 text-green-200'
+                        : val <= 0.5 ? 'bg-yellow-600/40 text-yellow-200'
+                        : val <= 0.7 ? 'bg-orange-600/40 text-orange-200'
+                        : 'bg-red-600/40 text-red-200';
+                      return (
+                        <td key={j} className={`px-2 py-1 text-center font-mono ${color}`}
+                          title={isDiag ? '' : `${name} vs ${data.matrix.sample_names[j]}: Jaccard distance ${val.toFixed(4)}`}
+                        >{isDiag ? '-' : val.toFixed(2)}</td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-xs text-gray-600">Jaccard distance: 0 = identical drug class profiles, 1 = completely different.</p>
+        </div>
+      )}
+
+      {picker.selectedIds.length > 0 && !data && !computing && (
+        <div className="card text-center py-8 text-gray-500">Click &quot;Show Resistome&quot; to view resistance profiles.</div>
       )}
     </div>
   );
