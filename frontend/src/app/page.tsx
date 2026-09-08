@@ -48,14 +48,14 @@ export default function IntroductionPage() {
       { name: 'ICEfinder', desc: 'Integrative and conjugative element detection' },
     ]},
     { category: 'Prediction & Scoring', tools: [
-      { name: 'ML Phenotype Prediction', desc: '107 Random Forest models across 5 species, 35 antibiotics' },
+      { name: 'ML Phenotype Prediction', desc: '107 Random Forest models across 5 species, 35 antibiotics (Cheon et al., 2026, Briefings in Bioinformatics)' },
       { name: 'Hazard Ranking', desc: 'R1-R12 rank from WHO AWaRe tier and ARG transmissibility' },
     ]},
   ];
 
   const highlights = [
     { icon: Dna, title: '27+ Bioinformatics Tools', desc: 'Isolated conda environments for reproducibility. From QC to phenotype prediction, serotyping, and cgMLST.' },
-    { icon: Shield, title: 'ML Phenotype Prediction', desc: 'Pre-trained Random Forest models predict resistance to 13-35 antibiotics per species with confidence scores.' },
+    { icon: Shield, title: 'ML Phenotype Prediction', desc: 'Pre-trained Random Forest models predict resistance to 13-35 antibiotics per species with confidence scores (Cheon et al., 2026).' },
     { icon: FlaskConical, title: 'Expression Context', desc: 'Goes beyond gene presence: analyzes promoter strength, RBS efficiency, codon adaptation to explain why genes may or may not confer resistance.' },
     { icon: Map, title: 'Interactive Maps', desc: 'Circular plasmid maps grouped by cluster, synteny maps showing MGE-associated ARGs and virulence factors, and cgMLST-based phylogenetic trees.' },
   ];
@@ -211,6 +211,20 @@ export default function IntroductionPage() {
           <div className="flex justify-between">
             <span className="text-gray-400">Export</span>
             <span className="text-gray-300">Single TSV per sample or bulk ZIP export</span>
+          </div>
+        </div>
+      </div>
+      <h2 className="text-xl font-semibold text-white mb-4 mt-10">References</h2>
+      <div className="card">
+        <div className="space-y-3 text-sm">
+          <div>
+            <p className="text-gray-300">
+              Cheon NJ, Nguyen XC, Unno T. (2026).{' '}
+              <a href="https://doi.org/10.1093/bib/bbag451" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">
+                Uncovering species- and drug-class-specific antimicrobial resistance mechanisms from large-scale whole-genome sequencing data using discordance analysis and machine learning
+              </a>.{' '}
+              <em>Briefings in Bioinformatics</em>, 27(4), bbag451.
+            </p>
           </div>
         </div>
       </div>
