@@ -171,7 +171,15 @@ def get_resistome_for_samples(
     if not samples:
         return {"matrix": {}, "temporal": {}, "clustering": {}}
 
-    # --- Resistome matrix ---
+    # --- Resistome matrix (antibiotic resistance only) ---
+    # Exclude metal, biocide, stress, and other non-antibiotic classes
+    _non_amr = {
+        "arsenic", "arsenate", "copper", "copper/silver", "silver",
+        "mercury", "organomercury", "zinc", "cadmium", "chromium", "lead",
+        "tellurium", "nickel", "cobalt", "quaternary ammonium", "hydrogen peroxide",
+        "triclosan", "benzalkonium", "chlorhexidine", "na",
+        "acid", "biocide", "metal", "stress",
+    }
     all_drug_classes: set = set()
     sample_drug_map = {}
     sample_gene_map = {}  # sample_id -> {drug_class -> [genes]}
@@ -184,7 +192,7 @@ def get_resistome_for_samples(
             if arg.drug_class:
                 for dc in arg.drug_class.split(";"):
                     dc_clean = dc.strip().lower()
-                    if dc_clean:
+                    if dc_clean and dc_clean not in _non_amr:
                         classes.add(dc_clean)
                         all_drug_classes.add(dc_clean)
                         gene_map[dc_clean].append(arg.gene)
