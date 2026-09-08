@@ -20,11 +20,12 @@ async function authFetch(url: string): Promise<Response> {
 
 // ─── Main Page ───
 export default function ToolsPage() {
-  const [toolTab, setToolTab] = useState<'phenotype' | 'hazard' | 'sra'>('phenotype');
+  const [toolTab, setToolTab] = useState<'phenotype' | 'hazard' | 'comparison' | 'sra'>('phenotype');
 
   const tabs = [
     { key: 'phenotype' as const, label: 'Phenotype Prediction' },
     { key: 'hazard' as const, label: 'Hazard Ranking' },
+    { key: 'comparison' as const, label: 'Genome Comparison' },
     { key: 'sra' as const, label: 'SRA Submission' },
   ];
 
@@ -43,6 +44,7 @@ export default function ToolsPage() {
 
       {toolTab === 'phenotype' && <PhenotypePredictionTool />}
       {toolTab === 'hazard' && <HazardRankingTool />}
+      {toolTab === 'comparison' && <GenomeComparisonTool />}
       {toolTab === 'sra' && <SRASubmissionTool />}
     </div>
   );
@@ -674,6 +676,185 @@ function HazardRankingTool() {
 
       {selectedProject && scores.length === 0 && !calculating && (
         <div className="card text-center py-8 text-gray-500">Click &quot;Calculate Risk&quot; to assess samples in this project.</div>
+      )}
+    </div>
+  );
+}
+
+// ─── Genome Comparison Tool ───
+
+interface ANIData {
+  samples: string[];
+  sample_ids: string[];
+  ani_matrix: number[][];
+  af_matrix: number[][];
+  message?: string;
+}
+
+function GenomeComparisonTool() {
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  const [selectedProject, setSelectedProject] = useState('');
+  const [aniData, setAniData] = useState<ANIData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [computing, setComputing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hoveredCell, setHoveredCell] = useState<{ i: number; j: number } | null>(null);
+
+  useEffect(() => {
+    authFetch('/api/projects')
+      .then((r) => r.json())
+      .then((d) => setProjects(d.items || d))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function computeANI() {
+    if (!selectedProject) return;
+    setComputing(true);
+    setError(null);
+    setAniData(null);
+    try {
+      const res = await authFetch(`/api/projects/${selectedProject}/ani`);
+      if (!res.ok) throw new Error(await res.text());
+      const d: ANIData = await res.json();
+      if (d.message) setError(d.message);
+      setAniData(d);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to compute ANI');
+    } finally {
+      setComputing(false);
+    }
+  }
+
+  function aniColor(val: number): string {
+    if (val >= 99.95) return 'bg-green-600/80 text-white';
+    if (val >= 99.0) return 'bg-green-600/40 text-green-200';
+    if (val >= 97.0) return 'bg-yellow-600/40 text-yellow-200';
+    if (val >= 95.0) return 'bg-orange-600/40 text-orange-200';
+    return 'bg-red-600/40 text-red-200';
+  }
+
+  function downloadANI() {
+    if (!aniData) return;
+    const { samples, ani_matrix } = aniData;
+    const headers = ['', ...samples];
+    const rows = samples.map((s, i) => [s, ...ani_matrix[i].map((v) => v.toFixed(2))]);
+    const tsv = [headers.join('\t'), ...rows.map((r) => r.join('\t'))].join('\n');
+    const blob = new Blob([tsv], { type: 'text/tab-separated-values' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'ani_matrix.tsv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  if (loading) return <div className="flex items-center justify-center h-32"><div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full" /></div>;
+
+  return (
+    <div className="space-y-6">
+      <p className="text-gray-400 text-sm">
+        Pairwise Average Nucleotide Identity (ANI) comparison across all samples in a project using skani.
+        Samples with ANI &ge;99.95% are highlighted as likely clonal.
+      </p>
+
+      {/* Project selector */}
+      <div className="card">
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="flex-1 min-w-[200px]">
+            <label className="block text-sm text-gray-400 mb-1">Project</label>
+            <select value={selectedProject} onChange={(e) => { setSelectedProject(e.target.value); setAniData(null); }} className="input w-full text-sm">
+              <option value="">Select a project...</option>
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          <button onClick={computeANI} disabled={!selectedProject || computing} className="btn-primary flex items-center gap-2 text-sm">
+            <RefreshCw className={`w-4 h-4 ${computing ? 'animate-spin' : ''}`} />
+            {computing ? 'Computing...' : 'Compute ANI'}
+          </button>
+        </div>
+      </div>
+
+      {error && <div className="p-4 bg-red-600/20 border border-red-600/50 rounded-lg text-red-300 text-sm">{error}</div>}
+
+      {/* ANI Matrix */}
+      {aniData && aniData.ani_matrix.length > 1 && (
+        <div className="card">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-gray-100">ANI Pairwise Matrix ({aniData.samples.length} samples)</h2>
+            <button onClick={downloadANI} className="btn-secondary text-xs flex items-center gap-1.5">
+              <Download className="w-3.5 h-3.5" />
+              Download TSV
+            </button>
+          </div>
+
+          {/* Legend */}
+          <div className="flex flex-wrap items-center gap-3 mb-4 text-xs text-gray-400">
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-600/80" /> &ge;99.95% (likely clonal)</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-600/40" /> 99.0-99.95%</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-yellow-600/40" /> 97.0-99.0%</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-orange-600/40" /> 95.0-97.0%</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-600/40" /> &lt;95% (different species)</span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="text-xs">
+              <thead>
+                <tr>
+                  <th className="px-2 py-1.5 text-left text-gray-400 font-medium sticky left-0 bg-gray-900 z-10" />
+                  {aniData.samples.map((s, j) => (
+                    <th key={j} className="px-2 py-1.5 text-gray-400 font-medium whitespace-nowrap" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', maxWidth: '2rem' }}>
+                      {s}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {aniData.samples.map((rowName, i) => (
+                  <tr key={i}>
+                    <td className="px-2 py-1 text-gray-300 font-medium whitespace-nowrap sticky left-0 bg-gray-900 z-10">{rowName}</td>
+                    {aniData.ani_matrix[i].map((val, j) => {
+                      const isHovered = hoveredCell?.i === i && hoveredCell?.j === j;
+                      const isDiag = i === j;
+                      return (
+                        <td
+                          key={j}
+                          className={`px-2 py-1 text-center font-mono cursor-default transition-all ${isDiag ? 'bg-gray-800/50 text-gray-600' : aniColor(val)} ${isHovered ? 'ring-2 ring-blue-400' : ''}`}
+                          onMouseEnter={() => setHoveredCell({ i, j })}
+                          onMouseLeave={() => setHoveredCell(null)}
+                          title={isDiag ? '' : `${rowName} vs ${aniData.samples[j]}\nANI: ${val.toFixed(2)}%\nAlign fraction: ${(aniData.af_matrix[i][j] * 100).toFixed(1)}%`}
+                        >
+                          {isDiag ? '-' : val.toFixed(1)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Hover detail */}
+          {hoveredCell && hoveredCell.i !== hoveredCell.j && (
+            <div className="mt-3 p-3 bg-gray-800/50 rounded-lg border border-gray-700 text-sm">
+              <span className="text-gray-200 font-medium">{aniData.samples[hoveredCell.i]}</span>
+              <span className="text-gray-500"> vs </span>
+              <span className="text-gray-200 font-medium">{aniData.samples[hoveredCell.j]}</span>
+              <span className="text-gray-400 ml-3">
+                ANI: <span className="text-white font-mono">{aniData.ani_matrix[hoveredCell.i][hoveredCell.j].toFixed(4)}%</span>
+              </span>
+              <span className="text-gray-400 ml-3">
+                Align fraction: <span className="text-white font-mono">{(aniData.af_matrix[hoveredCell.i][hoveredCell.j] * 100).toFixed(1)}%</span>
+              </span>
+              {aniData.ani_matrix[hoveredCell.i][hoveredCell.j] >= 99.95 && (
+                <span className="ml-3 px-2 py-0.5 bg-green-600/30 text-green-300 rounded text-xs">Likely clonal</span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {selectedProject && !aniData && !computing && (
+        <div className="card text-center py-8 text-gray-500">Click &quot;Compute ANI&quot; to calculate pairwise ANI for all samples.</div>
       )}
     </div>
   );

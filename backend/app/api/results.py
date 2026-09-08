@@ -248,6 +248,16 @@ def calculate_project_risk(project_id: uuid.UUID, db: Session = Depends(get_db),
     return results
 
 
+@router.get("/projects/{project_id}/ani")
+def get_project_ani(project_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Compute all-vs-all ANI for samples in a project using skani triangle."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    from app.core.ani import compute_project_ani
+    return compute_project_ani(str(project_id), db)
+
+
 @router.get("/samples/{sample_id}/risk", response_model=RiskScoreRead)
 def get_risk_score(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     sample = db.query(Sample).filter(Sample.id == sample_id).first()

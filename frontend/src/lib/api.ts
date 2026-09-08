@@ -378,6 +378,18 @@ export async function getPhylogeny(projectId: string): Promise<PhylogenyData> {
   return fetchAPI<PhylogenyData>(`/api/projects/${projectId}/phylogeny`);
 }
 
+export interface ANIData {
+  samples: string[];
+  sample_ids: string[];
+  ani_matrix: number[][];
+  af_matrix: number[][];
+  message?: string;
+}
+
+export async function getProjectANI(projectId: string): Promise<ANIData> {
+  return fetchAPI<ANIData>(`/api/projects/${projectId}/ani`);
+}
+
 export async function exportCSV(sampleId: string): Promise<Blob> {
   const res = await fetch(`/api/samples/${sampleId}/export`, { headers: getAuthHeaders() });
   if (!res.ok) {
