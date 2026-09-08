@@ -406,9 +406,9 @@ def _has_activating_context(
         return True
 
     # IS element upstream activation
-    if arg.contig and arg.start and arg.end:
+    if arg.contig and arg.start is not None and arg.end is not None:
         for mob in mobility_results:
-            if mob.contig and mob.contig == arg.contig and mob.start and mob.end:
+            if mob.contig and mob.contig == arg.contig and mob.start is not None and mob.end is not None:
                 # Check if IS element name is a known activator
                 is_name = (mob.element_type or "").lower().replace(" ", "").replace("-", "").replace("_", "")
                 is_family = (mob.family or "").lower().replace(" ", "").replace("-", "").replace("_", "")
@@ -636,9 +636,9 @@ def _get_transmissibility_level(
     mechanism = (arg.mechanism or "").upper()
     is_point_mutation = "POINT" in mechanism
 
-    if not is_point_mutation and arg.start and arg.end and ice_results:
+    if not is_point_mutation and arg.start is not None and arg.end is not None and ice_results:
         for ice in ice_results:
-            if ice.contig == contig and ice.start and ice.end:
+            if ice.contig == contig and ice.start is not None and ice.end is not None:
                 # Check overlap: ARG within ICE region
                 if arg.start >= ice.start and arg.end <= ice.end:
                     # ICE-borne → assign narrow conjugative level (4)
