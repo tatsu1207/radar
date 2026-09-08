@@ -4,8 +4,10 @@ import { useState, useEffect } from 'react';
 import { Download, AlertTriangle, Info, RefreshCw } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const ResistomeMap = dynamic(() => import('@/components/ResistomeMapInner'), { ssr: false, loading: () => <div className="flex items-center justify-center h-64"><div className="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full" /></div> }) as any;
+const ResistomeMap = dynamic(() => import('@/components/ResistomeMapInner'), {
+  ssr: false,
+  loading: () => <div className="flex items-center justify-center h-64"><div className="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full" /></div>,
+});
 
 function getAuthHeaders(): Record<string, string> {
   if (typeof window === 'undefined') return {};

@@ -1,6 +1,6 @@
 'use client';
 
-import { MapContainer, TileLayer, CircleMarker, Popup, Tooltip } from 'react-leaflet';
+import { useEffect, useState } from 'react';
 import 'leaflet/dist/leaflet.css';
 
 interface GeoSample {
@@ -34,50 +34,82 @@ function rankColor(rank: string | null): string {
 }
 
 export default function ResistomeMapInner({ geo, locations }: { geo: GeoSample[]; locations: LocationStat[] }) {
-  // Center on South Korea by default; adjust if data is elsewhere
-  const lats = geo.map((g) => g.latitude);
-  const lons = geo.map((g) => g.longitude);
-  const centerLat = lats.reduce((a, b) => a + b, 0) / lats.length;
-  const centerLon = lons.reduce((a, b) => a + b, 0) / lons.length;
+  const [mounted, setMounted] = useState(false);
+  const mapId = 'resistome-map-container';
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted || geo.length === 0) return;
+
+    // Dynamically import leaflet only on client side
+    let map: any = null;
+
+    (async () => {
+      const L = (await import('leaflet')).default;
+
+      const container = document.getElementById(mapId);
+      if (!container) return;
+
+      // Clean up any existing map
+      if ((container as any)._leaflet_id) {
+        (container as any)._leaflet_id = null;
+        container.innerHTML = '';
+      }
+
+      const lats = geo.map((g) => g.latitude);
+      const lons = geo.map((g) => g.longitude);
+      const centerLat = lats.reduce((a, b) => a + b, 0) / lats.length;
+      const centerLon = lons.reduce((a, b) => a + b, 0) / lons.length;
+
+      map = L.map(mapId).setView([centerLat, centerLon], 7);
+
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      }).addTo(map);
+
+      // Add markers
+      for (const s of geo) {
+        const color = rankColor(s.hazard_rank);
+        const radius = s.mdr_flag ? 12 : 8;
+
+        const marker = L.circleMarker([s.latitude, s.longitude], {
+          radius,
+          fillColor: color,
+          color: s.mdr_flag ? '#FCD34D' : '#374151',
+          weight: s.mdr_flag ? 2 : 1,
+          fillOpacity: 0.8,
+        }).addTo(map);
+
+        const popupContent = `
+          <div style="font-size:12px;min-width:180px;">
+            <p style="font-weight:bold;font-size:13px;margin:0 0 4px 0;">${s.sample_name}</p>
+            <p style="margin:2px 0;"><span style="color:#888;">Location:</span> ${s.location}</p>
+            <p style="margin:2px 0;"><span style="color:#888;">Source:</span> ${s.source}</p>
+            ${s.collection_date ? `<p style="margin:2px 0;"><span style="color:#888;">Date:</span> ${s.collection_date.split(' ')[0]}</p>` : ''}
+            <p style="margin:2px 0;"><span style="color:#888;">Hazard rank:</span> <strong>${s.hazard_rank || 'N/A'}</strong></p>
+            <p style="margin:2px 0;"><span style="color:#888;">Drug classes:</span> ${s.drug_class_count} (${s.drug_classes.join(', ')})</p>
+            ${s.mdr_flag ? '<p style="color:#ea580c;font-weight:bold;margin:4px 0 0 0;">MDR</p>' : ''}
+          </div>
+        `;
+
+        marker.bindPopup(popupContent);
+        marker.bindTooltip(s.sample_name, { direction: 'top', offset: [0, -8] });
+      }
+    })();
+
+    return () => {
+      if (map) {
+        map.remove();
+      }
+    };
+  }, [mounted, geo]);
 
   return (
     <div className="space-y-4">
-      <div style={{ height: '450px' }} className="rounded-lg overflow-hidden border border-gray-700">
-        <MapContainer center={[centerLat, centerLon]} zoom={7} style={{ height: '100%', width: '100%' }} scrollWheelZoom={true}>
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          />
-          {geo.map((s) => (
-            <CircleMarker
-              key={s.sample_id}
-              center={[s.latitude, s.longitude]}
-              radius={s.mdr_flag ? 12 : 8}
-              pathOptions={{
-                fillColor: rankColor(s.hazard_rank),
-                color: s.mdr_flag ? '#FCD34D' : '#374151',
-                weight: s.mdr_flag ? 2 : 1,
-                fillOpacity: 0.8,
-              }}
-            >
-              <Tooltip direction="top" offset={[0, -8]}>
-                <span className="text-xs font-medium">{s.sample_name}</span>
-              </Tooltip>
-              <Popup>
-                <div className="text-xs space-y-1 min-w-[180px]">
-                  <p className="font-bold text-sm">{s.sample_name}</p>
-                  <p><span className="text-gray-500">Location:</span> {s.location}</p>
-                  <p><span className="text-gray-500">Source:</span> {s.source}</p>
-                  {s.collection_date && <p><span className="text-gray-500">Date:</span> {s.collection_date.split(' ')[0]}</p>}
-                  <p><span className="text-gray-500">Hazard rank:</span> <strong>{s.hazard_rank || 'N/A'}</strong></p>
-                  <p><span className="text-gray-500">Drug classes:</span> {s.drug_class_count} ({s.drug_classes.join(', ')})</p>
-                  {s.mdr_flag && <p className="text-orange-600 font-bold">MDR</p>}
-                </div>
-              </Popup>
-            </CircleMarker>
-          ))}
-        </MapContainer>
-      </div>
+      <div id={mapId} style={{ height: '450px' }} className="rounded-lg overflow-hidden border border-gray-700 bg-gray-900" />
 
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-4 text-xs text-gray-400">
