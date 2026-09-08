@@ -258,6 +258,33 @@ def get_project_ani(project_id: uuid.UUID, db: Session = Depends(get_db), curren
     return compute_project_ani(str(project_id), db)
 
 
+@router.get("/projects/{project_id}/clusters")
+def get_outbreak_clusters(
+    project_id: uuid.UUID,
+    threshold: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Detect outbreak clusters using cgMLST distances and ANI."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Compute ANI matrix for cluster detection
+    from app.core.ani import compute_project_ani
+    ani_result = compute_project_ani(str(project_id), db)
+    ani_matrix = ani_result.get("ani_matrix")
+    ani_sample_ids = ani_result.get("sample_ids")
+
+    from app.core.outbreak import detect_clusters
+    return detect_clusters(
+        str(project_id), db,
+        ani_matrix=ani_matrix,
+        ani_sample_ids=ani_sample_ids,
+        cgmlst_threshold=threshold,
+    )
+
+
 @router.get("/samples/{sample_id}/risk", response_model=RiskScoreRead)
 def get_risk_score(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
