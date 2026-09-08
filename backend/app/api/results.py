@@ -276,7 +276,13 @@ def get_resistome_for_samples(
         lat = getattr(meta, 'latitude', None)
         lon = getattr(meta, 'longitude', None)
         if lat is None or lon is None:
-            continue
+            # Auto-geocode from location text
+            from app.core.geocode import geocode_location
+            coords = geocode_location(meta.location)
+            if coords:
+                lat, lon = coords
+            else:
+                continue
         classes = sample_drug_map.get(str(s.id), set())
         genes = sample_gene_map.get(str(s.id), {})
         # Get hazard rank
