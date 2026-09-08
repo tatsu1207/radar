@@ -412,8 +412,11 @@ def compute_syntracker(
     if len(sample_ids) < 2:
         raise HTTPException(status_code=400, detail="Need at least 2 samples")
 
+    mode = body.get("mode", "full")  # "full" or "regions"
+    flanking = body.get("flanking", 20000)
+
     from app.core.syntracker import compute_synteny_for_samples
-    return compute_synteny_for_samples(sample_ids, db)
+    return compute_synteny_for_samples(sample_ids, db, mode=mode, flanking=flanking)
 
 
 @router.get("/samples/{sample_id}/summary")

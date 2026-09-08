@@ -16,7 +16,7 @@ import os
 from typing import Dict, List, Optional, Tuple
 
 from app.config import settings
-from app.models.models import Sample, SampleStatus
+from app.models.models import Sample, SampleStatus, ARGResult, MobilityResult
 
 logger = logging.getLogger(__name__)
 
@@ -157,15 +157,78 @@ def _compute_synteny_score(
     return round(score, 4), n_shared, total
 
 
-def compute_synteny_for_samples(sample_ids: List[str], db) -> Dict:
+def _get_anchor_regions(sample_id: str, db, flanking: int = 20000) -> List[Tuple[str, int, int]]:
+    """Get genomic regions around ARGs and mobile elements.
+
+    Returns list of (contig, start, end) regions, merged if overlapping.
+    """
+    regions = []
+
+    # ARG positions
+    for a in db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all():
+        if a.contig and a.start is not None and a.end is not None:
+            regions.append((a.contig, max(0, a.start - flanking), a.end + flanking))
+
+    # Mobile element positions
+    for m in db.query(MobilityResult).filter(MobilityResult.sample_id == sample_id).all():
+        if m.contig and m.start is not None and m.end is not None:
+            regions.append((m.contig, max(0, m.start - flanking), m.end + flanking))
+
+    if not regions:
+        return []
+
+    # Merge overlapping regions per contig
+    by_contig = {}
+    for contig, start, end in regions:
+        if contig not in by_contig:
+            by_contig[contig] = []
+        by_contig[contig].append((start, end))
+
+    merged = []
+    for contig, intervals in by_contig.items():
+        intervals.sort()
+        cur_start, cur_end = intervals[0]
+        for s, e in intervals[1:]:
+            if s <= cur_end:
+                cur_end = max(cur_end, e)
+            else:
+                merged.append((contig, cur_start, cur_end))
+                cur_start, cur_end = s, e
+        merged.append((contig, cur_start, cur_end))
+
+    return merged
+
+
+def _filter_genes_by_regions(
+    genes: List[Tuple[str, str, int, int, int]],
+    regions: List[Tuple[str, int, int]],
+) -> List[Tuple[str, str, int, int, int]]:
+    """Keep only genes that overlap with any anchor region."""
+    if not regions:
+        return genes
+
+    filtered = []
+    for gene in genes:
+        md5, contig, start, end, strand = gene
+        for r_contig, r_start, r_end in regions:
+            if contig == r_contig and start < r_end and end > r_start:
+                filtered.append(gene)
+                break
+    return filtered
+
+
+def compute_synteny_for_samples(sample_ids: List[str], db, mode: str = "full", flanking: int = 20000) -> Dict:
     """Compute all-vs-all synteny scores for selected samples.
+
+    Args:
+        mode: "full" = entire genome, "regions" = only near ARGs/MGEs
+        flanking: bp flanking distance around ARG/MGE anchors (default 20kb)
 
     Returns:
         {
-            "samples": ["name1", "name2", ...],
-            "sample_ids": ["id1", "id2", ...],
-            "synteny_matrix": [[1.0, 0.95, ...], ...],
-            "shared_genes_matrix": [[5000, 4200, ...], ...],
+            "samples": [...], "sample_ids": [...],
+            "synteny_matrix": [[...]], "shared_genes_matrix": [[...]],
+            "mode": "full" | "regions", "flanking": int,
         }
     """
     # Load samples and their protein hashes
@@ -178,7 +241,11 @@ def compute_synteny_for_samples(sample_ids: List[str], db) -> Dict:
         if faa:
             genes = _load_gene_hashes(faa)
             if genes:
-                sample_info.append((s, genes))
+                if mode == "regions":
+                    regions = _get_anchor_regions(str(s.id), db, flanking)
+                    genes = _filter_genes_by_regions(genes, regions)
+                if genes:
+                    sample_info.append((s, genes))
 
     if len(sample_info) < 2:
         return {
@@ -209,4 +276,6 @@ def compute_synteny_for_samples(sample_ids: List[str], db) -> Dict:
         "sample_ids": [str(s.id) for s, _ in sample_info],
         "synteny_matrix": synteny_matrix,
         "shared_genes_matrix": shared_matrix,
+        "mode": mode,
+        "flanking": flanking if mode == "regions" else None,
     }

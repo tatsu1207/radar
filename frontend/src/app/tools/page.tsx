@@ -1132,6 +1132,8 @@ interface SyntenyData {
   sample_ids: string[];
   synteny_matrix: number[][];
   shared_genes_matrix: number[][];
+  mode?: string;
+  flanking?: number | null;
   message?: string;
 }
 
@@ -1141,6 +1143,8 @@ function SynTrackerTool() {
   const [computing, setComputing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hoveredCell, setHoveredCell] = useState<{ i: number; j: number } | null>(null);
+  const [synMode, setSynMode] = useState<'full' | 'regions'>('full');
+  const [flanking, setFlanking] = useState(20000);
 
   async function runAnalysis() {
     if (picker.selectedIds.length < 2) return;
@@ -1148,7 +1152,11 @@ function SynTrackerTool() {
     setError(null);
     setData(null);
     try {
-      const res = await authPost('/api/tools/syntracker', { sample_ids: picker.selectedIds });
+      const res = await authPost('/api/tools/syntracker', {
+        sample_ids: picker.selectedIds,
+        mode: synMode,
+        flanking,
+      });
       if (!res.ok) throw new Error(await res.text());
       const d: SyntenyData = await res.json();
       if (d.message) setError(d.message);
@@ -1195,6 +1203,28 @@ function SynTrackerTool() {
       </p>
 
       <SamplePicker samples={picker.allSamples} selected={picker.selected} onToggle={picker.toggle} onSelectAll={picker.selectAll} onDeselectAll={picker.deselectAll} loading={picker.loading} />
+
+      {/* Mode selection */}
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-xs text-gray-400">Compare:</span>
+        <button onClick={() => setSynMode('full')} className={`px-3 py-1.5 rounded-lg text-xs font-medium ${synMode === 'full' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+          Full genome
+        </button>
+        <button onClick={() => setSynMode('regions')} className={`px-3 py-1.5 rounded-lg text-xs font-medium ${synMode === 'regions' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+          ARG + mobilome regions
+        </button>
+        {synMode === 'regions' && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-gray-500">Flanking:</span>
+            <select value={flanking} onChange={(e) => setFlanking(Number(e.target.value))} className="input text-xs py-1 px-2">
+              <option value={5000}>5 kb</option>
+              <option value={10000}>10 kb</option>
+              <option value={20000}>20 kb</option>
+              <option value={50000}>50 kb</option>
+            </select>
+          </div>
+        )}
+      </div>
 
       <button onClick={runAnalysis} disabled={picker.selectedIds.length < 2 || computing} className="btn-primary flex items-center gap-2 text-sm">
         <RefreshCw className={`w-4 h-4 ${computing ? 'animate-spin' : ''}`} />
