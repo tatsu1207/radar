@@ -168,6 +168,11 @@ def compute_easyfig(sample_ids: List[str], db, threads: int = 4) -> Dict:
         return {"genomes": [], "alignments": [],
                 "message": "Need at least 2 samples with assemblies."}
 
+    # For 3+ samples, reorder by similarity so adjacent pairs are most related.
+    # Compute all pairwise aligned bases via quick BLAST, then greedy nearest-neighbor.
+    if len(sample_info) >= 3:
+        sample_info = _reorder_by_similarity(sample_info, threads)
+
     genomes = []
     for info in sample_info:
         genomes.append({
@@ -193,3 +198,74 @@ def compute_easyfig(sample_ids: List[str], db, threads: int = 4) -> Dict:
         })
 
     return {"genomes": genomes, "alignments": alignments}
+
+
+def _quick_similarity(fasta_a: str, fasta_b: str, threads: int = 4) -> int:
+    """Quick BLASTn to estimate total aligned bases between two assemblies."""
+    with tempfile.NamedTemporaryFile(suffix=".tsv", delete=False) as f:
+        output_file = f.name
+    try:
+        cmd = [
+            "conda", "run", "-n", CONDA_ENV,
+            "blastn", "-query", fasta_a, "-subject", fasta_b,
+            "-outfmt", "6 length",
+            "-evalue", "1e-10", "-max_target_seqs", "5000",
+            "-num_threads", str(threads),
+            "-out", output_file,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if result.returncode != 0:
+            return 0
+        total = 0
+        with open(output_file) as f:
+            for line in f:
+                v = line.strip()
+                if v:
+                    total += int(v)
+        return total
+    except Exception:
+        return 0
+    finally:
+        if os.path.exists(output_file):
+            os.unlink(output_file)
+
+
+def _reorder_by_similarity(sample_info: list, threads: int) -> list:
+    """Reorder samples so the most similar genomes are adjacent.
+
+    Uses greedy nearest-neighbor: start with the first sample, always
+    pick the most similar unvisited sample as next.
+    """
+    n = len(sample_info)
+    if n <= 2:
+        return sample_info
+
+    # Compute all pairwise similarities
+    sim = [[0] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            s = _quick_similarity(
+                sample_info[i]["assembly"],
+                sample_info[j]["assembly"],
+                threads=threads,
+            )
+            sim[i][j] = s
+            sim[j][i] = s
+
+    # Greedy nearest-neighbor ordering
+    visited = [False] * n
+    order = [0]
+    visited[0] = True
+    for _ in range(n - 1):
+        current = order[-1]
+        best_idx = -1
+        best_sim = -1
+        for j in range(n):
+            if not visited[j] and sim[current][j] > best_sim:
+                best_sim = sim[current][j]
+                best_idx = j
+        if best_idx >= 0:
+            order.append(best_idx)
+            visited[best_idx] = True
+
+    return [sample_info[i] for i in order]
