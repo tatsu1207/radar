@@ -224,17 +224,31 @@ def get_resistome_for_samples(
 
         time_points = sorted(date_groups.keys())
         series = {}
+        counts = {}
+        sample_counts = []  # total samples at each time point
+        for tp in time_points:
+            sample_counts.append(len(date_groups[tp]))
         for dc in drug_classes_sorted:
             prevalence = []
+            dc_counts = []
             for tp in time_points:
                 tp_samples = date_groups[tp]
                 if not tp_samples:
                     prevalence.append(0.0)
+                    dc_counts.append(0)
                     continue
                 r_count = sum(1 for s in tp_samples if dc in sample_drug_map.get(str(s.id), set()))
                 prevalence.append(round(r_count / len(tp_samples), 3))
+                dc_counts.append(r_count)
             series[dc] = prevalence
-        temporal = {"time_points": time_points, "drug_classes": drug_classes_sorted, "series": series}
+            counts[dc] = dc_counts
+        temporal = {
+            "time_points": time_points,
+            "drug_classes": drug_classes_sorted,
+            "series": series,
+            "counts": counts,
+            "sample_counts": sample_counts,
+        }
 
     # --- Clustering (Jaccard distance) ---
     n = len(samples)

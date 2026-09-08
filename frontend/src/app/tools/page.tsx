@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Download, AlertTriangle, Info, RefreshCw } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from 'recharts';
 import dynamic from 'next/dynamic';
 
 const TemporalGeoMap = dynamic(() => import('@/components/ResistomeMapInner'), {
@@ -1508,6 +1509,8 @@ interface ResistomeData {
     time_points: string[];
     drug_classes: string[];
     series: Record<string, number[]>;
+    counts?: Record<string, number[]>;
+    sample_counts?: number[];
   };
   distance_matrix: number[][];
   geo?: GeoSample[];
@@ -1664,48 +1667,37 @@ function ResistomeTrackerTool() {
             </div>
           )}
 
-          {/* Prevalence table */}
-          <div className="card">
-            <h2 className="text-sm font-semibold text-gray-100 mb-4">Resistance Prevalence Over Time</h2>
-            <div className="overflow-x-auto">
-              <table className="text-xs w-full">
-                <thead>
-                  <tr className="border-b border-gray-800">
-                    <th className="px-2 py-1.5 text-left text-gray-400 font-medium sticky left-0 bg-gray-900">Drug Class</th>
-                    {data.temporal.time_points.map((tp) => (
-                      <th key={tp} className="px-2 py-1.5 text-gray-400 font-medium text-center">{tp}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.temporal.drug_classes.map((dc) => {
-                    const values = data.temporal.series[dc] || [];
-                    const hasChange = values.length > 1 && values[0] !== values[values.length - 1];
+          {/* Line chart */}
+          {data.temporal.time_points.length > 0 && data.temporal.counts && (
+            <div className="card">
+              <h2 className="text-sm font-semibold text-gray-100 mb-4">Resistant Isolate Count Over Time</h2>
+              <ResponsiveContainer width="100%" height={350}>
+                <LineChart data={data.temporal.time_points.map((tp, idx) => {
+                  const point: Record<string, string | number> = { date: tp.split(' ')[0] };
+                  for (const dc of data.temporal.drug_classes) {
+                    point[dc] = data.temporal.counts![dc]?.[idx] ?? 0;
+                  }
+                  return point;
+                })}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                  <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} allowDecimals={false} label={{ value: 'Isolates', angle: -90, position: 'insideLeft', fill: '#6B7280', fontSize: 11 }} />
+                  <RechartsTooltip contentStyle={{ background: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: 11 }} />
+                  <Legend wrapperStyle={{ fontSize: 10 }} />
+                  {data.temporal.drug_classes.map((dc, i) => {
+                    const colors = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#F97316', '#06B6D4', '#84CC16', '#A855F7', '#14B8A6', '#E11D48'];
                     return (
-                      <tr key={dc} className="border-b border-gray-800/30">
-                        <td className="px-2 py-1 text-gray-300 font-medium whitespace-nowrap sticky left-0 bg-gray-900">
-                          {dc}
-                          {hasChange && (
-                            <span className={`ml-1 text-[10px] ${values[values.length - 1] > values[0] ? 'text-red-400' : 'text-green-400'}`}>
-                              {values[values.length - 1] > values[0] ? '↑' : '↓'}
-                            </span>
-                          )}
-                        </td>
-                        {values.map((v, idx) => (
-                          <td key={idx} className="px-2 py-1 text-center">
-                            <span className={`font-mono ${v >= 0.5 ? 'text-red-400' : v > 0 ? 'text-yellow-400' : 'text-gray-600'}`}>
-                              {(v * 100).toFixed(0)}%
-                            </span>
-                          </td>
-                        ))}
-                      </tr>
+                      <Line key={dc} type="monotone" dataKey={dc} stroke={colors[i % colors.length]} strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                     );
                   })}
-                </tbody>
-              </table>
+                </LineChart>
+              </ResponsiveContainer>
+              <p className="mt-2 text-xs text-gray-600">
+                Y-axis = number of isolates carrying resistance at each time point.
+                {data.temporal.sample_counts && ` Total samples per date: ${data.temporal.time_points.map((tp, i) => `${tp.split(' ')[0]} (n=${data.temporal.sample_counts![i]})`).join(', ')}.`}
+              </p>
             </div>
-            <p className="mt-3 text-xs text-gray-600">Prevalence = fraction of samples at each time point carrying resistance. ↑ increasing ↓ decreasing trend.</p>
-          </div>
+          )}
         </div>
       )}
 
