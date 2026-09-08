@@ -1508,6 +1508,7 @@ function PangenomeTool() {
   const [computing, setComputing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hoveredGene, setHoveredGene] = useState<PangenomeFeature | null>(null);
+  const [zoom, setZoom] = useState(1.0);
 
   async function runAnalysis() {
     if (picker.selectedIds.length < 2) return;
@@ -1660,8 +1661,17 @@ function PangenomeTool() {
           {/* Circular map + hover detail */}
           <div className="card">
             <div className="flex items-start gap-6">
-              <div className="flex-shrink-0">
-                {renderCircularMap()}
+              <div className="flex-shrink-0 relative">
+                <div className="absolute top-2 left-2 z-10 flex flex-col gap-1">
+                  <button onClick={() => setZoom((z) => Math.min(z + 0.25, 3))} className="w-7 h-7 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-bold border border-gray-700">+</button>
+                  <button onClick={() => setZoom((z) => Math.max(z - 0.25, 0.5))} className="w-7 h-7 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-bold border border-gray-700">−</button>
+                  <button onClick={() => setZoom(1)} className="w-7 h-7 rounded bg-gray-800 hover:bg-gray-700 text-gray-400 text-[9px] border border-gray-700">1:1</button>
+                </div>
+                <div className="overflow-auto" style={{ maxWidth: '620px', maxHeight: '620px' }}>
+                  <div style={{ transform: `scale(${zoom})`, transformOrigin: 'center center', transition: 'transform 0.2s' }}>
+                    {renderCircularMap()}
+                  </div>
+                </div>
               </div>
               <div className="flex-1 space-y-4">
                 {/* Legend */}
