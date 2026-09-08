@@ -271,6 +271,30 @@ def compute_synteny_for_samples(sample_ids: List[str], db, mode: str = "full", f
             shared_matrix[i][j] = n_shared
             shared_matrix[j][i] = n_shared
 
+    # Reorder by similarity (greedy nearest-neighbor) so most similar pairs are adjacent
+    if n >= 3:
+        visited = [False] * n
+        order = [0]
+        visited[0] = True
+        for _ in range(n - 1):
+            cur = order[-1]
+            best_idx = -1
+            best_score = -1.0
+            for j in range(n):
+                if not visited[j] and synteny_matrix[cur][j] > best_score:
+                    best_score = synteny_matrix[cur][j]
+                    best_idx = j
+            if best_idx >= 0:
+                order.append(best_idx)
+                visited[best_idx] = True
+
+        # Reorder sample_info, matrices
+        sample_info = [sample_info[i] for i in order]
+        new_syn = [[synteny_matrix[i][j] for j in order] for i in order]
+        new_shared = [[shared_matrix[i][j] for j in order] for i in order]
+        synteny_matrix = new_syn
+        shared_matrix = new_shared
+
     # Build region diagrams when in regions mode
     region_diagrams = None
     if mode == "regions" and len(sample_info) >= 2:
