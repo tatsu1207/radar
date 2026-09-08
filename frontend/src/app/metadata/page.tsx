@@ -83,6 +83,100 @@ function EditableCell({
   );
 }
 
+// Korean cities for location dropdown
+const KOREAN_CITIES = [
+  'Seoul', 'Busan', 'Daegu', 'Incheon', 'Gwangju', 'Daejeon', 'Ulsan', 'Sejong',
+  'Suwon', 'Seongnam', 'Goyang', 'Yongin', 'Hwaseong', 'Cheongju', 'Chungju',
+  'Cheonan', 'Jeonju', 'Pohang', 'Changwon', 'Gimhae', 'Jecheon', 'Wonju',
+  'Chuncheon', 'Gangneung', 'Sokcho', 'Andong', 'Gumi', 'Gyeongju', 'Jinju',
+  'Tongyeong', 'Mokpo', 'Suncheon', 'Yeosu', 'Gwangyang', 'Gimcheon', 'Seosan',
+  'Asan', 'Iksan', 'Gunsan', 'Namwon', 'Gimpo', 'Paju', 'Uijeongbu', 'Pyeongtaek',
+  'Ansan', 'Anyang', 'Bucheon', 'Siheung', 'Hanam', 'Icheon', 'Donghae',
+  'Samcheok', 'Yeongju', 'Sangju', 'Geoje', 'Miryang', 'Yangsan', 'Sacheon',
+  'Naju', 'Seogwipo', 'Boryeong', 'Nonsan', 'Gongju', 'Dangjin', 'Jeju',
+  'Gangnam', 'Seocho', 'Songpa', 'Mapo', 'Yongsan', 'Jongno', 'Yeongdeungpo',
+  'Nowon', 'Gangbuk', 'Gangdong', 'Gangseo', 'Gwanak', 'Dongdaemun', 'Seongdong',
+].sort();
+
+function DatePickerCell({ value, onSave }: { value: string | null; onSave: (val: string) => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value?.split(' ')[0] || '');
+  const [saving, setSaving] = useState(false);
+
+  async function save(val: string) {
+    if (val === (value?.split(' ')[0] || '')) { setEditing(false); return; }
+    setSaving(true);
+    try { await onSave(val); setEditing(false); } catch {} finally { setSaving(false); }
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1">
+        <input type="date" value={draft} onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => save(draft)} onKeyDown={(e) => { if (e.key === 'Enter') save(draft); if (e.key === 'Escape') setEditing(false); }}
+          className="input text-xs py-0.5 px-1.5" disabled={saving} autoFocus />
+        <button onClick={() => setEditing(false)} className="p-0.5 text-gray-500 hover:text-gray-300"><X className="w-3.5 h-3.5" /></button>
+      </div>
+    );
+  }
+  return (
+    <span onClick={() => { setDraft(value?.split(' ')[0] || ''); setEditing(true); }}
+      className="cursor-pointer hover:bg-gray-800/50 rounded px-1 py-0.5 -mx-1 block min-h-[1.5em]" title="Click to edit">
+      {value?.split(' ')[0] || <span className="text-gray-600">&mdash;</span>}
+    </span>
+  );
+}
+
+function LocationPickerCell({ value, onSave }: { value: string | null; onSave: (val: string) => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [search, setSearch] = useState(value || '');
+  const [saving, setSaving] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  const filtered = KOREAN_CITIES.filter((c) => c.toLowerCase().includes(search.toLowerCase()));
+
+  async function selectCity(city: string) {
+    setSearch(city);
+    setShowDropdown(false);
+    if (city === (value || '')) { setEditing(false); return; }
+    setSaving(true);
+    try { await onSave(city); setEditing(false); } catch {} finally { setSaving(false); }
+  }
+
+  if (editing) {
+    return (
+      <div className="relative">
+        <div className="flex items-center gap-1">
+          <input type="text" value={search} onChange={(e) => { setSearch(e.target.value); setShowDropdown(true); }}
+            onFocus={() => setShowDropdown(true)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && filtered.length > 0) selectCity(filtered[0]);
+              if (e.key === 'Escape') { setEditing(false); setShowDropdown(false); }
+            }}
+            className="input text-xs py-0.5 px-1.5 w-full" placeholder="Type city name..." disabled={saving} autoFocus />
+          <button onClick={() => { setEditing(false); setShowDropdown(false); }} className="p-0.5 text-gray-500 hover:text-gray-300"><X className="w-3.5 h-3.5" /></button>
+        </div>
+        {showDropdown && filtered.length > 0 && (
+          <div className="absolute z-20 top-full left-0 mt-1 w-full max-h-40 overflow-y-auto bg-gray-800 border border-gray-700 rounded-lg shadow-lg">
+            {filtered.slice(0, 20).map((city) => (
+              <button key={city} onClick={() => selectCity(city)}
+                className="block w-full text-left px-2 py-1 text-xs text-gray-200 hover:bg-blue-600/30">
+                {city}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+  return (
+    <span onClick={() => { setSearch(value || ''); setEditing(true); }}
+      className="cursor-pointer hover:bg-gray-800/50 rounded px-1 py-0.5 -mx-1 block min-h-[1.5em]" title="Click to edit">
+      {value || <span className="text-gray-600">&mdash;</span>}
+    </span>
+  );
+}
+
 export default function MetadataPage() {
   const [rows, setRows] = useState<MetadataRow[]>([]);
   const [customColumns, setCustomColumns] = useState<string[]>([]);
@@ -302,11 +396,23 @@ export default function MetadataPage() {
                     </td>
                     {fixedColumns.map((col) => (
                       <td key={col} className="table-cell text-sm">
-                        <EditableCell
-                          value={row[col] || null}
-                          onSave={(val) => handleCellSave(row.sample_id, col, val)}
-                          placeholder={columnLabels[col] || col}
-                        />
+                        {col === 'collection_date' ? (
+                          <DatePickerCell
+                            value={row[col] || null}
+                            onSave={(val) => handleCellSave(row.sample_id, col, val)}
+                          />
+                        ) : col === 'location' ? (
+                          <LocationPickerCell
+                            value={row[col] || null}
+                            onSave={(val) => handleCellSave(row.sample_id, col, val)}
+                          />
+                        ) : (
+                          <EditableCell
+                            value={row[col] || null}
+                            onSave={(val) => handleCellSave(row.sample_id, col, val)}
+                            placeholder={columnLabels[col] || col}
+                          />
+                        )}
                       </td>
                     ))}
                     {customColumns.map((col) => (
