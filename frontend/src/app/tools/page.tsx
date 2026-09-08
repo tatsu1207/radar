@@ -3,6 +3,21 @@
 import { useState, useEffect } from 'react';
 import { Download, AlertTriangle, Info } from 'lucide-react';
 
+function getAuthHeaders(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  const token = localStorage.getItem('radar_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function authFetch(url: string): Promise<Response> {
+  const res = await fetch(url, { headers: getAuthHeaders() });
+  if (res.status === 401 && typeof window !== 'undefined') {
+    localStorage.removeItem('radar_token');
+    window.location.href = '/login';
+  }
+  return res;
+}
+
 // ─── Main Page ───
 export default function ToolsPage() {
   const [toolTab, setToolTab] = useState<'phenotype' | 'sra'>('phenotype');
@@ -68,7 +83,7 @@ function PhenotypePredictionTool() {
   const [searchText, setSearchText] = useState('');
 
   useEffect(() => {
-    fetch('/api/pipeline/status')
+    authFetch('/api/pipeline/status')
       .then((r) => r.json())
       .then((d: { sample_id: string; sample_name: string; status: string }[]) => {
         const completed = d.filter((s) => s.status === 'complete');
@@ -85,7 +100,7 @@ function PhenotypePredictionTool() {
     if (!sampleId) return;
     setPredLoading(true);
     try {
-      const res = await fetch(`/api/samples/${sampleId}/ml-predictions`);
+      const res = await authFetch(`/api/samples/${sampleId}/ml-predictions`);
       if (!res.ok) throw new Error(await res.text());
       const d: MLPredictionResponse = await res.json();
       setData(d);
@@ -421,7 +436,7 @@ function SRASubmissionTool() {
   const [edited, setEdited] = useState<Record<string, Partial<SRASample>>>({});
 
   useEffect(() => {
-    fetch('/api/sra-submission')
+    authFetch('/api/sra-submission')
       .then((r) => r.json())
       .then((d) => { setSamples(d); setLoading(false); })
       .catch(() => setLoading(false));
