@@ -1555,38 +1555,80 @@ function PangenomeTool() {
       return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
     }
 
+    // Merge adjacent features of same type into blocks for performance
+    function mergeFeatures(feats: PangenomeFeature[]): { start: number; end: number; type: string; name: string | null; n_samples: number }[] {
+      if (feats.length === 0) return [];
+      const merged: { start: number; end: number; type: string; name: string | null; n_samples: number }[] = [];
+      let cur = { start: feats[0].start, end: feats[0].end, type: feats[0].type, name: feats[0].name, n_samples: feats[0].n_samples };
+      for (let i = 1; i < feats.length; i++) {
+        const f = feats[i];
+        // Merge if same type (except ARG/VF which stay individual) and close together
+        if (f.type === cur.type && f.type !== 'arg' && f.type !== 'vf' && f.start - cur.end < total_length * 0.002) {
+          cur.end = f.end;
+        } else {
+          merged.push(cur);
+          cur = { start: f.start, end: f.end, type: f.type, name: f.name, n_samples: f.n_samples };
+        }
+      }
+      merged.push(cur);
+      return merged;
+    }
+
+    // Merge consecutive present segments for sample rings
+    function mergeSegments(segs: PangenomeRingSegment[]): { start: number; end: number }[] {
+      const present = segs.filter((s) => s.present);
+      if (present.length === 0) return [];
+      const merged: { start: number; end: number }[] = [];
+      let cur = { start: present[0].start, end: present[0].end };
+      for (let i = 1; i < present.length; i++) {
+        if (present[i].start - cur.end < total_length * 0.002) {
+          cur.end = present[i].end;
+        } else {
+          merged.push(cur);
+          cur = { start: present[i].start, end: present[i].end };
+        }
+      }
+      merged.push(cur);
+      return merged;
+    }
+
+    const mergedRef = mergeFeatures(reference_features);
+    const mergedRings = sample_rings.map((ring) => ({ ...ring, mergedSegs: mergeSegments(ring.segments) }));
+
     return (
       <svg width={size} height={size} className="bg-gray-900 rounded-lg">
         {/* Reference ring (innermost) */}
         <circle cx={cx} cy={cy} r={refRadius} fill="none" stroke="#374151" strokeWidth={ringWidth} />
-        {reference_features.map((feat, i) => {
+        {mergedRef.map((feat, i) => {
           const a1 = toAngle(feat.start);
           const a2 = toAngle(feat.end);
-          if (a2 - a1 < 0.1) return null;
+          if (a2 - a1 < 0.05) return null;
           const color = PAN_COLORS[feat.type] || PAN_COLORS.accessory;
+          const isSpecial = feat.type === 'arg' || feat.type === 'vf';
           return (
             <path key={`ref-${i}`} d={arcPath(refRadius, a1, a2)}
-              stroke={color} strokeWidth={ringWidth - 1} fill="none" opacity={0.9}
-              onMouseEnter={() => setHoveredGene(feat)}
-              onMouseLeave={() => setHoveredGene(null)}
-              style={{ cursor: 'pointer' }}
+              stroke={color} strokeWidth={isSpecial ? ringWidth + 2 : ringWidth - 1} fill="none" opacity={isSpecial ? 1 : 0.8}
+              {...(isSpecial ? {
+                onMouseEnter: () => setHoveredGene(feat as any),
+                onMouseLeave: () => setHoveredGene(null),
+                style: { cursor: 'pointer' },
+              } : {})}
             >
-              <title>{feat.name || feat.type} ({feat.n_samples}/{data.stats.n_samples} samples)</title>
+              {isSpecial && <title>{feat.name} ({feat.type.toUpperCase()})</title>}
             </path>
           );
         })}
 
         {/* Sample rings (outer) */}
-        {sample_rings.map((ring, rIdx) => {
+        {mergedRings.map((ring, rIdx) => {
           const r = refRadius + (rIdx + 1) * (ringWidth + ringGap);
           return (
             <g key={ring.sample_id}>
               <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1F2937" strokeWidth={ringWidth} />
-              {ring.segments.map((seg, sIdx) => {
-                if (!seg.present) return null;
+              {ring.mergedSegs.map((seg, sIdx) => {
                 const a1 = toAngle(seg.start);
                 const a2 = toAngle(seg.end);
-                if (a2 - a1 < 0.1) return null;
+                if (a2 - a1 < 0.05) return null;
                 return (
                   <path key={`r${rIdx}-s${sIdx}`} d={arcPath(r, a1, a2)}
                     stroke="#3B82F6" strokeWidth={ringWidth - 1} fill="none" opacity={0.6} />
