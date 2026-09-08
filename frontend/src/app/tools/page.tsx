@@ -1780,9 +1780,34 @@ function PangenomeTool() {
                     <Download className="w-3.5 h-3.5" />
                   </button>
                 </div>
-                <div className="overflow-auto" style={{ maxWidth: '750px', maxHeight: '750px', cursor: zoom > 1 ? 'grab' : 'default' }}
-                  onMouseDown={(e) => { if (zoom > 1) { const el = e.currentTarget; el.style.cursor = 'grabbing'; const onUp = () => { el.style.cursor = 'grab'; window.removeEventListener('mouseup', onUp); }; window.addEventListener('mouseup', onUp); } }}>
-                  <div style={{ transform: `scale(${zoom})`, transformOrigin: 'center center', transition: 'transform 0.2s' }}>
+                <div className="overflow-hidden relative" style={{ maxWidth: '750px', maxHeight: '750px', cursor: zoom > 1 ? 'grab' : 'default' }}
+                  onMouseDown={(e) => {
+                    if (zoom <= 1) return;
+                    e.preventDefault();
+                    const el = e.currentTarget;
+                    const inner = el.firstElementChild as HTMLElement;
+                    if (!inner) return;
+                    el.style.cursor = 'grabbing';
+                    const startX = e.clientX;
+                    const startY = e.clientY;
+                    const currentTransform = inner.style.transform;
+                    const match = currentTransform.match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/);
+                    const tx0 = match ? parseFloat(match[1]) : 0;
+                    const ty0 = match ? parseFloat(match[2]) : 0;
+                    const onMove = (ev: MouseEvent) => {
+                      const dx = ev.clientX - startX;
+                      const dy = ev.clientY - startY;
+                      inner.style.transform = `translate(${tx0 + dx}px, ${ty0 + dy}px) scale(${zoom})`;
+                    };
+                    const onUp = () => {
+                      el.style.cursor = 'grab';
+                      window.removeEventListener('mousemove', onMove);
+                      window.removeEventListener('mouseup', onUp);
+                    };
+                    window.addEventListener('mousemove', onMove);
+                    window.addEventListener('mouseup', onUp);
+                  }}>
+                  <div style={{ transform: `scale(${zoom})`, transformOrigin: 'center center', transition: 'transform 0.15s' }}>
                     {renderCircularMap()}
                   </div>
                 </div>
