@@ -121,11 +121,28 @@ function useSamplePicker() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    authFetch('/api/tools/samples')
-      .then((r) => r.json())
-      .then((d) => setAllSamples(d))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    async function load() {
+      // Retry up to 3 times with delay (token may not be in localStorage yet after login redirect)
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const r = await authFetch('/api/tools/samples');
+          if (r.ok) {
+            const d = await r.json();
+            if (!cancelled && Array.isArray(d)) setAllSamples(d);
+            return;
+          }
+          if (r.status === 401 && attempt < 2) {
+            await new Promise((res) => setTimeout(res, 1000));
+            continue;
+          }
+        } catch { /* ignore */ }
+        break;
+      }
+      // Fallback: empty list
+    }
+    load().finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, []);
 
   const toggle = (id: string) => setSelected((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
