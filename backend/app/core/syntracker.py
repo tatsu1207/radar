@@ -107,7 +107,7 @@ def _parse_apss_matrix(summary_dir: str, sample_names: List[str]) -> Optional[Di
 
 
 @celery_app.task(name="run_syntracker", bind=True)
-def run_syntracker_task(self, sample_ids: list, job_id: str, threads: int = 4):
+def run_syntracker_task(self, sample_ids: list, job_id: str, threads: int = 16):
     """Run SynTracker all-vs-all on selected samples."""
     import subprocess
 
@@ -167,6 +167,7 @@ def run_syntracker_task(self, sample_ids: list, job_id: str, threads: int = 4):
             "-ref", ref_dir,
             "-out", output_dir,
             "-cores", str(threads),
+            "-length", "5000",
             "-mode", "new",
         ]
 
