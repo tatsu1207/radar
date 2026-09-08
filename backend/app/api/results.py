@@ -148,6 +148,23 @@ def detect_clusters_for_samples(
     )
 
 
+@router.post("/tools/easyfig")
+def compute_easyfig_endpoint(
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Compute BLASTn-based synteny alignments for visualization."""
+    sample_ids = body.get("sample_ids", [])
+    if len(sample_ids) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 samples")
+    if len(sample_ids) > 4:
+        raise HTTPException(status_code=400, detail="Maximum 4 samples for synteny visualization")
+
+    from app.core.easyfig import compute_easyfig
+    return compute_easyfig(sample_ids, db)
+
+
 @router.post("/tools/syntracker")
 def compute_syntracker(
     body: dict,
