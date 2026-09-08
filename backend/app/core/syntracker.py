@@ -271,6 +271,59 @@ def compute_synteny_for_samples(sample_ids: List[str], db, mode: str = "full", f
             shared_matrix[i][j] = n_shared
             shared_matrix[j][i] = n_shared
 
+    # Build region diagrams when in regions mode
+    region_diagrams = None
+    if mode == "regions" and len(sample_info) >= 2:
+        region_diagrams = []
+        # For each sample, get the anchor regions and genes within them
+        for s, genes in sample_info:
+            regions = _get_anchor_regions(str(s.id), db, flanking)
+            sample_regions = []
+            for r_contig, r_start, r_end in regions:
+                region_genes = []
+                for gene in genes:
+                    md5, contig, start, end, strand = gene
+                    if contig == r_contig and start < r_end and end > r_start:
+                        # Check if this gene is an ARG or MGE
+                        gene_type = "cds"
+                        gene_name = None
+                        for a in db.query(ARGResult).filter(
+                            ARGResult.sample_id == s.id, ARGResult.contig == contig
+                        ).all():
+                            if a.start is not None and abs(a.start - start) < 100:
+                                gene_type = "arg"
+                                gene_name = a.gene
+                                break
+                        if gene_type == "cds":
+                            for m in db.query(MobilityResult).filter(
+                                MobilityResult.sample_id == s.id, MobilityResult.contig == contig
+                            ).all():
+                                if m.start is not None and abs(m.start - start) < 100:
+                                    gene_type = "mge"
+                                    gene_name = m.element_type or m.family
+                                    break
+                        region_genes.append({
+                            "start": start - r_start,  # relative to region start
+                            "end": end - r_start,
+                            "strand": strand,
+                            "type": gene_type,
+                            "name": gene_name,
+                            "hash": md5,
+                        })
+                if region_genes:
+                    sample_regions.append({
+                        "contig": r_contig,
+                        "region_start": r_start,
+                        "region_end": r_end,
+                        "length": r_end - r_start,
+                        "genes": region_genes,
+                    })
+            region_diagrams.append({
+                "name": s.name,
+                "sample_id": str(s.id),
+                "regions": sample_regions,
+            })
+
     return {
         "samples": [s.name for s, _ in sample_info],
         "sample_ids": [str(s.id) for s, _ in sample_info],
@@ -278,4 +331,5 @@ def compute_synteny_for_samples(sample_ids: List[str], db, mode: str = "full", f
         "shared_genes_matrix": shared_matrix,
         "mode": mode,
         "flanking": flanking if mode == "regions" else None,
+        "region_diagrams": region_diagrams,
     }

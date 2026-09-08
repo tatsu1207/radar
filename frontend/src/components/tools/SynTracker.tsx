@@ -4,6 +4,10 @@ import { useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
 import { authPost, SamplePicker, useSamplePicker } from '@/components/tools/shared';
 
+interface RegionGene { start: number; end: number; strand: number; type: string; name: string | null; hash: string }
+interface Region { contig: string; region_start: number; region_end: number; length: number; genes: RegionGene[] }
+interface RegionDiagram { name: string; sample_id: string; regions: Region[] }
+
 interface SyntenyData {
   samples: string[];
   sample_ids: string[];
@@ -12,6 +16,7 @@ interface SyntenyData {
   mode?: string;
   flanking?: number | null;
   message?: string;
+  region_diagrams?: RegionDiagram[] | null;
 }
 
 export default function SynTrackerTool() {
@@ -174,6 +179,99 @@ export default function SynTrackerTool() {
           )}
         </div>
       )}
+
+      {/* Region diagrams (EasyFig-style linear view for ARG+mobilome regions) */}
+      {data?.region_diagrams && data.region_diagrams.length >= 2 && (() => {
+        const diagrams = data.region_diagrams!;
+        // Find common regions across samples (by contig name match)
+        const regionKeys = new Set<string>();
+        for (const d of diagrams) {
+          for (const r of d.regions) {
+            regionKeys.add(r.contig);
+          }
+        }
+
+        const geneColor: Record<string, string> = { arg: '#EF4444', mge: '#A855F7', cds: '#4B5563' };
+        const svgWidth = 800;
+        const barHeight = 16;
+        const gapHeight = 40;
+        const marginLeft = 100;
+        const marginRight = 20;
+        const drawWidth = svgWidth - marginLeft - marginRight;
+
+        return (
+          <div className="card">
+            <h2 className="text-sm font-semibold text-gray-100 mb-2">Region Synteny Diagrams</h2>
+            <p className="text-xs text-gray-500 mb-4">
+              Linear gene maps around ARG/mobilome anchors. Shared genes (same protein hash) connected by gray lines.
+              <span className="text-red-400 ml-1">Red</span> = ARG, <span className="text-purple-400 ml-1">Purple</span> = MGE, <span className="text-gray-400 ml-1">Gray</span> = CDS.
+            </p>
+            {Array.from(regionKeys).map((contigKey) => {
+              // Get regions from each sample for this contig
+              const sampleRegions = diagrams.map((d) => ({
+                name: d.name,
+                region: d.regions.find((r) => r.contig === contigKey),
+              })).filter((x) => x.region);
+
+              if (sampleRegions.length < 2) return null;
+              const maxLen = Math.max(...sampleRegions.map((sr) => sr.region!.length));
+              const scale = (pos: number) => (pos / maxLen) * drawWidth;
+              const totalHeight = sampleRegions.length * barHeight + (sampleRegions.length - 1) * gapHeight + 30;
+
+              // Build hash→position maps for connecting shared genes
+              const hashMaps = sampleRegions.map((sr) => {
+                const map: Record<string, { x: number; w: number }> = {};
+                for (const g of sr.region!.genes) {
+                  if (!map[g.hash]) {
+                    map[g.hash] = { x: marginLeft + scale(g.start), w: Math.max(3, scale(g.end - g.start)) };
+                  }
+                }
+                return map;
+              });
+
+              return (
+                <div key={contigKey} className="mb-4">
+                  <p className="text-xs text-gray-400 mb-1">{contigKey} ({(maxLen / 1000).toFixed(1)} kb region)</p>
+                  <svg width={svgWidth} height={totalHeight} className="rounded" style={{ background: '#0F172A' }}>
+                    {sampleRegions.map((sr, sIdx) => {
+                      const y = 15 + sIdx * (barHeight + gapHeight);
+                      return (
+                        <g key={sr.name}>
+                          <text x={5} y={y + barHeight / 2 + 4} fill="#D1D5DB" fontSize="10">{sr.name}</text>
+                          <rect x={marginLeft} y={y} width={scale(sr.region!.length)} height={barHeight} fill="#1E293B" stroke="#334155" strokeWidth={0.5} rx={2} />
+                          {sr.region!.genes.map((g, gIdx) => (
+                            <rect key={gIdx} x={marginLeft + scale(g.start)} y={y} width={Math.max(3, scale(g.end - g.start))} height={barHeight}
+                              fill={geneColor[g.type] || geneColor.cds} opacity={0.9} rx={1}>
+                              <title>{g.name || g.type} ({g.type})</title>
+                            </rect>
+                          ))}
+                        </g>
+                      );
+                    })}
+                    {/* Connect shared genes between adjacent samples */}
+                    {sampleRegions.slice(0, -1).map((_, sIdx) => {
+                      const y1 = 15 + sIdx * (barHeight + gapHeight) + barHeight;
+                      const y2 = 15 + (sIdx + 1) * (barHeight + gapHeight);
+                      const map1 = hashMaps[sIdx];
+                      const map2 = hashMaps[sIdx + 1];
+                      return Object.keys(map1).filter((h) => map2[h]).map((h) => {
+                        const g1 = map1[h];
+                        const g2 = map2[h];
+                        const cx1 = g1.x + g1.w / 2;
+                        const cx2 = g2.x + g2.w / 2;
+                        return (
+                          <line key={`${sIdx}-${h}`} x1={cx1} y1={y1} x2={cx2} y2={y2}
+                            stroke="#475569" strokeWidth={0.5} opacity={0.5} />
+                        );
+                      });
+                    })}
+                  </svg>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {picker.selectedIds.length >= 2 && !data && !computing && (
         <div className="card text-center py-8 text-gray-500">Click &quot;Compute Synteny&quot; to analyze gene-order conservation.</div>
