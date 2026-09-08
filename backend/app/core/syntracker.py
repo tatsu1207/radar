@@ -296,12 +296,33 @@ def compute_synteny_for_samples(sample_ids: List[str], db, mode: str = "full", f
         shared_matrix = new_shared
 
     # Build region diagrams when in regions mode
+    # Use individual (non-merged) ARG/MGE anchors so each diagram region = exactly 2*flanking
     region_diagrams = None
     if mode == "regions" and len(sample_info) >= 2:
         region_diagrams = []
-        # For each sample, get the anchor regions and genes within them
         for s, genes in sample_info:
-            regions = _get_anchor_regions(str(s.id), db, flanking)
+            # Get individual anchor points (not merged)
+            anchors = []
+            for a in db.query(ARGResult).filter(ARGResult.sample_id == s.id).all():
+                if a.contig and a.start is not None and a.end is not None:
+                    mid = (a.start + a.end) // 2
+                    anchors.append((a.contig, max(0, mid - flanking), mid + flanking, a.gene, "arg"))
+            for m in db.query(MobilityResult).filter(MobilityResult.sample_id == s.id).all():
+                if m.contig and m.start is not None and m.end is not None:
+                    mid = (m.start + m.end) // 2
+                    anchors.append((m.contig, max(0, mid - flanking), mid + flanking, m.element_type or m.family, "mge"))
+            # Deduplicate overlapping anchors: keep the one with ARG priority
+            # Sort by contig + start, skip if too close to previous
+            anchors.sort(key=lambda x: (x[0], x[1]))
+            deduped = []
+            for anc in anchors:
+                if deduped and anc[0] == deduped[-1][0] and anc[1] < deduped[-1][2]:
+                    # Overlapping — keep ARG over MGE
+                    if anc[4] == "arg" and deduped[-1][4] != "arg":
+                        deduped[-1] = anc
+                    continue
+                deduped.append(anc)
+            regions = [(a[0], a[1], a[2]) for a in deduped]
             sample_regions = []
             for r_contig, r_start, r_end in regions:
                 region_genes = []
