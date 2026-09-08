@@ -1533,12 +1533,13 @@ function PangenomeTool() {
     const { rings, reference } = data;
     const { reference_features, sample_rings, total_length } = rings;
 
-    const size = 600;
+    const nRings = sample_rings.length;
+    const size = Math.max(700, 500 + nRings * 50);
     const cx = size / 2;
     const cy = size / 2;
-    const refRadius = 180;
-    const ringWidth = 14;
-    const ringGap = 3;
+    const refRadius = 160;
+    const ringWidth = 18;
+    const ringGap = 6;
 
     function toAngle(pos: number): number {
       return (pos / total_length) * 360 - 90;
@@ -1596,7 +1597,7 @@ function PangenomeTool() {
     const mergedRings = sample_rings.map((ring) => ({ ...ring, mergedSegs: mergeSegments(ring.segments) }));
 
     return (
-      <svg width={size} height={size} className="bg-gray-900 rounded-lg">
+      <svg width={size} height={size} className="rounded-lg" style={{ background: '#0F172A' }}>
         {/* Reference ring (innermost) */}
         <circle cx={cx} cy={cy} r={refRadius} fill="none" stroke="#374151" strokeWidth={ringWidth} />
         {mergedRef.map((feat, i) => {
@@ -1634,35 +1635,37 @@ function PangenomeTool() {
                     stroke="#3B82F6" strokeWidth={ringWidth - 1} fill="none" opacity={0.6} />
                 );
               })}
-              {/* Label — positioned at a unique angle per ring */}
-              {(() => {
-                const labelAngle = -90 + (rIdx + 1) * (360 / (sample_rings.length + 1));
-                const labelRad = (labelAngle * Math.PI) / 180;
-                const lx = cx + (r + ringWidth / 2 + 8) * Math.cos(labelRad);
-                const ly = cy + (r + ringWidth / 2 + 8) * Math.sin(labelRad);
-                const anchor = labelAngle > 90 || labelAngle < -90 ? 'end' : 'start';
-                const rotate = labelAngle > 90 ? labelAngle + 180 : labelAngle < -90 ? labelAngle + 180 : labelAngle;
-                return (
-                  <text x={lx} y={ly} fill="#9CA3AF" fontSize="9" textAnchor={anchor}
-                    transform={`rotate(${rotate}, ${lx}, ${ly})`} dominantBaseline="central">
-                    {ring.name}
-                  </text>
-                );
-              })()}
+              {/* Ring label — small colored tick at top + name listed in legend below */}
             </g>
           );
         })}
 
         {/* Center text */}
-        <text x={cx} y={cy - 10} textAnchor="middle" fill="#E5E7EB" fontSize="11" fontWeight="bold">
-          {reference.name}
+        <text x={cx} y={cy - 14} textAnchor="middle" fill="#FFFFFF" fontSize="14" fontWeight="bold">
+          {reference.name} (ref)
         </text>
-        <text x={cx} y={cy + 5} textAnchor="middle" fill="#9CA3AF" fontSize="9">
+        <text x={cx} y={cy + 4} textAnchor="middle" fill="#CBD5E1" fontSize="12">
           {reference.gene_count} genes
         </text>
-        <text x={cx} y={cy + 18} textAnchor="middle" fill="#9CA3AF" fontSize="9">
+        <text x={cx} y={cy + 20} textAnchor="middle" fill="#CBD5E1" fontSize="12">
           {(reference.total_length / 1e6).toFixed(2)} Mb
         </text>
+
+        {/* Ring labels — stacked at top-right outside the outermost ring */}
+        {sample_rings.map((ring, rIdx) => {
+          const outerR = refRadius + sample_rings.length * (ringWidth + ringGap) + 20;
+          const labelY = 24 + rIdx * 18;
+          const ringR = refRadius + (rIdx + 1) * (ringWidth + ringGap);
+          return (
+            <g key={`label-${rIdx}`}>
+              {/* Color indicator matching the ring */}
+              <rect x={size - 140} y={labelY - 6} width={12} height={12} rx={2} fill="#3B82F6" opacity={0.7} />
+              <text x={size - 124} y={labelY + 3} fill="#F1F5F9" fontSize="12" textAnchor="start">
+                {ring.name}
+              </text>
+            </g>
+          );
+        })}
       </svg>
     );
   }
@@ -1720,7 +1723,7 @@ function PangenomeTool() {
                   <button onClick={() => setZoom((z) => Math.max(z - 0.25, 0.5))} className="w-7 h-7 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-bold border border-gray-700">−</button>
                   <button onClick={() => setZoom(1)} className="w-7 h-7 rounded bg-gray-800 hover:bg-gray-700 text-gray-400 text-[9px] border border-gray-700">1:1</button>
                 </div>
-                <div className="overflow-auto" style={{ maxWidth: '620px', maxHeight: '620px' }}>
+                <div className="overflow-auto" style={{ maxWidth: '750px', maxHeight: '750px' }}>
                   <div style={{ transform: `scale(${zoom})`, transformOrigin: 'center center', transition: 'transform 0.2s' }}>
                     {renderCircularMap()}
                   </div>
