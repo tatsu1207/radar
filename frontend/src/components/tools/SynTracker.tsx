@@ -8,6 +8,24 @@ interface RegionGene { start: number; end: number; strand: number; type: string;
 interface Region { contig: string; region_start: number; region_end: number; length: number; genes: RegionGene[] }
 interface RegionDiagram { name: string; sample_id: string; regions: Region[] }
 
+interface MobileARG {
+  gene: string;
+  drug_class: string;
+  mge_names: string[];
+  min_distance: number;
+  on_plasmid: boolean;
+  strain_count: number;
+  strains: string[];
+  present_in: Record<string, boolean>;
+}
+interface MobileARGsTable {
+  sample_names: string[];
+  genes: MobileARG[];
+  flanking: number;
+  total_mobile_args: number;
+  shared_count: number;
+}
+
 interface SyntenyData {
   samples: string[];
   sample_ids: string[];
@@ -17,6 +35,7 @@ interface SyntenyData {
   flanking?: number | null;
   message?: string;
   region_diagrams?: RegionDiagram[] | null;
+  mobile_args?: MobileARGsTable | null;
 }
 
 export default function SynTrackerTool() {
@@ -180,120 +199,84 @@ export default function SynTrackerTool() {
         </div>
       )}
 
-      {/* Region diagrams — one mini-diagram per ARG/MGE region */}
-      {data?.region_diagrams && data.region_diagrams.length >= 2 && (() => {
-        const diagrams = data.region_diagrams!;
-        const geneColor: Record<string, string> = { arg: '#EF4444', mge: '#A855F7', cds: '#4B5563' };
-        const svgWidth = 800;
-        const barHeight = 16;
-        const gapHeight = 40;
-        const marginLeft = 110;
-        const drawWidth = svgWidth - marginLeft - 40;
-
-        // Use the first sample's regions as reference anchors
-        const refRegions = diagrams[0].regions;
-        const nSamples = diagrams.length;
-        const totalHeight = nSamples * barHeight + (nSamples - 1) * gapHeight + 30;
-
-        // For each reference region, find matching regions in other samples by shared gene hashes
-        const regionDiagrams: { anchor: string; regionLen: number; tracks: { name: string; genes: RegionGene[] }[] }[] = [];
-        for (const refReg of refRegions) {
-          const refHashes = new Set(refReg.genes.map((g) => g.hash));
-          const tracks: { name: string; genes: RegionGene[] }[] = [{ name: diagrams[0].name, genes: refReg.genes }];
-
-          for (let si = 1; si < nSamples; si++) {
-            // Find the region in this sample with most shared hashes
-            let bestRegion: Region | null = null;
-            let bestOverlap = 0;
-            for (const r of diagrams[si].regions) {
-              const overlap = r.genes.filter((g) => refHashes.has(g.hash)).length;
-              if (overlap > bestOverlap) { bestOverlap = overlap; bestRegion = r; }
-            }
-            if (bestRegion && bestOverlap >= 2) {
-              tracks.push({ name: diagrams[si].name, genes: bestRegion.genes });
-            }
-          }
-
-          if (tracks.length >= 2) {
-            const anchorGene = refReg.genes.find((g) => g.type === 'arg') || refReg.genes.find((g) => g.type === 'mge');
-            regionDiagrams.push({
-              anchor: anchorGene?.name || refReg.contig,
-              regionLen: refReg.length,
-              tracks,
-            });
-          }
-        }
-
-        if (regionDiagrams.length === 0) return null;
+      {/* Mobile ARGs table */}
+      {data?.mobile_args && data.mobile_args.genes.length > 0 && (() => {
+        const ma = data.mobile_args!;
+        const downloadMobileArgs = () => {
+          const headers = ['Gene', 'Drug Class', 'Associated MGE', 'Distance (bp)', 'Plasmid', 'Strain Count', ...ma.sample_names];
+          const rows = ma.genes.map((g) => [
+            g.gene, g.drug_class, g.mge_names.join('; '), g.min_distance, g.on_plasmid ? 'Yes' : 'No', g.strain_count,
+            ...ma.sample_names.map((s) => g.present_in[s] ? '1' : '0'),
+          ]);
+          const tsv = [headers.join('\t'), ...rows.map((r) => r.join('\t'))].join('\n');
+          const blob = new Blob([tsv], { type: 'text/tab-separated-values' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `mobile_args_${(ma.flanking / 1000).toFixed(0)}kb.tsv`;
+          a.click();
+          URL.revokeObjectURL(a.href);
+        };
 
         return (
           <div className="card">
-            <h2 className="text-sm font-semibold text-gray-100 mb-2">Region Synteny Diagrams ({regionDiagrams.length} regions)</h2>
-            <p className="text-xs text-gray-500 mb-4">
-              Each diagram = one {((data.flanking || 20000) * 2 / 1000).toFixed(0)} kb window around an ARG/MGE anchor.
-              <span className="text-red-400 ml-1">Red</span> = ARG, <span className="text-purple-400 ml-1">Purple</span> = MGE, <span className="text-gray-400 ml-1">Gray</span> = CDS.
-              Lines connect shared genes (same protein). Crossed = rearrangement.
-            </p>
-            <div className="space-y-4 max-h-[600px] overflow-y-auto">
-              {regionDiagrams.map((rd, rdIdx) => {
-                const scale = (pos: number) => (pos / rd.regionLen) * drawWidth;
-
-                // Build hash maps per track
-                const hashMaps = rd.tracks.map((t) => {
-                  const map: Record<string, { x: number; w: number }> = {};
-                  for (const g of t.genes) {
-                    if (!map[g.hash]) {
-                      map[g.hash] = { x: marginLeft + scale(g.start), w: Math.max(3, scale(g.end - g.start)) };
-                    }
-                  }
-                  return map;
-                });
-
-                return (
-                  <div key={rdIdx}>
-                    <p className="text-xs text-gray-400 mb-1 font-medium">{rd.anchor} <span className="text-gray-600">({(rd.regionLen / 1000).toFixed(0)} kb)</span></p>
-                    <svg width={svgWidth} height={rd.tracks.length * barHeight + (rd.tracks.length - 1) * gapHeight + 20} className="rounded" style={{ background: '#0F172A' }}>
-                      {/* Connecting lines */}
-                      {rd.tracks.slice(0, -1).map((_, tIdx) => {
-                        const y1 = 10 + tIdx * (barHeight + gapHeight) + barHeight;
-                        const y2 = 10 + (tIdx + 1) * (barHeight + gapHeight);
-                        return Object.keys(hashMaps[tIdx]).filter((h) => hashMaps[tIdx + 1][h]).map((h) => {
-                          const g1 = hashMaps[tIdx][h];
-                          const g2 = hashMaps[tIdx + 1][h];
-                          const gene = rd.tracks[tIdx].genes.find((g) => g.hash === h);
-                          const isSpecial = gene && (gene.type === 'arg' || gene.type === 'mge');
-                          return (
-                            <line key={`${tIdx}-${h}`} x1={g1.x + g1.w / 2} y1={y1} x2={g2.x + g2.w / 2} y2={y2}
-                              stroke={isSpecial ? (gene!.type === 'arg' ? '#EF4444' : '#A855F7') : '#64748B'}
-                              strokeWidth={isSpecial ? 1.5 : 0.5} opacity={isSpecial ? 0.8 : 0.4} />
-                          );
-                        });
-                      })}
-                      {/* Gene tracks */}
-                      {rd.tracks.map((track, tIdx) => {
-                        const y = 10 + tIdx * (barHeight + gapHeight);
-                        return (
-                          <g key={tIdx}>
-                            <text x={5} y={y + barHeight / 2 + 4} fill="#D1D5DB" fontSize="10" fontWeight="500">{track.name}</text>
-                            <rect x={marginLeft} y={y} width={scale(rd.regionLen)} height={barHeight} fill="#1E293B" stroke="#334155" strokeWidth={0.5} rx={2} />
-                            {track.genes.map((g, gIdx) => (
-                              <rect key={gIdx} x={marginLeft + scale(g.start)} y={y - (g.type !== 'cds' ? 2 : 0)}
-                                width={Math.max(4, scale(g.end - g.start))} height={barHeight + (g.type !== 'cds' ? 4 : 0)}
-                                fill={geneColor[g.type] || geneColor.cds} opacity={0.9} rx={1}>
-                                <title>{g.name || g.type} ({g.type})</title>
-                              </rect>
-                            ))}
-                          </g>
-                        );
-                      })}
-                    </svg>
-                  </div>
-                );
-              })}
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-100">Mobile ARGs (within {(ma.flanking / 1000).toFixed(0)} kb of MGE)</h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {ma.total_mobile_args} mobile ARGs found, {ma.shared_count} shared across 2+ strains
+                </p>
+              </div>
+              <button onClick={downloadMobileArgs} className="btn-secondary text-xs flex items-center gap-1.5">
+                <Download className="w-3.5 h-3.5" />
+                Download TSV
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-gray-800">
+                    <th className="text-left px-2 py-1.5 text-gray-400 font-medium sticky left-0 bg-gray-900 z-10">Gene</th>
+                    <th className="text-left px-2 py-1.5 text-gray-400 font-medium">Drug Class</th>
+                    <th className="text-left px-2 py-1.5 text-gray-400 font-medium">Associated MGE</th>
+                    <th className="text-center px-2 py-1.5 text-gray-400 font-medium">Distance</th>
+                    <th className="text-center px-2 py-1.5 text-gray-400 font-medium">Plasmid</th>
+                    {ma.sample_names.map((s) => (
+                      <th key={s} className="text-center px-2 py-1.5 text-gray-400 font-medium whitespace-nowrap">{s}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {ma.genes.map((g) => (
+                    <tr key={g.gene} className={`border-b border-gray-800/30 ${g.strain_count > 1 ? 'bg-red-900/10' : ''}`}>
+                      <td className="px-2 py-1.5 text-red-400 font-mono font-medium sticky left-0 bg-gray-900 z-10">{g.gene}</td>
+                      <td className="px-2 py-1.5 text-gray-300">{g.drug_class.split(';')[0]}</td>
+                      <td className="px-2 py-1.5">
+                        {g.mge_names.map((m) => (
+                          <span key={m} className="inline-block mr-1 px-1.5 py-0.5 bg-purple-900/30 rounded text-purple-300 text-[10px]">{m}</span>
+                        ))}
+                      </td>
+                      <td className="px-2 py-1.5 text-center text-gray-400 font-mono">{g.min_distance === 0 ? 'overlap' : `${(g.min_distance / 1000).toFixed(1)}kb`}</td>
+                      <td className="px-2 py-1.5 text-center">{g.on_plasmid ? <span className="text-orange-400">Yes</span> : <span className="text-gray-600">No</span>}</td>
+                      {ma.sample_names.map((s) => (
+                        <td key={s} className="px-2 py-1.5 text-center">
+                          {g.present_in[s] ? <span className="text-red-400 font-bold">+</span> : <span className="text-gray-700">·</span>}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         );
       })()}
+
+      {data?.mobile_args && data.mobile_args.genes.length === 0 && data.mode === 'regions' && (
+        <div className="card text-center py-6 text-gray-500 text-sm">
+          No ARGs found within {((data.flanking || 20000) / 1000).toFixed(0)} kb of mobile elements.
+        </div>
+      )}
+
 
       {picker.selectedIds.length >= 2 && !data && !computing && (
         <div className="card text-center py-8 text-gray-500">Click &quot;Compute Synteny&quot; to analyze gene-order conservation.</div>

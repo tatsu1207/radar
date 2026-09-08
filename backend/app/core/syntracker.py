@@ -295,6 +295,92 @@ def compute_synteny_for_samples(sample_ids: List[str], db, mode: str = "full", f
         synteny_matrix = new_syn
         shared_matrix = new_shared
 
+    # Build mobile ARGs table: ARGs within flanking distance of MGEs
+    mobile_args_table = None
+    if mode == "regions" and len(sample_info) >= 2:
+        # For each sample, find ARGs near MGEs
+        sample_mobile_args = {}  # sample_name -> [{gene, drug_class, mge_name, mge_distance, contig}]
+        for s, genes in sample_info:
+            sid = str(s.id)
+            args = db.query(ARGResult).filter(ARGResult.sample_id == sid).all()
+            mges = db.query(MobilityResult).filter(MobilityResult.sample_id == sid).all()
+            mobile = []
+            for a in args:
+                if not a.contig or a.start is None or a.end is None:
+                    continue
+                nearest_mge = None
+                nearest_dist = float('inf')
+                for m in mges:
+                    if not m.contig or m.start is None or m.end is None:
+                        continue
+                    if m.contig != a.contig:
+                        continue
+                    # Distance between ARG and MGE
+                    if m.end <= a.start:
+                        dist = a.start - m.end
+                    elif m.start >= a.end:
+                        dist = m.start - a.end
+                    else:
+                        dist = 0  # overlapping
+                    if dist < nearest_dist:
+                        nearest_dist = dist
+                        nearest_mge = m
+                if nearest_mge and nearest_dist <= flanking:
+                    mobile.append({
+                        "gene": a.gene,
+                        "drug_class": a.drug_class or "",
+                        "mge_name": nearest_mge.element_type or nearest_mge.family or "IS",
+                        "mge_distance": nearest_dist,
+                        "contig": a.contig,
+                        "on_plasmid": a.on_plasmid or False,
+                    })
+            sample_mobile_args[s.name] = mobile
+
+        # Find shared mobile ARGs across strains
+        all_mobile_genes = {}  # gene_name -> {drug_class, strains: [name], mge_names: set, min_dist}
+        for name, mobile_list in sample_mobile_args.items():
+            for m in mobile_list:
+                key = m["gene"]
+                if key not in all_mobile_genes:
+                    all_mobile_genes[key] = {
+                        "gene": m["gene"],
+                        "drug_class": m["drug_class"],
+                        "strains": [],
+                        "mge_names": set(),
+                        "min_distance": m["mge_distance"],
+                        "on_plasmid": False,
+                    }
+                all_mobile_genes[key]["strains"].append(name)
+                all_mobile_genes[key]["mge_names"].add(m["mge_name"])
+                all_mobile_genes[key]["min_distance"] = min(
+                    all_mobile_genes[key]["min_distance"], m["mge_distance"]
+                )
+                if m["on_plasmid"]:
+                    all_mobile_genes[key]["on_plasmid"] = True
+
+        # Convert to list, sorted by number of strains (shared first)
+        mobile_args_list = []
+        sample_names = [s.name for s, _ in sample_info]
+        for info in sorted(all_mobile_genes.values(), key=lambda x: (-len(x["strains"]), x["gene"])):
+            mobile_args_list.append({
+                "gene": info["gene"],
+                "drug_class": info["drug_class"],
+                "mge_names": sorted(info["mge_names"]),
+                "min_distance": info["min_distance"],
+                "on_plasmid": info["on_plasmid"],
+                "strain_count": len(info["strains"]),
+                "strains": info["strains"],
+                "present_in": {name: name in info["strains"] for name in sample_names},
+            })
+
+        mobile_args_table = {
+            "sample_names": sample_names,
+            "genes": mobile_args_list,
+            "flanking": flanking,
+            "total_mobile_args": len(mobile_args_list),
+            "shared_count": sum(1 for g in mobile_args_list if g["strain_count"] > 1),
+        }
+
     # Build region diagrams when in regions mode
     # Use individual (non-merged) ARG/MGE anchors so each diagram region = exactly 2*flanking
     region_diagrams = None
@@ -377,4 +463,5 @@ def compute_synteny_for_samples(sample_ids: List[str], db, mode: str = "full", f
         "mode": mode,
         "flanking": flanking if mode == "regions" else None,
         "region_diagrams": region_diagrams,
+        "mobile_args": mobile_args_table,
     }
