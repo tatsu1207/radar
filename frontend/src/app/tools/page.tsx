@@ -462,7 +462,7 @@ function HazardRankingTool() {
   useEffect(() => {
     authFetch('/api/projects')
       .then((r) => r.json())
-      .then((d) => setProjects(d))
+      .then((d) => setProjects(d.items || d))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
