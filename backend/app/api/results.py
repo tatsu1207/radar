@@ -208,7 +208,6 @@ def get_mobility_results(sample_id: uuid.UUID, db: Session = Depends(get_db), cu
 
 
 @router.post("/risk/{project_id}/calculate")
-@router.get("/risk/{project_id}/calculate")
 def calculate_project_risk(project_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Calculate/refresh risk scores for all completed samples in a project and return them."""
     project = db.query(Project).filter(Project.id == project_id).first()
