@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Download, AlertTriangle, Info, RefreshCw } from 'lucide-react';
+import 'leaflet/dist/leaflet.css';
 
 function getAuthHeaders(): Record<string, string> {
   if (typeof window === 'undefined') return {};
@@ -1473,6 +1474,25 @@ function EasyFigTool() {
 // ─── Resistome Tracker Tool ───
 
 interface ResistomeCellData { present: number; genes: string[] }
+interface GeoSample {
+  sample_name: string;
+  sample_id: string;
+  latitude: number;
+  longitude: number;
+  location: string;
+  source: string;
+  collection_date: string | null;
+  drug_class_count: number;
+  drug_classes: string[];
+  hazard_rank: string | null;
+  mdr_flag: boolean;
+}
+interface LocationStat {
+  location: string;
+  sample_count: number;
+  mdr_count: number;
+  top_drug_classes: [string, number][];
+}
 interface ResistomeData {
   matrix: {
     sample_names: string[];
@@ -1485,6 +1505,8 @@ interface ResistomeData {
     series: Record<string, number[]>;
   };
   distance_matrix: number[][];
+  geo?: GeoSample[];
+  locations?: LocationStat[];
 }
 
 function ResistomeTrackerTool() {
@@ -1492,7 +1514,7 @@ function ResistomeTrackerTool() {
   const [data, setData] = useState<ResistomeData | null>(null);
   const [computing, setComputing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [subTab, setSubTab] = useState<'matrix' | 'temporal' | 'distance'>('matrix');
+  const [subTab, setSubTab] = useState<'matrix' | 'temporal' | 'distance' | 'map'>('matrix');
   const [hoveredCell, setHoveredCell] = useState<{ i: number; j: number } | null>(null);
 
   async function runAnalysis() {
@@ -1558,6 +1580,11 @@ function ResistomeTrackerTool() {
           {data!.matrix.sample_names.length >= 2 && (
             <button onClick={() => setSubTab('distance')} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${subTab === 'distance' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
               Similarity
+            </button>
+          )}
+          {data!.geo && data!.geo.length > 0 && (
+            <button onClick={() => setSubTab('map')} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${subTab === 'map' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+              Map
             </button>
           )}
         </div>
@@ -1717,8 +1744,144 @@ function ResistomeTrackerTool() {
         </div>
       )}
 
+      {/* ── Map view ── */}
+      {subTab === 'map' && data?.geo && data.geo.length > 0 && (
+        <div className="card">
+          <h2 className="text-sm font-semibold text-gray-100 mb-4">Geographic AMR Distribution</h2>
+          <ResistomeMap geo={data.geo} locations={data.locations || []} />
+        </div>
+      )}
+
       {picker.selectedIds.length > 0 && !data && !computing && (
         <div className="card text-center py-8 text-gray-500">Click &quot;Show Resistome&quot; to view resistance profiles.</div>
+      )}
+    </div>
+  );
+}
+
+// ─── Resistome Map (Leaflet) ───
+function ResistomeMap({ geo, locations }: { geo: GeoSample[]; locations: LocationStat[] }) {
+  const [mapReady, setMapReady] = useState(false);
+  const [MapComponents, setMapComponents] = useState<{
+    MapContainer: typeof import('react-leaflet')['MapContainer'];
+    TileLayer: typeof import('react-leaflet')['TileLayer'];
+    CircleMarker: typeof import('react-leaflet')['CircleMarker'];
+    Popup: typeof import('react-leaflet')['Popup'];
+    Tooltip: typeof import('react-leaflet')['Tooltip'];
+  } | null>(null);
+
+  useEffect(() => {
+    // Dynamic import to avoid SSR issues with Leaflet
+    import('react-leaflet').then((rl) => {
+      setMapComponents({
+        MapContainer: rl.MapContainer,
+        TileLayer: rl.TileLayer,
+        CircleMarker: rl.CircleMarker,
+        Popup: rl.Popup,
+        Tooltip: rl.Tooltip,
+      });
+      setMapReady(true);
+    });
+  }, []);
+
+  const rankColor = (rank: string | null): string => {
+    if (!rank) return '#6B7280';
+    if (['R1', 'R2', 'R3'].includes(rank)) return '#DC2626';
+    if (['R4', 'R5'].includes(rank)) return '#EA580C';
+    if (['R6', 'R7', 'R8', 'R9', 'R10'].includes(rank)) return '#D97706';
+    if (rank === 'R11') return '#16A34A';
+    return '#6B7280';
+  };
+
+  // Center map on South Korea
+  const center: [number, number] = [36.5, 127.5];
+  const zoom = 7;
+
+  if (!mapReady || !MapComponents) {
+    return <div className="flex items-center justify-center h-64"><div className="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full" /></div>;
+  }
+
+  const { MapContainer, TileLayer, CircleMarker, Popup, Tooltip } = MapComponents;
+
+  return (
+    <div className="space-y-4">
+      <div style={{ height: '450px' }} className="rounded-lg overflow-hidden border border-gray-700">
+        <MapContainer center={center} zoom={zoom} style={{ height: '100%', width: '100%' }} scrollWheelZoom={true}>
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          />
+          {geo.map((s) => (
+            <CircleMarker
+              key={s.sample_id}
+              center={[s.latitude, s.longitude]}
+              radius={s.mdr_flag ? 12 : 8}
+              pathOptions={{
+                fillColor: rankColor(s.hazard_rank),
+                color: s.mdr_flag ? '#FCD34D' : '#374151',
+                weight: s.mdr_flag ? 2 : 1,
+                fillOpacity: 0.8,
+              }}
+            >
+              <Tooltip direction="top" offset={[0, -8]}>
+                <span className="text-xs font-medium">{s.sample_name}</span>
+              </Tooltip>
+              <Popup>
+                <div className="text-xs space-y-1 min-w-[180px]">
+                  <p className="font-bold text-sm">{s.sample_name}</p>
+                  <p><span className="text-gray-500">Location:</span> {s.location}</p>
+                  <p><span className="text-gray-500">Source:</span> {s.source}</p>
+                  {s.collection_date && <p><span className="text-gray-500">Date:</span> {s.collection_date.split(' ')[0]}</p>}
+                  <p><span className="text-gray-500">Hazard rank:</span> <strong>{s.hazard_rank || 'N/A'}</strong></p>
+                  <p><span className="text-gray-500">Drug classes:</span> {s.drug_class_count} ({s.drug_classes.join(', ')})</p>
+                  {s.mdr_flag && <p className="text-orange-600 font-bold">MDR</p>}
+                </div>
+              </Popup>
+            </CircleMarker>
+          ))}
+        </MapContainer>
+      </div>
+
+      {/* Legend */}
+      <div className="flex flex-wrap items-center gap-4 text-xs text-gray-400">
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full" style={{ background: '#DC2626' }} /> Critical (R1-R3)</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full" style={{ background: '#EA580C' }} /> High (R4-R5)</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full" style={{ background: '#D97706' }} /> Medium (R6-R10)</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full" style={{ background: '#16A34A' }} /> Low (R11-R12)</span>
+        <span className="flex items-center gap-1"><span className="w-4 h-4 rounded-full border-2 border-yellow-400" style={{ background: 'transparent' }} /> MDR (yellow ring)</span>
+      </div>
+
+      {/* Location summary table */}
+      {locations.length > 0 && (
+        <div>
+          <h3 className="text-xs font-semibold text-gray-300 mb-2">Location Summary</h3>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-gray-800">
+                <th className="text-left px-2 py-1.5 text-gray-400">Location</th>
+                <th className="text-center px-2 py-1.5 text-gray-400">Samples</th>
+                <th className="text-center px-2 py-1.5 text-gray-400">MDR</th>
+                <th className="text-left px-2 py-1.5 text-gray-400">Top Drug Classes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {locations.map((loc) => (
+                <tr key={loc.location} className="border-b border-gray-800/30">
+                  <td className="px-2 py-1.5 text-gray-200 font-medium">{loc.location}</td>
+                  <td className="px-2 py-1.5 text-center text-gray-300">{loc.sample_count}</td>
+                  <td className="px-2 py-1.5 text-center">
+                    {loc.mdr_count > 0 ? <span className="text-orange-400 font-bold">{loc.mdr_count}</span> : <span className="text-gray-600">0</span>}
+                  </td>
+                  <td className="px-2 py-1.5 text-gray-400">
+                    {loc.top_drug_classes.slice(0, 5).map(([dc, count]) => (
+                      <span key={dc} className="mr-2">{dc} <span className="text-gray-500">({count})</span></span>
+                    ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

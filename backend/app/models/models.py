@@ -196,6 +196,8 @@ class Metadata(Base):
     source = Column(String(255), nullable=True)
     collection_date = Column(DateTime, nullable=True)
     location = Column(String(255), nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
     species = Column(String(255), nullable=True)
     custom_json = Column(JSON, nullable=True)
 

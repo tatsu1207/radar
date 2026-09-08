@@ -253,6 +253,58 @@ def get_resistome_for_samples(
             distance_matrix[i][j] = round(dist, 4)
             distance_matrix[j][i] = round(dist, 4)
 
+    # --- Geographic data ---
+    geo_samples = []
+    for s in samples:
+        meta = db.query(Metadata).filter(Metadata.sample_id == s.id).first()
+        if not meta:
+            continue
+        lat = getattr(meta, 'latitude', None)
+        lon = getattr(meta, 'longitude', None)
+        if lat is None or lon is None:
+            continue
+        classes = sample_drug_map.get(str(s.id), set())
+        genes = sample_gene_map.get(str(s.id), {})
+        # Get hazard rank
+        risk = db.query(RiskScore).filter(RiskScore.sample_id == s.id).first()
+        geo_samples.append({
+            "sample_name": s.name,
+            "sample_id": str(s.id),
+            "latitude": lat,
+            "longitude": lon,
+            "location": meta.location or "",
+            "source": meta.source or "",
+            "collection_date": str(meta.collection_date) if meta.collection_date else None,
+            "drug_class_count": len(classes),
+            "drug_classes": sorted(classes),
+            "hazard_rank": risk.hazard_rank.value if risk and risk.hazard_rank else None,
+            "mdr_flag": risk.mdr_flag if risk else False,
+        })
+
+    # --- Location grouping ---
+    location_stats = {}
+    for s in samples:
+        meta = db.query(Metadata).filter(Metadata.sample_id == s.id).first()
+        loc = meta.location if meta else "Unknown"
+        if loc not in location_stats:
+            location_stats[loc] = {"count": 0, "drug_classes": defaultdict(int), "mdr_count": 0}
+        location_stats[loc]["count"] += 1
+        classes = sample_drug_map.get(str(s.id), set())
+        for dc in classes:
+            location_stats[loc]["drug_classes"][dc] += 1
+        risk = db.query(RiskScore).filter(RiskScore.sample_id == s.id).first()
+        if risk and risk.mdr_flag:
+            location_stats[loc]["mdr_count"] += 1
+
+    location_summary = []
+    for loc, stats in sorted(location_stats.items()):
+        location_summary.append({
+            "location": loc,
+            "sample_count": stats["count"],
+            "mdr_count": stats["mdr_count"],
+            "top_drug_classes": sorted(stats["drug_classes"].items(), key=lambda x: -x[1])[:10],
+        })
+
     return {
         "matrix": {
             "sample_names": sample_names,
@@ -261,6 +313,8 @@ def get_resistome_for_samples(
         },
         "temporal": temporal,
         "distance_matrix": distance_matrix,
+        "geo": geo_samples,
+        "locations": location_summary,
     }
 
 
