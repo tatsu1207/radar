@@ -245,7 +245,6 @@ _INTRINSIC_GENES = {
     "mdsa": "salmonella enterica",
     "mdsb": "salmonella enterica",
     "mdsc": "salmonella enterica",
-    "acrb": "salmonella enterica",
     # K. pneumoniae intrinsic beta-lactamases
     "blashv-1": "klebsiella pneumoniae",
     "blashv-11": "klebsiella pneumoniae",
@@ -269,7 +268,6 @@ _INTRINSIC_GENES = {
     "fosA": "klebsiella pneumoniae",
     "fosa": "klebsiella pneumoniae",
     # S. aureus intrinsic
-    "meca": "staphylococcus aureus",  # NOT intrinsic, but mecA is acquired — keep it
     "nora": "staphylococcus aureus",
     "mgrA": "staphylococcus aureus",
     "mgra": "staphylococcus aureus",
@@ -384,7 +382,7 @@ def _is_intrinsic(gene: str, species: Optional[str]) -> bool:
             continue
         if intrinsic_species == "enterobacterales":
             return species_lower in enterobacterales
-        if intrinsic_species in species_lower or species_lower in intrinsic_species:
+        if species_lower == intrinsic_species:
             return True
 
     return False
@@ -482,9 +480,13 @@ def _get_aware_tier(gene: str, drug_class: str, mechanism: str) -> Optional[str]
             # Try exact match in agent tier table
             tier = _AGENT_TIER.get(agent)
             if not tier:
-                # Try fuzzy match against known agents
+                # Try containment match: agent string contains a known agent name
+                # Only match if the known agent is a full word within the string
                 for known_agent, t in _AGENT_TIER.items():
-                    if known_agent in agent or agent in known_agent:
+                    if known_agent == agent:
+                        tier = t
+                        break
+                    if len(known_agent) >= 5 and known_agent in agent:
                         tier = t
                         break
             if not tier:
