@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { Download, AlertTriangle, Info, RefreshCw } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
-const ResistomeMap = dynamic(() => import('@/components/ResistomeMapInner'), {
+const TemporalGeoMap = dynamic(() => import('@/components/ResistomeMapInner'), {
   ssr: false,
   loading: () => <div className="flex items-center justify-center h-64"><div className="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full" /></div>,
 });
@@ -1519,7 +1519,7 @@ function ResistomeTrackerTool() {
   const [data, setData] = useState<ResistomeData | null>(null);
   const [computing, setComputing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [subTab, setSubTab] = useState<'matrix' | 'temporal' | 'distance' | 'map'>('matrix');
+  const [subTab, setSubTab] = useState<'matrix' | 'temporal' | 'distance'>('matrix');
   const [hoveredCell, setHoveredCell] = useState<{ i: number; j: number } | null>(null);
 
   async function runAnalysis() {
@@ -1553,7 +1553,7 @@ function ResistomeTrackerTool() {
   }
 
   const hasData = data && data.matrix.sample_names.length > 0;
-  const hasTemporal = data && data.temporal.time_points.length > 0;
+  const hasTemporal = data && (data.temporal.time_points.length > 0 || (data.geo && data.geo.length > 0));
 
   return (
     <div className="space-y-6">
@@ -1585,11 +1585,6 @@ function ResistomeTrackerTool() {
           {data!.matrix.sample_names.length >= 2 && (
             <button onClick={() => setSubTab('distance')} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${subTab === 'distance' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
               Similarity
-            </button>
-          )}
-          {data!.geo && data!.geo.length > 0 && (
-            <button onClick={() => setSubTab('map')} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${subTab === 'map' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
-              Map
             </button>
           )}
         </div>
@@ -1658,48 +1653,59 @@ function ResistomeTrackerTool() {
         </div>
       )}
 
-      {/* ── Temporal Trends ── */}
+      {/* ── Temporal Trends (with geographic map) ── */}
       {subTab === 'temporal' && hasTemporal && data && (
-        <div className="card">
-          <h2 className="text-sm font-semibold text-gray-100 mb-4">Resistance Prevalence Over Time</h2>
-          <div className="overflow-x-auto">
-            <table className="text-xs w-full">
-              <thead>
-                <tr className="border-b border-gray-800">
-                  <th className="px-2 py-1.5 text-left text-gray-400 font-medium sticky left-0 bg-gray-900">Drug Class</th>
-                  {data.temporal.time_points.map((tp) => (
-                    <th key={tp} className="px-2 py-1.5 text-gray-400 font-medium text-center">{tp}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {data.temporal.drug_classes.map((dc) => {
-                  const values = data.temporal.series[dc] || [];
-                  const hasChange = values.length > 1 && values[0] !== values[values.length - 1];
-                  return (
-                    <tr key={dc} className="border-b border-gray-800/30">
-                      <td className="px-2 py-1 text-gray-300 font-medium whitespace-nowrap sticky left-0 bg-gray-900">
-                        {dc}
-                        {hasChange && (
-                          <span className={`ml-1 text-[10px] ${values[values.length - 1] > values[0] ? 'text-red-400' : 'text-green-400'}`}>
-                            {values[values.length - 1] > values[0] ? '↑' : '↓'}
-                          </span>
-                        )}
-                      </td>
-                      {values.map((v, idx) => (
-                        <td key={idx} className="px-2 py-1 text-center">
-                          <span className={`font-mono ${v >= 0.5 ? 'text-red-400' : v > 0 ? 'text-yellow-400' : 'text-gray-600'}`}>
-                            {(v * 100).toFixed(0)}%
-                          </span>
+        <div className="space-y-4">
+          {/* Geographic view with time filter */}
+          {data.geo && data.geo.length > 0 && (
+            <div className="card">
+              <h2 className="text-sm font-semibold text-gray-100 mb-4">Geographic AMR Distribution Over Time</h2>
+              <TemporalGeoMap geo={data.geo} locations={data.locations || []} />
+            </div>
+          )}
+
+          {/* Prevalence table */}
+          <div className="card">
+            <h2 className="text-sm font-semibold text-gray-100 mb-4">Resistance Prevalence Over Time</h2>
+            <div className="overflow-x-auto">
+              <table className="text-xs w-full">
+                <thead>
+                  <tr className="border-b border-gray-800">
+                    <th className="px-2 py-1.5 text-left text-gray-400 font-medium sticky left-0 bg-gray-900">Drug Class</th>
+                    {data.temporal.time_points.map((tp) => (
+                      <th key={tp} className="px-2 py-1.5 text-gray-400 font-medium text-center">{tp}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.temporal.drug_classes.map((dc) => {
+                    const values = data.temporal.series[dc] || [];
+                    const hasChange = values.length > 1 && values[0] !== values[values.length - 1];
+                    return (
+                      <tr key={dc} className="border-b border-gray-800/30">
+                        <td className="px-2 py-1 text-gray-300 font-medium whitespace-nowrap sticky left-0 bg-gray-900">
+                          {dc}
+                          {hasChange && (
+                            <span className={`ml-1 text-[10px] ${values[values.length - 1] > values[0] ? 'text-red-400' : 'text-green-400'}`}>
+                              {values[values.length - 1] > values[0] ? '↑' : '↓'}
+                            </span>
+                          )}
                         </td>
-                      ))}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        {values.map((v, idx) => (
+                          <td key={idx} className="px-2 py-1 text-center">
+                            <span className={`font-mono ${v >= 0.5 ? 'text-red-400' : v > 0 ? 'text-yellow-400' : 'text-gray-600'}`}>
+                              {(v * 100).toFixed(0)}%
+                            </span>
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-3 text-xs text-gray-600">Prevalence = fraction of samples at each time point carrying resistance. ↑ increasing ↓ decreasing trend.</p>
           </div>
-          <p className="mt-3 text-xs text-gray-600">Prevalence = fraction of samples at each time point carrying resistance. ↑ increasing ↓ decreasing trend.</p>
         </div>
       )}
 
@@ -1746,14 +1752,6 @@ function ResistomeTrackerTool() {
             </table>
           </div>
           <p className="mt-3 text-xs text-gray-600">Jaccard distance: 0 = identical drug class profiles, 1 = completely different.</p>
-        </div>
-      )}
-
-      {/* ── Map view ── */}
-      {subTab === 'map' && data?.geo && data.geo.length > 0 && (
-        <div className="card">
-          <h2 className="text-sm font-semibold text-gray-100 mb-4">Geographic AMR Distribution</h2>
-          <ResistomeMap geo={data.geo} locations={data.locations || []} />
         </div>
       )}
 
