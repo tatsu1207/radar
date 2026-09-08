@@ -98,9 +98,11 @@ nohup uvicorn app.main:app --reload --host 0.0.0.0 --port "${PORT_BACKEND}" \
 BACKEND_PID=$!
 
 # ── Frontend ──────────────────────────────────────────────────────────────
-echo "Starting frontend on port ${PORT_FRONTEND}..."
+echo "Building frontend..."
 cd "${SCRIPT_DIR}/frontend"
-nohup env NEXT_PUBLIC_BACKEND_PORT="${PORT_BACKEND}" PORT="${PORT_FRONTEND}" HOSTNAME="0.0.0.0" npm run dev \
+env NEXT_PUBLIC_BACKEND_PORT="${PORT_BACKEND}" npm run build >> "${LOG_DIR}/frontend_build.log" 2>&1
+echo "Starting frontend on port ${PORT_FRONTEND}..."
+nohup env NEXT_PUBLIC_BACKEND_PORT="${PORT_BACKEND}" PORT="${PORT_FRONTEND}" HOSTNAME="0.0.0.0" npm start \
     >> "${LOG_DIR}/frontend.log" 2>&1 &
 FRONTEND_PID=$!
 
