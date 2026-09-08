@@ -1597,7 +1597,7 @@ function PangenomeTool() {
     const mergedRings = sample_rings.map((ring) => ({ ...ring, mergedSegs: mergeSegments(ring.segments) }));
 
     return (
-      <svg width={size} height={size} className="rounded-lg" style={{ background: '#0F172A' }}>
+      <svg id="pangenome-svg" width={size} height={size} className="rounded-lg" style={{ background: '#0F172A' }}>
         {/* Reference ring (innermost) */}
         <circle cx={cx} cy={cy} r={refRadius} fill="none" stroke="#374151" strokeWidth={ringWidth} />
         {mergedRef.map((feat, i) => {
@@ -1722,8 +1722,23 @@ function PangenomeTool() {
                   <button onClick={() => setZoom((z) => Math.min(z + 0.25, 3))} className="w-7 h-7 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-bold border border-gray-700">+</button>
                   <button onClick={() => setZoom((z) => Math.max(z - 0.25, 0.5))} className="w-7 h-7 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-bold border border-gray-700">−</button>
                   <button onClick={() => setZoom(1)} className="w-7 h-7 rounded bg-gray-800 hover:bg-gray-700 text-gray-400 text-[9px] border border-gray-700">1:1</button>
+                  <button onClick={() => {
+                    const svg = document.querySelector('#pangenome-svg');
+                    if (!svg) return;
+                    const serializer = new XMLSerializer();
+                    const svgStr = serializer.serializeToString(svg);
+                    const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = 'pangenome.svg';
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                  }} className="w-7 h-7 rounded bg-gray-800 hover:bg-gray-700 text-gray-400 border border-gray-700 flex items-center justify-center" title="Download SVG">
+                    <Download className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-                <div className="overflow-auto" style={{ maxWidth: '750px', maxHeight: '750px' }}>
+                <div className="overflow-auto" style={{ maxWidth: '750px', maxHeight: '750px', cursor: zoom > 1 ? 'grab' : 'default' }}
+                  onMouseDown={(e) => { if (zoom > 1) { const el = e.currentTarget; el.style.cursor = 'grabbing'; const onUp = () => { el.style.cursor = 'grab'; window.removeEventListener('mouseup', onUp); }; window.addEventListener('mouseup', onUp); } }}>
                   <div style={{ transform: `scale(${zoom})`, transformOrigin: 'center center', transition: 'transform 0.2s' }}>
                     {renderCircularMap()}
                   </div>
