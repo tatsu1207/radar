@@ -219,10 +219,14 @@ def get_resistome_for_samples(
     temporal = {"time_points": [], "drug_classes": [], "series": {}}
 
     dated_samples = []
+    sample_location_map = {}  # sample_id -> location
     for s in samples:
         meta = db.query(Metadata).filter(Metadata.sample_id == s.id).first()
-        if meta and meta.collection_date:
-            dated_samples.append((s, str(meta.collection_date)))
+        if meta:
+            if meta.location:
+                sample_location_map[str(s.id)] = meta.location
+            if meta.collection_date:
+                dated_samples.append((s, str(meta.collection_date)))
 
     if dated_samples:
         dated_samples.sort(key=lambda x: x[1])
@@ -250,12 +254,27 @@ def get_resistome_for_samples(
                 dc_counts.append(r_count)
             series[dc] = prevalence
             counts[dc] = dc_counts
+        # Per-location counts for region filtering
+        all_locations = sorted(set(sample_location_map.get(str(s.id), "Unknown") for s, _ in dated_samples))
+        location_counts = {}  # {location: {dc: [counts_per_tp]}}
+        for loc in all_locations:
+            location_counts[loc] = {}
+            for dc in drug_classes_sorted:
+                lc = []
+                for tp in time_points:
+                    tp_samples = [s for s in date_groups[tp] if sample_location_map.get(str(s.id), "Unknown") == loc]
+                    r_count = sum(1 for s in tp_samples if dc in sample_drug_map.get(str(s.id), set()))
+                    lc.append(r_count)
+                location_counts[loc][dc] = lc
+
         temporal = {
             "time_points": time_points,
             "drug_classes": drug_classes_sorted,
             "series": series,
             "counts": counts,
             "sample_counts": sample_counts,
+            "locations": all_locations,
+            "location_counts": location_counts,
         }
 
     # --- Clustering (Jaccard distance) ---

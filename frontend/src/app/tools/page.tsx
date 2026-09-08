@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Download, AlertTriangle, Info, RefreshCw } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from 'recharts';
 import dynamic from 'next/dynamic';
 
 const TemporalGeoMap = dynamic(() => import('@/components/ResistomeMapInner'), {
@@ -1930,6 +1930,8 @@ interface ResistomeData {
     series: Record<string, number[]>;
     counts?: Record<string, number[]>;
     sample_counts?: number[];
+    locations?: string[];
+    location_counts?: Record<string, Record<string, number[]>>;
   };
   distance_matrix: number[][];
   geo?: GeoSample[];
@@ -1942,6 +1944,7 @@ function ResistomeTrackerTool() {
   const [computing, setComputing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [subTab, setSubTab] = useState<'matrix' | 'temporal' | 'distance'>('matrix');
+  const [regionFilter, setRegionFilter] = useState('all');
   const [hoveredCell, setHoveredCell] = useState<{ i: number; j: number } | null>(null);
 
   async function runAnalysis() {
@@ -2086,39 +2089,76 @@ function ResistomeTrackerTool() {
             </div>
           )}
 
-          {/* Line chart */}
-          {data.temporal.time_points.length > 0 && data.temporal.counts && (
-            <div className="card">
-              <h2 className="text-sm font-semibold text-gray-100 mb-4">Resistant Isolate Count Over Time</h2>
-              <ResponsiveContainer width="100%" height={350}>
-                <LineChart data={data.temporal.time_points.map((tp, idx) => {
-                  const point: Record<string, string | number | null> = { date: tp.split(' ')[0] };
-                  for (const dc of data.temporal.drug_classes) {
-                    const count = data.temporal.counts![dc]?.[idx] ?? 0;
-                    // Use null for 0 so lines break (don't connect through empty dates)
-                    point[dc] = count > 0 ? count : null;
-                  }
-                  return point;
-                })}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-                  <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} allowDecimals={false} label={{ value: 'Isolates', angle: -90, position: 'insideLeft', fill: '#6B7280', fontSize: 11 }} />
-                  <RechartsTooltip contentStyle={{ background: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: 11 }} />
-                  <Legend wrapperStyle={{ fontSize: 10 }} />
-                  {data.temporal.drug_classes.map((dc, i) => {
-                    const colors = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#F97316', '#06B6D4', '#84CC16', '#A855F7', '#14B8A6', '#E11D48'];
-                    return (
-                      <Line key={dc} type="monotone" dataKey={dc} stroke={colors[i % colors.length]} strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} connectNulls={false} />
-                    );
-                  })}
-                </LineChart>
-              </ResponsiveContainer>
-              <p className="mt-2 text-xs text-gray-600">
-                Y-axis = number of isolates carrying resistance at each time point.
-                {data.temporal.sample_counts && ` Total samples per date: ${data.temporal.time_points.map((tp, i) => `${tp.split(' ')[0]} (n=${data.temporal.sample_counts![i]})`).join(', ')}.`}
-              </p>
-            </div>
-          )}
+          {/* Bar chart */}
+          {data.temporal.time_points.length > 0 && data.temporal.counts && (() => {
+            const colors = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#F97316', '#06B6D4', '#84CC16', '#A855F7', '#14B8A6', '#E11D48'];
+            const locations = data.temporal.locations || [];
+            const countsSource = regionFilter === 'all'
+              ? data.temporal.counts!
+              : (data.temporal.location_counts?.[regionFilter] || data.temporal.counts!);
+
+            const chartData = data.temporal.time_points.map((tp, idx) => {
+              const point: Record<string, string | number> = { date: tp.split(' ')[0] };
+              for (const dc of data.temporal.drug_classes) {
+                point[dc] = countsSource[dc]?.[idx] ?? 0;
+              }
+              return point;
+            });
+
+            const downloadChart = () => {
+              const headers = ['Date', ...data.temporal.drug_classes];
+              const rows = chartData.map((d) => [d.date, ...data.temporal.drug_classes.map((dc) => d[dc])]);
+              const tsv = [headers.join('\t'), ...rows.map((r) => r.join('\t'))].join('\n');
+              const blob = new Blob([tsv], { type: 'text/tab-separated-values' });
+              const a = document.createElement('a');
+              a.href = URL.createObjectURL(blob);
+              a.download = `resistome_over_time${regionFilter !== 'all' ? '_' + regionFilter : ''}.tsv`;
+              a.click();
+              URL.revokeObjectURL(a.href);
+            };
+
+            return (
+              <div className="card">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-sm font-semibold text-gray-100">Resistant Isolate Count Over Time</h2>
+                  <button onClick={downloadChart} className="btn-secondary text-xs flex items-center gap-1.5">
+                    <Download className="w-3.5 h-3.5" />
+                    Download TSV
+                  </button>
+                </div>
+
+                {/* Region filter */}
+                {locations.length > 0 && (
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="text-xs text-gray-400">Region:</span>
+                    <button onClick={() => setRegionFilter('all')} className={`px-2 py-1 rounded text-xs ${regionFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>All</button>
+                    {locations.map((loc) => (
+                      <button key={loc} onClick={() => setRegionFilter(loc)} className={`px-2 py-1 rounded text-xs ${regionFilter === loc ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                        {loc}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <ResponsiveContainer width="100%" height={350}>
+                  <BarChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                    <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                    <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} allowDecimals={false} label={{ value: 'Isolates', angle: -90, position: 'insideLeft', fill: '#6B7280', fontSize: 11 }} />
+                    <RechartsTooltip contentStyle={{ background: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: 11 }} />
+                    <Legend wrapperStyle={{ fontSize: 10 }} />
+                    {data.temporal.drug_classes.map((dc, i) => (
+                      <Bar key={dc} dataKey={dc} fill={colors[i % colors.length]} stackId="a" />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+                <p className="mt-2 text-xs text-gray-600">
+                  Stacked bars. Y-axis = number of isolates carrying resistance.
+                  {regionFilter !== 'all' && ` Filtered to: ${regionFilter}.`}
+                </p>
+              </div>
+            );
+          })()}
         </div>
       )}
 
