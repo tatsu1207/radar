@@ -1673,9 +1673,11 @@ function ResistomeTrackerTool() {
               <h2 className="text-sm font-semibold text-gray-100 mb-4">Resistant Isolate Count Over Time</h2>
               <ResponsiveContainer width="100%" height={350}>
                 <LineChart data={data.temporal.time_points.map((tp, idx) => {
-                  const point: Record<string, string | number> = { date: tp.split(' ')[0] };
+                  const point: Record<string, string | number | null> = { date: tp.split(' ')[0] };
                   for (const dc of data.temporal.drug_classes) {
-                    point[dc] = data.temporal.counts![dc]?.[idx] ?? 0;
+                    const count = data.temporal.counts![dc]?.[idx] ?? 0;
+                    // Use null for 0 so lines break (don't connect through empty dates)
+                    point[dc] = count > 0 ? count : null;
                   }
                   return point;
                 })}>
@@ -1687,7 +1689,7 @@ function ResistomeTrackerTool() {
                   {data.temporal.drug_classes.map((dc, i) => {
                     const colors = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#F97316', '#06B6D4', '#84CC16', '#A855F7', '#14B8A6', '#E11D48'];
                     return (
-                      <Line key={dc} type="monotone" dataKey={dc} stroke={colors[i % colors.length]} strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                      <Line key={dc} type="monotone" dataKey={dc} stroke={colors[i % colors.length]} strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} connectNulls={false} />
                     );
                   })}
                 </LineChart>
