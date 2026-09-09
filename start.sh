@@ -79,7 +79,7 @@ export RADAR_RESFINDER_DB="${SCRIPT_DIR}/databases/resfinder_db"
 # ── Celery workers ────────────────────────────────────────────────────────
 cd "${SCRIPT_DIR}/backend"
 # Pipeline worker: one job at a time (bioinformatics tools use many threads/RAM)
-echo "Starting Celery pipeline worker (concurrency=1)..."
+echo "Starting Celery pipeline worker (concurrency=2)..."
 nohup celery -A app.celery_app worker --loglevel=info --pool=threads --concurrency=2 \
     -Q pipeline -n pipeline@%h \
     >> "${LOG_DIR}/celery.log" 2>&1 &
