@@ -142,3 +142,56 @@ export function useSamplePicker() {
 
   return { allSamples, selected, toggle, selectAll, deselectAll, loading, selectedIds: Array.from(selected) };
 }
+
+/**
+ * Hook for async tool jobs: submit → poll → get results.
+ * Returns { submit, data, computing, error, jobStatus }.
+ */
+export function useToolJob<T>(toolEndpoint: string) {
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [data, setData] = useState<T | null>(null);
+  const [computing, setComputing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<string | null>(null);
+
+  // Poll for completion
+  useEffect(() => {
+    if (!jobId || jobStatus === 'complete' || jobStatus === 'failed') return;
+    const interval = setInterval(async () => {
+      try {
+        const r = await authFetch(`/api/tools/job/${jobId}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        setJobStatus(d.status);
+        if (d.status === 'complete' && d.data) {
+          setData(d.data as T);
+          setComputing(false);
+        } else if (d.status === 'failed') {
+          setError(d.error || 'Job failed');
+          setComputing(false);
+        }
+      } catch { /* ignore poll errors */ }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [jobId, jobStatus]);
+
+  async function submit(body: object) {
+    setComputing(true);
+    setError(null);
+    setData(null);
+    setJobId(null);
+    setJobStatus(null);
+    try {
+      const res = await authPost(toolEndpoint, body);
+      if (!res.ok) throw new Error(await res.text());
+      const d = await res.json();
+      setJobId(d.job_id);
+      setJobStatus('pending');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to submit job');
+      setComputing(false);
+    }
+  }
+
+  return { submit, data, computing, error, jobStatus };
+}

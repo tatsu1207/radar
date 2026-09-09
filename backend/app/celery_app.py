@@ -26,4 +26,4 @@ celery_app.conf.update(
 )
 
 # Import tasks so they are registered with the Celery app
-celery_app.conf.imports = ["app.core.pipeline", "app.core.sra", "app.core.bvbrc"]
+celery_app.conf.imports = ["app.core.pipeline", "app.core.sra", "app.core.bvbrc", "app.core.tool_tasks"]

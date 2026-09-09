@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { authPost, SamplePicker, useSamplePicker } from '@/components/tools/shared';
+import { useToolJob, SamplePicker, useSamplePicker } from '@/components/tools/shared';
 
 interface EasyFigContig { name: string; length: number }
 interface EasyFigFeature { type: 'arg' | 'vf' | 'mge' | 'mrg'; name: string; contig: string; start: number; end: number }
@@ -26,28 +26,17 @@ function blockColor(identity: number, inverted: boolean): string {
 
 export default function EasyFigTool() {
   const picker = useSamplePicker();
-  const [data, setData] = useState<EasyFigData | null>(null);
-  const [computing, setComputing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const job = useToolJob<EasyFigData>('/api/tools/easyfig');
   const [hoveredBlock, setHoveredBlock] = useState<EasyFigBlock | null>(null);
   const [minLength, setMinLength] = useState(1000);
 
+  const data = job.data;
+  const computing = job.computing;
+  const error = job.error || (data?.message ?? null);
+
   async function runAnalysis() {
     if (picker.selectedIds.length < 2 || picker.selectedIds.length > 4) return;
-    setComputing(true);
-    setError(null);
-    setData(null);
-    try {
-      const res = await authPost('/api/tools/easyfig', { sample_ids: picker.selectedIds });
-      if (!res.ok) throw new Error(await res.text());
-      const d: EasyFigData = await res.json();
-      if (d.message) setError(d.message);
-      setData(d);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Analysis failed');
-    } finally {
-      setComputing(false);
-    }
+    job.submit({ sample_ids: picker.selectedIds });
   }
 
   const svgWidth = 900;

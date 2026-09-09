@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
-import { authPost, SamplePicker, useSamplePicker } from '@/components/tools/shared';
+import { useToolJob, SamplePicker, useSamplePicker } from '@/components/tools/shared';
 
 interface RegionGene { start: number; end: number; strand: number; type: string; name: string | null; hash: string }
 interface Region { contig: string; region_start: number; region_end: number; length: number; genes: RegionGene[] }
@@ -43,33 +43,18 @@ interface SyntenyData {
 
 export default function SynTrackerTool() {
   const picker = useSamplePicker();
-  const [data, setData] = useState<SyntenyData | null>(null);
-  const [computing, setComputing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const job = useToolJob<SyntenyData>('/api/tools/syntracker');
   const [hoveredCell, setHoveredCell] = useState<{ i: number; j: number } | null>(null);
   const [synMode, setSynMode] = useState<'full' | 'regions'>('full');
   const [flanking, setFlanking] = useState(20000);
 
+  const data = job.data;
+  const computing = job.computing;
+  const error = job.error || (data?.message ?? null);
+
   async function runAnalysis() {
     if (picker.selectedIds.length < 2) return;
-    setComputing(true);
-    setError(null);
-    setData(null);
-    try {
-      const res = await authPost('/api/tools/syntracker', {
-        sample_ids: picker.selectedIds,
-        mode: synMode,
-        flanking,
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const d: SyntenyData = await res.json();
-      if (d.message) setError(d.message);
-      setData(d);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Analysis failed');
-    } finally {
-      setComputing(false);
-    }
+    job.submit({ sample_ids: picker.selectedIds, mode: synMode, flanking });
   }
 
   function syntenyColor(val: number): string {

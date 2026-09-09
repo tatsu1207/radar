@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
-import { authPost, SamplePicker, useSamplePicker } from '@/components/tools/shared';
+import { useToolJob, SamplePicker, useSamplePicker } from '@/components/tools/shared';
 
 interface ANIData {
   samples: string[];
@@ -38,36 +38,17 @@ interface ClusterResult {
 export default function GenomeComparisonTool() {
   const picker = useSamplePicker();
   const [subTab, setSubTab] = useState<'ani' | 'clusters'>('ani');
-  const [aniData, setAniData] = useState<ANIData | null>(null);
-  const [clusterData, setClusterData] = useState<ClusterResult | null>(null);
-  const [computing, setComputing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const job = useToolJob<{ ani: ANIData; clusters: ClusterResult }>('/api/tools/ani');
   const [hoveredCell, setHoveredCell] = useState<{ i: number; j: number } | null>(null);
+
+  const aniData = job.data?.ani ?? null;
+  const clusterData = job.data?.clusters ?? null;
+  const computing = job.computing;
+  const error = job.error || (aniData?.message ?? null);
 
   async function runAnalysis() {
     if (picker.selectedIds.length < 2) return;
-    setComputing(true);
-    setError(null);
-    setAniData(null);
-    setClusterData(null);
-    try {
-      const body = { sample_ids: picker.selectedIds };
-      const [aniRes, clusterRes] = await Promise.all([
-        authPost('/api/tools/ani', body),
-        authPost('/api/tools/clusters', body),
-      ]);
-      if (!aniRes.ok) throw new Error(await aniRes.text());
-      if (!clusterRes.ok) throw new Error(await clusterRes.text());
-      const ani: ANIData = await aniRes.json();
-      const clusters: ClusterResult = await clusterRes.json();
-      if (ani.message) setError(ani.message);
-      setAniData(ani);
-      setClusterData(clusters);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Analysis failed');
-    } finally {
-      setComputing(false);
-    }
+    job.submit({ sample_ids: picker.selectedIds });
   }
 
   function aniColor(val: number): string {

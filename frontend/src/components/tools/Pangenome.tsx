@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
-import { authPost, SamplePicker, useSamplePicker } from '@/components/tools/shared';
+import { useToolJob, SamplePicker, useSamplePicker } from '@/components/tools/shared';
 
 interface PangenomeStats { total_genes: number; core: number; accessory: number; unique: number; n_samples: number }
 interface PangenomeFeature { start: number; end: number; hash: string; strand: number; type: string; name: string | null; n_samples: number }
@@ -27,28 +27,17 @@ const PAN_COLORS: Record<string, string> = {
 
 export default function PangenomeTool() {
   const picker = useSamplePicker();
-  const [data, setData] = useState<PangenomeData | null>(null);
-  const [computing, setComputing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const job = useToolJob<PangenomeData>('/api/tools/pangenome');
   const [hoveredGene, setHoveredGene] = useState<PangenomeFeature | null>(null);
   const [zoom, setZoom] = useState(1.0);
 
+  const data = job.data;
+  const computing = job.computing;
+  const error = job.error || (data?.error ?? null);
+
   async function runAnalysis() {
     if (picker.selectedIds.length < 2) return;
-    setComputing(true);
-    setError(null);
-    setData(null);
-    try {
-      const res = await authPost('/api/tools/pangenome', { sample_ids: picker.selectedIds });
-      if (!res.ok) throw new Error(await res.text());
-      const d = await res.json();
-      if (d.error) { setError(d.error); return; }
-      setData(d);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Analysis failed');
-    } finally {
-      setComputing(false);
-    }
+    job.submit({ sample_ids: picker.selectedIds });
   }
 
   function renderCircularMap() {

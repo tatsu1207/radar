@@ -109,43 +109,23 @@ def get_risk_for_samples(
 
 
 @router.post("/tools/ani")
-def compute_ani_for_samples(
-    body: dict,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Compute all-vs-all ANI for selected samples."""
+def submit_ani(body: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Submit ANI + cluster detection as async Celery task."""
     sample_ids = body.get("sample_ids", [])
     if len(sample_ids) < 2:
         raise HTTPException(status_code=400, detail="Need at least 2 samples")
-
-    from app.core.ani import compute_ani_for_samples as _compute
-    return _compute(sample_ids, db)
+    from app.models.models import AnalysisJob, JobStatus
+    job = AnalysisJob(sample_id=sample_ids[0], tool="tool_ani", status=JobStatus.pending)
+    db.add(job); db.commit(); db.refresh(job)
+    from app.core.tool_tasks import task_ani
+    task_ani.delay(sample_ids, str(job.id))
+    return {"job_id": str(job.id), "status": "submitted"}
 
 
 @router.post("/tools/clusters")
-def detect_clusters_for_samples(
-    body: dict,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Detect outbreak clusters among selected samples."""
-    sample_ids = body.get("sample_ids", [])
-    threshold = body.get("threshold")
-    if len(sample_ids) < 2:
-        raise HTTPException(status_code=400, detail="Need at least 2 samples")
-
-    # Get ANI first
-    from app.core.ani import compute_ani_for_samples as _compute_ani
-    ani_result = _compute_ani(sample_ids, db)
-
-    from app.core.outbreak import detect_clusters_for_samples
-    return detect_clusters_for_samples(
-        sample_ids, db,
-        ani_matrix=ani_result.get("ani_matrix"),
-        ani_sample_ids=ani_result.get("sample_ids"),
-        cgmlst_threshold=threshold,
-    )
+def submit_clusters(body: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Submit ANI + clusters (same as /tools/ani)."""
+    return submit_ani(body, db, current_user)
 
 
 @router.post("/tools/resistome")
@@ -366,57 +346,74 @@ def get_resistome_for_samples(
 
 
 @router.post("/tools/pangenome")
-def compute_pangenome_endpoint(
-    body: dict,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Compute pangenome analysis for selected samples."""
+def submit_pangenome(body: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Submit pangenome analysis as async Celery task."""
     sample_ids = body.get("sample_ids", [])
     if len(sample_ids) < 2:
         raise HTTPException(status_code=400, detail="Need at least 2 samples")
-
-    from app.core.pangenome import compute_pangenome
-    return compute_pangenome(sample_ids, db)
+    from app.models.models import AnalysisJob, JobStatus
+    job = AnalysisJob(sample_id=sample_ids[0], tool="tool_pangenome", status=JobStatus.pending)
+    db.add(job); db.commit(); db.refresh(job)
+    from app.core.tool_tasks import task_pangenome
+    task_pangenome.delay(sample_ids, str(job.id))
+    return {"job_id": str(job.id), "status": "submitted"}
 
 
 @router.post("/tools/easyfig")
-def compute_easyfig_endpoint(
-    body: dict,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Compute BLASTn-based synteny alignments for visualization."""
+def submit_easyfig(body: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Submit EasyFig as async Celery task."""
     sample_ids = body.get("sample_ids", [])
     if len(sample_ids) < 2:
         raise HTTPException(status_code=400, detail="Need at least 2 samples")
     if len(sample_ids) > 4:
-        raise HTTPException(status_code=400, detail="Maximum 4 samples for synteny visualization")
-
-    from app.core.easyfig import compute_easyfig
-    return compute_easyfig(sample_ids, db)
+        raise HTTPException(status_code=400, detail="Maximum 4 samples")
+    from app.models.models import AnalysisJob, JobStatus
+    job = AnalysisJob(sample_id=sample_ids[0], tool="tool_easyfig", status=JobStatus.pending)
+    db.add(job); db.commit(); db.refresh(job)
+    from app.core.tool_tasks import task_easyfig
+    task_easyfig.delay(sample_ids, str(job.id))
+    return {"job_id": str(job.id), "status": "submitted"}
 
 
 @router.post("/tools/syntracker")
-def compute_syntracker(
-    body: dict,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Compute pairwise synteny scores for selected samples.
-
-    Uses Prodigal protein hashing for fast gene-order comparison.
-    Synchronous — typically completes in seconds.
-    """
+def submit_syntracker(body: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Submit SynTracker as async Celery task."""
     sample_ids = body.get("sample_ids", [])
     if len(sample_ids) < 2:
         raise HTTPException(status_code=400, detail="Need at least 2 samples")
-
-    mode = body.get("mode", "full")  # "full" or "regions"
+    mode = body.get("mode", "full")
     flanking = body.get("flanking", 20000)
+    from app.models.models import AnalysisJob, JobStatus
+    job = AnalysisJob(sample_id=sample_ids[0], tool="tool_syntracker", status=JobStatus.pending)
+    db.add(job); db.commit(); db.refresh(job)
+    from app.core.tool_tasks import task_syntracker
+    task_syntracker.delay(sample_ids, str(job.id), mode, flanking)
+    return {"job_id": str(job.id), "status": "submitted"}
 
-    from app.core.syntracker import compute_synteny_for_samples
-    return compute_synteny_for_samples(sample_ids, db, mode=mode, flanking=flanking)
+
+@router.get("/tools/job/{job_id}")
+def poll_tool_job(job_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Poll a tool job for status and results."""
+    from app.models.models import AnalysisJob
+    job = db.query(AnalysisJob).filter(AnalysisJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    result = {
+        "job_id": str(job.id),
+        "status": job.status.value if job.status else "unknown",
+        "error": job.log if job.status and job.status.value == "failed" else None,
+    }
+
+    if job.status and job.status.value == "complete":
+        # Extract tool name from job.tool (e.g., "tool_ani" → "ani")
+        tool_name = job.tool.replace("tool_", "") if job.tool.startswith("tool_") else job.tool
+        from app.core.tool_tasks import _load_result
+        data = _load_result(str(job_id), tool_name)
+        if data:
+            result["data"] = data
+
+    return result
 
 
 @router.get("/samples/{sample_id}/summary")
