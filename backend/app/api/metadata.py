@@ -342,6 +342,7 @@ def list_all_metadata(db: Session = Depends(get_db), current_user: User = Depend
         row: dict = {
             "sample_id": str(s.id),
             "sample_name": s.name,
+            "host": getattr(meta, 'host', None) if meta else None,
             "source": meta.source if meta else None,
             "collection_date": (
                 meta.collection_date.strftime("%Y-%m-%d") if meta and meta.collection_date else None

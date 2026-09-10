@@ -83,6 +83,45 @@ function EditableCell({
   );
 }
 
+// Host species dropdown
+const HOST_SPECIES = [
+  'Chicken', 'Pig', 'Cattle', 'Duck', 'Turkey', 'Goat', 'Sheep',
+  'Dog', 'Cat', 'Horse', 'Fish', 'Shrimp',
+  'Human', 'Environment', 'Food', 'Water', 'Soil', 'Other',
+];
+
+function HostPickerCell({ value, onSave }: { value: string | null; onSave: (val: string) => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function select(val: string) {
+    if (val === (value || '')) { setEditing(false); return; }
+    setSaving(true);
+    try { await onSave(val); setEditing(false); } catch {} finally { setSaving(false); }
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1">
+        <select defaultValue={value || ''} autoFocus disabled={saving}
+          onChange={(e) => select(e.target.value)}
+          onBlur={() => setEditing(false)}
+          className="input text-xs py-0.5 px-1.5">
+          <option value="">Select...</option>
+          {HOST_SPECIES.map((h) => <option key={h} value={h}>{h}</option>)}
+        </select>
+        <button onClick={() => setEditing(false)} className="p-0.5 text-gray-500 hover:text-gray-300"><X className="w-3.5 h-3.5" /></button>
+      </div>
+    );
+  }
+  return (
+    <span onClick={() => setEditing(true)}
+      className="cursor-pointer hover:bg-gray-800/50 rounded px-1 py-0.5 -mx-1 block min-h-[1.5em]" title="Click to edit">
+      {value || <span className="text-gray-600">&mdash;</span>}
+    </span>
+  );
+}
+
 // Korean cities for location dropdown
 const KOREAN_CITIES = [
   'Seoul', 'Busan', 'Daegu', 'Incheon', 'Gwangju', 'Daejeon', 'Ulsan', 'Sejong',
@@ -274,8 +313,9 @@ export default function MetadataPage() {
     setNewColumnName('');
   }
 
-  const fixedColumns = ['source', 'collection_date', 'location'];
+  const fixedColumns = ['host', 'source', 'collection_date', 'location'];
   const columnLabels: Record<string, string> = {
+    host: 'Host',
     source: 'Source',
     collection_date: 'Collection Date\n(YYYY-MM-DD)',
     location: 'Location',
@@ -396,7 +436,12 @@ export default function MetadataPage() {
                     </td>
                     {fixedColumns.map((col) => (
                       <td key={col} className="table-cell text-sm">
-                        {col === 'collection_date' ? (
+                        {col === 'host' ? (
+                          <HostPickerCell
+                            value={row[col] || null}
+                            onSave={(val) => handleCellSave(row.sample_id, col, val)}
+                          />
+                        ) : col === 'collection_date' ? (
                           <DatePickerCell
                             value={row[col] || null}
                             onSave={(val) => handleCellSave(row.sample_id, col, val)}
