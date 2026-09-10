@@ -159,7 +159,7 @@ export default function ResistomeMapInner({ geo, locations }: { geo: GeoSample[]
         </div>
       )}
 
-      <div id={mapId} style={{ height: '400px' }} className="rounded-lg overflow-hidden border border-gray-700 bg-gray-900" />
+      <div id={mapId} style={{ height: '600px', maxWidth: '450px' }} className="rounded-lg overflow-hidden border border-gray-700 bg-gray-900" />
 
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-4 text-xs text-gray-400">
