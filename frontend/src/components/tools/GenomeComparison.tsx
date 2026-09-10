@@ -165,7 +165,7 @@ export default function GenomeComparisonTool() {
                           className={`px-2 py-1 text-center font-mono cursor-default transition-all ${isDiag ? 'bg-gray-800/50 text-gray-600' : aniColor(val)} ${isHovered ? 'ring-2 ring-blue-400' : ''}`}
                           onMouseEnter={() => setHoveredCell({ i, j })}
                           onMouseLeave={() => setHoveredCell(null)}
-                          title={isDiag ? '' : `${rowName} vs ${aniData.samples[j]}\nANI: ${val.toFixed(2)}%\nAlign fraction: ${(aniData.af_matrix[i][j] * 100).toFixed(1)}%`}
+                          title={isDiag ? '' : `${rowName} vs ${aniData.samples[j]}\nANI: ${val.toFixed(2)}%\nAlign fraction: ${((aniData.af_matrix?.[i]?.[j] ?? 0) * 100).toFixed(1)}%`}
                         >{isDiag ? '-' : val.toFixed(1)}</td>
                       );
                     })}
@@ -180,7 +180,7 @@ export default function GenomeComparisonTool() {
               <span className="text-gray-500"> vs </span>
               <span className="text-gray-200 font-medium">{aniData.samples[hoveredCell.j]}</span>
               <span className="text-gray-400 ml-3">ANI: <span className="text-white font-mono">{aniData.ani_matrix[hoveredCell.i][hoveredCell.j].toFixed(4)}%</span></span>
-              <span className="text-gray-400 ml-3">Align fraction: <span className="text-white font-mono">{(aniData.af_matrix[hoveredCell.i][hoveredCell.j] * 100).toFixed(1)}%</span></span>
+              <span className="text-gray-400 ml-3">Align fraction: <span className="text-white font-mono">{((aniData.af_matrix?.[hoveredCell.i]?.[hoveredCell.j] ?? 0) * 100).toFixed(1)}%</span></span>
               {aniData.ani_matrix[hoveredCell.i][hoveredCell.j] >= 99.95 && (
                 <span className="ml-3 px-2 py-0.5 bg-green-600/30 text-green-300 rounded text-xs">Likely clonal</span>
               )}
