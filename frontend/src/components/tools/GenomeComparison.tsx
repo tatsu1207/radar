@@ -44,7 +44,8 @@ export default function GenomeComparisonTool() {
   const aniData = job.data?.ani ?? null;
   const clusterData = job.data?.clusters ?? null;
   const computing = job.computing;
-  const error = job.error || (aniData?.message ?? null);
+  const [renderError, setRenderError] = useState<string | null>(null);
+  const error = renderError || job.error || (aniData?.message ?? null);
 
   async function runAnalysis() {
     if (picker.selectedIds.length < 2) return;
@@ -113,6 +114,13 @@ export default function GenomeComparisonTool() {
       </button>
 
       {error && <div className="p-4 bg-red-600/20 border border-red-600/50 rounded-lg text-red-300 text-sm">{error}</div>}
+
+      {/* Debug: show raw data shape */}
+      {job.data && !aniData && (
+        <div className="p-4 bg-yellow-600/20 border border-yellow-600/50 rounded-lg text-yellow-300 text-xs font-mono">
+          Data received but ANI not found. Keys: {JSON.stringify(Object.keys(job.data))}
+        </div>
+      )}
 
       {/* Sub-tabs */}
       {hasResults && (
