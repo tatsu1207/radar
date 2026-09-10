@@ -18,6 +18,32 @@ import {
 import type { FileManagerSample, SRADownload } from '@/lib/api';
 import ServerPathDialog from '@/components/ServerPathDialog';
 
+const HOST_SPECIES = [
+  'Chicken', 'Pig', 'Cattle', 'Duck', 'Turkey', 'Goat', 'Sheep',
+  'Dog', 'Cat', 'Horse', 'Fish', 'Shrimp',
+  'Human', 'Environment', 'Food', 'Water', 'Soil', 'Other',
+];
+
+function InlineHostPicker({ value, onSave }: { value: string | null; onSave: (val: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  if (editing) {
+    return (
+      <select defaultValue={value || ''} autoFocus
+        onChange={(e) => { onSave(e.target.value); setEditing(false); }}
+        onBlur={() => setEditing(false)}
+        className="input text-xs py-0.5 px-1 w-24">
+        <option value="">Select...</option>
+        {HOST_SPECIES.map((h) => <option key={h} value={h}>{h}</option>)}
+      </select>
+    );
+  }
+  return (
+    <span onClick={() => setEditing(true)} className="cursor-pointer hover:bg-gray-800/50 rounded px-1 py-0.5 block text-xs">
+      {value || <span className="text-red-400">required</span>}
+    </span>
+  );
+}
+
 const KOREAN_CITIES = [
   'Seoul', 'Busan', 'Daegu', 'Incheon', 'Gwangju', 'Daejeon', 'Ulsan', 'Sejong',
   'Suwon', 'Seongnam', 'Goyang', 'Yongin', 'Cheongju', 'Chungju', 'Cheonan',
@@ -322,10 +348,10 @@ export default function GlobalFilesPage() {
     // Check all selected samples have required metadata
     const missing = Array.from(selectedSamples).filter((id) => {
       const s = samples.find((s) => s.sample_id === id);
-      return s && (!s.location || !s.collection_date);
+      return s && (!s.host || !s.location || !s.collection_date);
     });
     if (missing.length > 0) {
-      setError(`${missing.length} selected sample(s) missing Location or Date. Fill metadata before starting pipeline.`);
+      setError(`${missing.length} selected sample(s) missing Host, Location, or Date. Fill metadata before starting pipeline.`);
       return;
     }
     setStartingSelected(true);
@@ -576,6 +602,7 @@ export default function GlobalFilesPage() {
                   <th className="table-header">R2</th>
                   <th className="table-header">ONT</th>
                   <th className="table-header">PacBio</th>
+                  <th className="table-header">Host *</th>
                   <th className="table-header">Location *</th>
                   <th className="table-header">Date *</th>
                   <th className="table-header">Pipeline</th>
@@ -627,6 +654,9 @@ export default function GlobalFilesPage() {
                         <FileSlotCell file={sample.long_read_platform === 'pacbio' ? sample.long_read : null} isMissingPair={false} />
                       </td>
                       <td className="table-cell">
+                        <InlineHostPicker value={sample.host} onSave={(v) => handleMetaSave(sample.sample_id, 'host', v)} />
+                      </td>
+                      <td className="table-cell">
                         <InlineCityPicker value={sample.location} onSave={(v) => handleMetaSave(sample.sample_id, 'location', v)} />
                       </td>
                       <td className="table-cell">
@@ -674,8 +704,8 @@ export default function GlobalFilesPage() {
                               Start
                             </button>
                           </div>
-                        ) : !sample.location || !sample.collection_date ? (
-                          <span className="text-xs text-yellow-400" title="Location and Date are required before starting the pipeline">
+                        ) : !sample.host || !sample.location || !sample.collection_date ? (
+                          <span className="text-xs text-yellow-400" title="Host, Location, and Date are required before starting the pipeline">
                             Fill metadata
                           </span>
                         ) : (

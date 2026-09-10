@@ -291,6 +291,7 @@ class FileManagerSample(BaseModel):
     project_name: Optional[str] = None
     collection_date: Optional[str] = None
     location: Optional[str] = None
+    host: Optional[str] = None
     pipeline_status: Optional[str] = None  # not_started, running, complete, failed
     pipeline_job_id: Optional[str] = None
     pipeline_progress: int = 0  # 0-100

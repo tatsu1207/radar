@@ -247,6 +247,19 @@ def get_resistome_for_samples(
                     lc.append(r_count)
                 location_counts[loc][dc] = lc
 
+        # Per-host counts for host filtering
+        all_hosts_temporal = sorted(set(sample_host_map.get(str(s.id), "Unknown") for s, _ in dated_samples))
+        host_counts = {}
+        for h in all_hosts_temporal:
+            host_counts[h] = {}
+            for dc in drug_classes_sorted:
+                hc = []
+                for tp in time_points:
+                    tp_samples = [s for s in date_groups[tp] if sample_host_map.get(str(s.id), "Unknown") == h]
+                    r_count = sum(1 for s in tp_samples if dc in sample_drug_map.get(str(s.id), set()))
+                    hc.append(r_count)
+                host_counts[h][dc] = hc
+
         temporal = {
             "time_points": time_points,
             "drug_classes": drug_classes_sorted,
@@ -255,6 +268,8 @@ def get_resistome_for_samples(
             "sample_counts": sample_counts,
             "locations": all_locations,
             "location_counts": location_counts,
+            "hosts": all_hosts_temporal,
+            "host_counts": host_counts,
         }
 
     # --- Clustering (Jaccard distance) ---
@@ -273,6 +288,16 @@ def get_resistome_for_samples(
             dist = 1.0 - (len(set_i & set_j) / union_size) if union_size > 0 else 0.0
             distance_matrix[i][j] = round(dist, 4)
             distance_matrix[j][i] = round(dist, 4)
+
+    # --- Host data ---
+    sample_host_map = {}
+    all_hosts = set()
+    for s in samples:
+        meta = db.query(Metadata).filter(Metadata.sample_id == s.id).first()
+        h = getattr(meta, 'host', None) if meta else None
+        sample_host_map[str(s.id)] = h or "Unknown"
+        if h:
+            all_hosts.add(h)
 
     # --- Geographic data ---
     geo_samples = []
@@ -301,6 +326,7 @@ def get_resistome_for_samples(
             "longitude": lon,
             "location": meta.location or "",
             "source": meta.source or "",
+            "host": getattr(meta, 'host', None) or "",
             "collection_date": str(meta.collection_date) if meta.collection_date else None,
             "drug_class_count": len(classes),
             "drug_classes": sorted(classes),

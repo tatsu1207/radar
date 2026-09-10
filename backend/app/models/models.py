@@ -198,6 +198,7 @@ class Metadata(Base):
     location = Column(String(255), nullable=True)
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
+    host = Column(String(255), nullable=True)  # animal host species (chicken, pig, cattle, etc.)
     species = Column(String(255), nullable=True)
     custom_json = Column(JSON, nullable=True)
 

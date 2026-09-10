@@ -84,10 +84,12 @@ def _build_sample_entry(sample: Sample, db: Session, project_name: str | None = 
     has_metadata = sample.metadata_record is not None
     collection_date = None
     location = None
+    host = None
     if sample.metadata_record:
         if sample.metadata_record.collection_date:
             collection_date = str(sample.metadata_record.collection_date).split(" ")[0]
         location = sample.metadata_record.location
+        host = getattr(sample.metadata_record, 'host', None)
 
     # Pipeline status from latest preprocessing/pipeline job
     pipeline_status = "not_started"
@@ -145,6 +147,7 @@ def _build_sample_entry(sample: Sample, db: Session, project_name: str | None = 
         has_metadata=has_metadata,
         collection_date=collection_date,
         location=location,
+        host=host,
         project_id=sample.project_id,
         project_name=project_name,
         pipeline_status=pipeline_status,
