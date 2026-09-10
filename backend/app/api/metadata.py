@@ -38,6 +38,8 @@ def upsert_metadata(
             meta.collection_date = payload.collection_date
         if payload.location is not None:
             meta.location = payload.location
+        if getattr(payload, 'host', None) is not None:
+            meta.host = payload.host
         if payload.species is not None:
             meta.species = payload.species
         if payload.custom_json is not None:
@@ -48,6 +50,7 @@ def upsert_metadata(
             source=payload.source,
             collection_date=payload.collection_date,
             location=payload.location,
+            host=getattr(payload, 'host', None),
             species=payload.species,
             custom_json=payload.custom_json,
         )

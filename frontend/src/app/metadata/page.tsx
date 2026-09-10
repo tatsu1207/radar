@@ -274,7 +274,7 @@ export default function MetadataPage() {
   }
 
   async function handleCellSave(sampleId: string, field: string, value: string) {
-    const fixedFields = ['source', 'collection_date', 'location', 'species'];
+    const fixedFields = ['host', 'source', 'collection_date', 'location', 'species'];
     try {
       if (fixedFields.includes(field)) {
         await updateMetadata(sampleId, { [field]: value || null } as any);

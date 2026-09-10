@@ -82,6 +82,7 @@ class MetadataCreate(BaseModel):
     source: Optional[str] = None
     collection_date: Optional[datetime] = None
     location: Optional[str] = None
+    host: Optional[str] = None
     species: Optional[str] = None
     custom_json: Optional[Dict[str, Any]] = None
 
@@ -92,6 +93,7 @@ class MetadataRead(BaseModel):
     source: Optional[str] = None
     collection_date: Optional[datetime] = None
     location: Optional[str] = None
+    host: Optional[str] = None
     species: Optional[str] = None
     custom_json: Optional[Dict[str, Any]] = None
 
