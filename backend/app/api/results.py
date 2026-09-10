@@ -160,6 +160,44 @@ def get_resistome_for_samples(
         "triclosan", "benzalkonium", "chlorhexidine", "na",
         "acid", "biocide", "metal", "stress",
     }
+    # NARMS-style drug class grouping: AMRFinderPlus class → NARMS category
+    _narms_group = {
+        "aminoglycoside": "Aminoglycosides",
+        "beta-lactam": "Penicillins",
+        "penicillin": "Penicillins",
+        "cephalosporin": "Cephems",
+        "carbapenem": "Penems",
+        "monobactam": "Monobactams",
+        "tetracycline": "Tetracyclines",
+        "glycylcycline": "Tetracyclines",
+        "fluoroquinolone": "Quinolones",
+        "quinolone": "Quinolones",
+        "macrolide": "Macrolides",
+        "lincosamide": "Macrolides",
+        "streptogramin": "Macrolides",
+        "phenicol": "Phenicols",
+        "sulfonamide": "Folate pathway antagonists",
+        "trimethoprim": "Folate pathway antagonists",
+        "diaminopyrimidine": "Folate pathway antagonists",
+        "polymyxin": "Lipopeptides",
+        "glycopeptide": "Glycopeptides",
+        "oxazolidinone": "Oxazolidinones",
+        "lipopeptide": "Lipopeptides",
+        "rifamycin": "Rifamycins",
+        "fosfomycin": "Other",
+        "fusidane": "Other",
+        "nitrofuran": "Other",
+        "nitroimidazole": "Other",
+        "mupirocin": "Other",
+        "aminocoumarin": "Other",
+        "nucleoside": "Other",
+        "pleuromutilin": "Other",
+        "elfamycin": "Other",
+        "tunicamycin": "Other",
+        "bicyclomycin": "Other",
+        "thiostrepton": "Other",
+        "efflux": "Efflux",
+    }
     all_drug_classes: set = set()
     sample_drug_map = {}
     sample_gene_map = {}  # sample_id -> {drug_class -> [genes]}
@@ -173,9 +211,13 @@ def get_resistome_for_samples(
                 for dc in arg.drug_class.split(";"):
                     dc_clean = dc.strip().lower()
                     if dc_clean and dc_clean not in _non_amr:
-                        classes.add(dc_clean)
-                        all_drug_classes.add(dc_clean)
-                        gene_map[dc_clean].append(arg.gene)
+                        # Map to NARMS group
+                        narms = _narms_group.get(dc_clean, "Other")
+                        if narms == "Efflux":
+                            continue  # skip efflux from resistome tracker
+                        classes.add(narms)
+                        all_drug_classes.add(narms)
+                        gene_map[narms].append(arg.gene)
         sample_drug_map[str(s.id)] = classes
         sample_gene_map[str(s.id)] = dict(gene_map)
 
