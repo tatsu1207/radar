@@ -198,6 +198,16 @@ def get_resistome_for_samples(
     from app.models.models import Metadata
     temporal = {"time_points": [], "drug_classes": [], "series": {}}
 
+    # --- Host data ---
+    sample_host_map = {}
+    all_hosts = set()
+    for s in samples:
+        meta = db.query(Metadata).filter(Metadata.sample_id == s.id).first()
+        h = getattr(meta, 'host', None) if meta else None
+        sample_host_map[str(s.id)] = h or "Unknown"
+        if h:
+            all_hosts.add(h)
+
     dated_samples = []
     sample_location_map = {}  # sample_id -> location
     for s in samples:
@@ -288,16 +298,6 @@ def get_resistome_for_samples(
             dist = 1.0 - (len(set_i & set_j) / union_size) if union_size > 0 else 0.0
             distance_matrix[i][j] = round(dist, 4)
             distance_matrix[j][i] = round(dist, 4)
-
-    # --- Host data ---
-    sample_host_map = {}
-    all_hosts = set()
-    for s in samples:
-        meta = db.query(Metadata).filter(Metadata.sample_id == s.id).first()
-        h = getattr(meta, 'host', None) if meta else None
-        sample_host_map[str(s.id)] = h or "Unknown"
-        if h:
-            all_hosts.add(h)
 
     # --- Geographic data ---
     geo_samples = []
