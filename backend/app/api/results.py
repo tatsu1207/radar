@@ -280,9 +280,19 @@ def get_resistome_for_samples(
 
     if dated_samples:
         dated_samples.sort(key=lambda x: x[1])
-        date_groups = defaultdict(list)
+
+        # Group by month (YYYY-MM) and year (YYYY)
+        month_groups = defaultdict(list)
+        year_groups = defaultdict(list)
         for s, date in dated_samples:
-            date_groups[date].append(s)
+            date_str = date.split(" ")[0]  # YYYY-MM-DD
+            month_key = date_str[:7]  # YYYY-MM
+            year_key = date_str[:4]   # YYYY
+            month_groups[month_key].append(s)
+            year_groups[year_key].append(s)
+
+        # Use monthly grouping as default
+        date_groups = month_groups
 
         time_points = sorted(date_groups.keys())
         series = {}
@@ -330,6 +340,17 @@ def get_resistome_for_samples(
                     hc.append(r_count)
                 host_counts[h][dc] = hc
 
+        # Build yearly aggregation
+        yearly_time_points = sorted(year_groups.keys())
+        yearly_counts = {}
+        yearly_sample_counts = [len(year_groups[yp]) for yp in yearly_time_points]
+        for dc in drug_classes_sorted:
+            yc = []
+            for yp in yearly_time_points:
+                r_count = sum(1 for s in year_groups[yp] if dc in sample_drug_map.get(str(s.id), set()))
+                yc.append(r_count)
+            yearly_counts[dc] = yc
+
         temporal = {
             "time_points": time_points,
             "drug_classes": drug_classes_sorted,
@@ -340,6 +361,9 @@ def get_resistome_for_samples(
             "location_counts": location_counts,
             "hosts": all_hosts_temporal,
             "host_counts": host_counts,
+            "yearly_time_points": yearly_time_points,
+            "yearly_counts": yearly_counts,
+            "yearly_sample_counts": yearly_sample_counts,
         }
 
     # --- Clustering (Jaccard distance) ---

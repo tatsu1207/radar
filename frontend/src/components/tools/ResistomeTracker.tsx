@@ -48,6 +48,9 @@ interface ResistomeData {
     location_counts?: Record<string, Record<string, number[]>>;
     hosts?: string[];
     host_counts?: Record<string, Record<string, number[]>>;
+    yearly_time_points?: string[];
+    yearly_counts?: Record<string, number[]>;
+    yearly_sample_counts?: number[];
   };
   distance_matrix: number[][];
   geo?: GeoSample[];
@@ -62,6 +65,7 @@ export default function ResistomeTrackerTool() {
   const [subTab, setSubTab] = useState<'matrix' | 'temporal' | 'distance'>('matrix');
   const [regionFilter, setRegionFilter] = useState('all');
   const [hostFilter, setHostFilter] = useState('all');
+  const [timeGranularity, setTimeGranularity] = useState<'month' | 'year'>('month');
   const [hoveredCell, setHoveredCell] = useState<{ i: number; j: number } | null>(null);
 
   async function runAnalysis() {
@@ -210,15 +214,26 @@ export default function ResistomeTrackerTool() {
           {data.temporal.time_points.length > 0 && data.temporal.counts && (() => {
             const colors = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#F97316', '#06B6D4', '#84CC16', '#A855F7', '#14B8A6', '#E11D48'];
             const locations = data.temporal.locations || [];
-            let countsSource = data.temporal.counts!;
-            if (regionFilter !== 'all' && data.temporal.location_counts?.[regionFilter]) {
-              countsSource = data.temporal.location_counts[regionFilter];
-            } else if (hostFilter !== 'all' && data.temporal.host_counts?.[hostFilter]) {
-              countsSource = data.temporal.host_counts[hostFilter];
+            // Select time points and counts based on granularity
+            const isYearly = timeGranularity === 'year';
+            const timePoints = isYearly
+              ? (data.temporal.yearly_time_points || data.temporal.time_points)
+              : data.temporal.time_points;
+            let countsSource = isYearly
+              ? (data.temporal.yearly_counts || data.temporal.counts!)
+              : data.temporal.counts!;
+
+            // Apply filters (only for monthly — yearly doesn't have per-location/host breakdown)
+            if (!isYearly) {
+              if (regionFilter !== 'all' && data.temporal.location_counts?.[regionFilter]) {
+                countsSource = data.temporal.location_counts[regionFilter];
+              } else if (hostFilter !== 'all' && data.temporal.host_counts?.[hostFilter]) {
+                countsSource = data.temporal.host_counts[hostFilter];
+              }
             }
 
-            const chartData = data.temporal.time_points.map((tp, idx) => {
-              const point: Record<string, string | number> = { date: tp.split(' ')[0] };
+            const chartData = timePoints.map((tp, idx) => {
+              const point: Record<string, string | number> = { date: tp };
               for (const dc of data.temporal.drug_classes) {
                 point[dc] = countsSource[dc]?.[idx] ?? 0;
               }
@@ -248,6 +263,14 @@ export default function ResistomeTrackerTool() {
                 </div>
 
                 {/* Filters */}
+                <div className="flex flex-wrap items-center gap-4 mb-4">
+                  {/* Time granularity */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-400">View:</span>
+                    <button onClick={() => setTimeGranularity('month')} className={`px-2 py-1 rounded text-xs ${timeGranularity === 'month' ? 'bg-purple-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>Monthly</button>
+                    <button onClick={() => setTimeGranularity('year')} className={`px-2 py-1 rounded text-xs ${timeGranularity === 'year' ? 'bg-purple-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>Yearly</button>
+                  </div>
+                </div>
                 <div className="flex flex-wrap items-center gap-4 mb-4">
                   {/* Host filter */}
                   {(data.temporal.hosts?.length ?? 0) > 0 && (

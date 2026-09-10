@@ -38,10 +38,10 @@ export default function ResistomeMapInner({ geo, locations }: { geo: GeoSample[]
   const mapId = 'resistome-map-container';
   const [selectedDate, setSelectedDate] = useState<string>('all');
 
-  // Get unique dates
-  const dates = Array.from(new Set(geo.map((g) => g.collection_date?.split(' ')[0]).filter(Boolean) as string[])).sort();
+  // Get unique months (YYYY-MM)
+  const dates = Array.from(new Set(geo.map((g) => g.collection_date?.split(' ')[0]?.slice(0, 7)).filter(Boolean) as string[])).sort();
 
-  // Filter samples by selected date
+  // Filter samples by selected month
   const filteredGeo = selectedDate === 'all' ? geo : geo.filter((g) => g.collection_date?.startsWith(selectedDate));
 
   useEffect(() => {
