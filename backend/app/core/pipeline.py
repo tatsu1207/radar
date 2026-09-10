@@ -831,6 +831,10 @@ def _run_annotation_phase(sample_id: str, assembly_path: str, job, db, threads: 
         job.log += "  BacMet2 — skipped\n"
         db.commit()
 
+    # Colistin resistance detection (mgrB, TCS mutations)
+    from app.core.colistin import detect_colistin_resistance
+    _run_noncritical(db, job, "Colistin resistance", lambda: detect_colistin_resistance(sample_id, assembly_path, db))
+
     # ML phenotype prediction
     if not _has_results(db, MLPhenotypePrediction, sample_id):
         from app.core.ml_phenotype import run_ml_phenotype

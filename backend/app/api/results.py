@@ -43,6 +43,24 @@ router = APIRouter(tags=["results"])
 # Sample picker: list completed samples with species/ST for tool UIs
 # ---------------------------------------------------------------------------
 
+@router.get("/samples/{sample_id}/colistin")
+def get_colistin_resistance(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Get colistin resistance analysis for a sample."""
+    sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+
+    from app.core.colistin import detect_colistin_resistance
+    assembly_path = os.path.join(settings.RESULTS_DIR, str(sample_id), "assembly", "assembly.fasta")
+    if not os.path.exists(assembly_path):
+        raise HTTPException(status_code=404, detail="Assembly not found")
+
+    result = detect_colistin_resistance(str(sample_id), assembly_path, db)
+    if result is None:
+        return {"message": "Colistin resistance detection only applies to Klebsiella and Enterobacterales"}
+    return result
+
+
 @router.get("/tools/samples")
 def list_tool_samples(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """List all completed samples with species, ST, and project info for tool UIs."""
