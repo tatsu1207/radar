@@ -55,6 +55,10 @@ interface ResistomeData {
     yearly_sample_counts?: number[];
   };
   distance_matrix: number[][];
+  mst?: {
+    nodes: { id: number; sample_id: string; name: string; st: string; host: string; location: string; x: number; y: number }[];
+    edges: { source: number; target: number; distance: number; shared_loci: number }[];
+  } | null;
   geo?: GeoSample[];
   locations?: LocationStat[];
 }
@@ -64,11 +68,13 @@ export default function ResistomeTrackerTool() {
   const [data, setData] = useState<ResistomeData | null>(null);
   const [computing, setComputing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [subTab, setSubTab] = useState<'matrix' | 'temporal' | 'distance'>('matrix');
+  const [subTab, setSubTab] = useState<'matrix' | 'temporal' | 'distance' | 'mst'>('matrix');
   const [regionFilter, setRegionFilter] = useState('all');
   const [hostFilter, setHostFilter] = useState('all');
   const [stFilter, setStFilter] = useState('all');
   const [timeGranularity, setTimeGranularity] = useState<'month' | 'year'>('month');
+  const [mstColorBy, setMstColorBy] = useState<'st' | 'host' | 'region'>('st');
+  const [mstHoveredNode, setMstHoveredNode] = useState<number | null>(null);
   const [hoveredCell, setHoveredCell] = useState<{ i: number; j: number } | null>(null);
 
   async function runAnalysis() {
@@ -134,6 +140,11 @@ export default function ResistomeTrackerTool() {
           {data!.matrix.sample_names.length >= 2 && (
             <button onClick={() => setSubTab('distance')} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${subTab === 'distance' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
               Similarity
+            </button>
+          )}
+          {data!.mst && (
+            <button onClick={() => setSubTab('mst')} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${subTab === 'mst' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+              MST
             </button>
           )}
         </div>
@@ -384,6 +395,110 @@ export default function ResistomeTrackerTool() {
           <p className="mt-3 text-xs text-gray-600">Jaccard distance: 0 = identical drug class profiles, 1 = completely different.</p>
         </div>
       )}
+
+      {/* MST visualization */}
+      {subTab === 'mst' && data?.mst && (() => {
+        const mst = data.mst!;
+        const [colorBy, setColorBy] = [mstColorBy, setMstColorBy];
+        const [hoveredNode, setHoveredNode] = [mstHoveredNode, setMstHoveredNode];
+
+        // Color palettes
+        const stColors: Record<string, string> = {};
+        const palette = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#F97316', '#06B6D4', '#84CC16', '#A855F7'];
+        const uniqueSTs = Array.from(new Set(mst.nodes.map((n) => n.st))).sort();
+        uniqueSTs.forEach((st, i) => { stColors[st] = st === 'Unknown' ? '#6B7280' : palette[i % palette.length]; });
+
+        const hostColors: Record<string, string> = { Chicken: '#F59E0B', Pig: '#EC4899', Cattle: '#8B5CF6', Duck: '#06B6D4', Human: '#EF4444', Unknown: '#6B7280' };
+        const regionColors: Record<string, string> = {};
+        const uniqueRegions = Array.from(new Set(mst.nodes.map((n) => n.location))).sort();
+        uniqueRegions.forEach((r, i) => { regionColors[r] = r === 'Unknown' ? '#6B7280' : palette[i % palette.length]; });
+
+        function nodeColor(node: typeof mst.nodes[0]): string {
+          if (colorBy === 'host') return hostColors[node.host] || '#6B7280';
+          if (colorBy === 'region') return regionColors[node.location] || '#6B7280';
+          return stColors[node.st] || '#6B7280';
+        }
+
+        function edgeColor(dist: number): string {
+          if (dist <= 5) return '#EF4444';
+          if (dist <= 10) return '#F87171';
+          if (dist <= 50) return '#9CA3AF';
+          return '#4B5563';
+        }
+
+        const colorItems = colorBy === 'st' ? uniqueSTs.map((s) => [s, stColors[s]]) :
+          colorBy === 'host' ? Object.entries(hostColors).filter(([k]) => mst.nodes.some((n) => n.host === k)) :
+          uniqueRegions.map((r) => [r, regionColors[r]]);
+
+        return (
+          <div className="card">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-gray-100">Minimum Spanning Tree (cgMLST)</h2>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400">Color by:</span>
+                <button onClick={() => setMstColorBy('st')} className={`px-2 py-1 rounded text-xs ${colorBy === 'st' ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>ST</button>
+                <button onClick={() => setMstColorBy('host')} className={`px-2 py-1 rounded text-xs ${colorBy === 'host' ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>Host</button>
+                <button onClick={() => setMstColorBy('region')} className={`px-2 py-1 rounded text-xs ${colorBy === 'region' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>Region</button>
+              </div>
+            </div>
+
+            {/* Legend */}
+            <div className="flex flex-wrap items-center gap-3 mb-3 text-xs text-gray-400">
+              {(colorItems as [string, string][]).map(([label, color]) => (
+                <span key={label} className="flex items-center gap-1"><span className="w-3 h-3 rounded-full" style={{ background: color }} />{label}</span>
+              ))}
+              <span className="ml-2 text-gray-600">|</span>
+              <span className="flex items-center gap-1"><span className="w-4 h-0.5" style={{ background: '#EF4444' }} /> ≤5 alleles</span>
+              <span className="flex items-center gap-1"><span className="w-4 h-0.5" style={{ background: '#F87171' }} /> 6-10</span>
+              <span className="flex items-center gap-1"><span className="w-4 h-0.5" style={{ background: '#9CA3AF' }} /> 11-50</span>
+            </div>
+
+            <div className="overflow-auto">
+              <svg width={600} height={500} className="rounded-lg" style={{ background: '#0F172A' }}>
+                {/* Edges */}
+                {mst.edges.map((e, i) => {
+                  const src = mst.nodes[e.source];
+                  const tgt = mst.nodes[e.target];
+                  const mx = (src.x + tgt.x) / 2;
+                  const my = (src.y + tgt.y) / 2;
+                  return (
+                    <g key={`e${i}`}>
+                      <line x1={src.x} y1={src.y} x2={tgt.x} y2={tgt.y}
+                        stroke={edgeColor(e.distance)} strokeWidth={e.distance <= 5 ? 2.5 : e.distance <= 10 ? 1.5 : 1} opacity={0.8} />
+                      <text x={mx} y={my - 4} textAnchor="middle" fill="#94A3B8" fontSize="9">{e.distance}</text>
+                    </g>
+                  );
+                })}
+                {/* Nodes */}
+                {mst.nodes.map((node) => (
+                  <g key={node.id}
+                    onMouseEnter={() => setMstHoveredNode(node.id)}
+                    onMouseLeave={() => setMstHoveredNode(null)}
+                    style={{ cursor: 'pointer' }}>
+                    <circle cx={node.x} cy={node.y} r={hoveredNode === node.id ? 14 : 10}
+                      fill={nodeColor(node)} stroke={hoveredNode === node.id ? '#FFFFFF' : '#1E293B'} strokeWidth={hoveredNode === node.id ? 2 : 1.5} />
+                    <text x={node.x} y={node.y + 22} textAnchor="middle" fill="#CBD5E1" fontSize="9" fontWeight="500">{node.name}</text>
+                  </g>
+                ))}
+              </svg>
+            </div>
+
+            {/* Hover detail */}
+            {hoveredNode !== null && (() => {
+              const node = mst.nodes.find((n) => n.id === hoveredNode);
+              if (!node) return null;
+              return (
+                <div className="mt-3 p-3 bg-gray-800/50 rounded-lg border border-gray-700 text-sm">
+                  <span className="text-gray-200 font-medium">{node.name}</span>
+                  <span className="text-orange-400 ml-3">{node.st}</span>
+                  <span className="text-green-400 ml-3">{node.host}</span>
+                  <span className="text-blue-400 ml-3">{node.location}</span>
+                </div>
+              );
+            })()}
+          </div>
+        );
+      })()}
 
       {picker.selectedIds.length > 0 && !data && !computing && (
         <div className="card text-center py-8 text-gray-500">Click &quot;Show Resistome&quot; to view resistance profiles.</div>

@@ -468,6 +468,106 @@ def get_resistome_for_samples(
             "top_drug_classes": sorted(stats["drug_classes"].items(), key=lambda x: -x[1])[:10],
         })
 
+    # --- MST (Minimum Spanning Tree) from cgMLST distances ---
+    from app.models.models import CgMLSTResult
+    mst_data = None
+    cgmlst_profiles = {}
+    for s in samples:
+        cg = db.query(CgMLSTResult).filter(CgMLSTResult.sample_id == s.id).first()
+        if cg and cg.allelic_profile:
+            cgmlst_profiles[str(s.id)] = cg.allelic_profile
+
+    if len(cgmlst_profiles) >= 2:
+        # Compute pairwise distances
+        sid_list = [str(s.id) for s in samples if str(s.id) in cgmlst_profiles]
+        n = len(sid_list)
+        edges_all = []
+        for i in range(n):
+            for j in range(i + 1, n):
+                dist, shared = _allelic_distance(cgmlst_profiles[sid_list[i]], cgmlst_profiles[sid_list[j]])
+                if shared >= 50:  # need enough shared loci
+                    edges_all.append((dist, i, j, shared))
+
+        # Kruskal's MST using union-find
+        edges_all.sort()
+        parent = list(range(n))
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+        def union(a, b):
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
+                return True
+            return False
+
+        mst_edges = []
+        for dist, i, j, shared in edges_all:
+            if union(i, j):
+                mst_edges.append({"source": i, "target": j, "distance": dist, "shared_loci": shared})
+                if len(mst_edges) == n - 1:
+                    break
+
+        # Simple force-directed layout
+        import math, random
+        random.seed(42)
+        positions = [(random.uniform(50, 550), random.uniform(50, 450)) for _ in range(n)]
+
+        # Build adjacency for spring forces
+        adj = [[] for _ in range(n)]
+        for e in mst_edges:
+            adj[e["source"]].append(e["target"])
+            adj[e["target"]].append(e["source"])
+
+        for iteration in range(80):
+            forces = [(0.0, 0.0)] * n
+            # Repulsion between all pairs
+            for i in range(n):
+                for j in range(i + 1, n):
+                    dx = positions[i][0] - positions[j][0]
+                    dy = positions[i][1] - positions[j][1]
+                    d = max(math.sqrt(dx*dx + dy*dy), 1)
+                    repulsion = 8000 / (d * d)
+                    fx, fy = repulsion * dx / d, repulsion * dy / d
+                    forces[i] = (forces[i][0] + fx, forces[i][1] + fy)
+                    forces[j] = (forces[j][0] - fx, forces[j][1] - fy)
+            # Attraction along edges
+            for e in mst_edges:
+                i, j = e["source"], e["target"]
+                dx = positions[j][0] - positions[i][0]
+                dy = positions[j][1] - positions[i][1]
+                d = max(math.sqrt(dx*dx + dy*dy), 1)
+                ideal = 60 + e["distance"] * 2  # longer edges for larger distances
+                attraction = (d - ideal) * 0.05
+                fx, fy = attraction * dx / d, attraction * dy / d
+                forces[i] = (forces[i][0] + fx, forces[i][1] + fy)
+                forces[j] = (forces[j][0] - fx, forces[j][1] - fy)
+            # Apply forces with damping
+            damping = 0.85 - iteration * 0.005
+            positions = [
+                (max(30, min(570, x + fx * damping)), max(30, min(470, y + fy * damping)))
+                for (x, y), (fx, fy) in zip(positions, forces)
+            ]
+
+        # Build nodes with metadata
+        mst_nodes = []
+        for idx, sid in enumerate(sid_list):
+            s = next(s for s in samples if str(s.id) == sid)
+            mst_nodes.append({
+                "id": idx,
+                "sample_id": sid,
+                "name": s.name,
+                "st": sample_st_map.get(sid, "Unknown"),
+                "host": sample_host_map.get(sid, "Unknown"),
+                "location": sample_location_map.get(sid, "Unknown") if sid in sample_location_map else "Unknown",
+                "x": round(positions[idx][0], 1),
+                "y": round(positions[idx][1], 1),
+            })
+
+        mst_data = {"nodes": mst_nodes, "edges": mst_edges}
+
     return {
         "matrix": {
             "sample_names": sample_names,
@@ -478,6 +578,7 @@ def get_resistome_for_samples(
         "distance_matrix": distance_matrix,
         "geo": geo_samples,
         "locations": location_summary,
+        "mst": mst_data,
     }
 
 
