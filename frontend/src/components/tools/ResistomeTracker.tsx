@@ -48,6 +48,8 @@ interface ResistomeData {
     location_counts?: Record<string, Record<string, number[]>>;
     hosts?: string[];
     host_counts?: Record<string, Record<string, number[]>>;
+    sts?: string[];
+    st_counts?: Record<string, Record<string, number[]>>;
     yearly_time_points?: string[];
     yearly_counts?: Record<string, number[]>;
     yearly_sample_counts?: number[];
@@ -65,6 +67,7 @@ export default function ResistomeTrackerTool() {
   const [subTab, setSubTab] = useState<'matrix' | 'temporal' | 'distance'>('matrix');
   const [regionFilter, setRegionFilter] = useState('all');
   const [hostFilter, setHostFilter] = useState('all');
+  const [stFilter, setStFilter] = useState('all');
   const [timeGranularity, setTimeGranularity] = useState<'month' | 'year'>('month');
   const [hoveredCell, setHoveredCell] = useState<{ i: number; j: number } | null>(null);
 
@@ -223,12 +226,14 @@ export default function ResistomeTrackerTool() {
               ? (data.temporal.yearly_counts || data.temporal.counts!)
               : data.temporal.counts!;
 
-            // Apply filters (only for monthly — yearly doesn't have per-location/host breakdown)
+            // Apply filters (only for monthly — yearly doesn't have per-filter breakdown)
             if (!isYearly) {
               if (regionFilter !== 'all' && data.temporal.location_counts?.[regionFilter]) {
                 countsSource = data.temporal.location_counts[regionFilter];
               } else if (hostFilter !== 'all' && data.temporal.host_counts?.[hostFilter]) {
                 countsSource = data.temporal.host_counts[hostFilter];
+              } else if (stFilter !== 'all' && data.temporal.st_counts?.[stFilter]) {
+                countsSource = data.temporal.st_counts[stFilter];
               }
             }
 
@@ -276,9 +281,9 @@ export default function ResistomeTrackerTool() {
                   {(data.temporal.hosts?.length ?? 0) > 0 && (
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-gray-400">Host:</span>
-                      <button onClick={() => { setHostFilter('all'); setRegionFilter('all'); }} className={`px-2 py-1 rounded text-xs ${hostFilter === 'all' ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>All</button>
+                      <button onClick={() => { setHostFilter('all'); setRegionFilter('all'); setStFilter('all'); }} className={`px-2 py-1 rounded text-xs ${hostFilter === 'all' ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>All</button>
                       {data.temporal.hosts!.map((h) => (
-                        <button key={h} onClick={() => { setHostFilter(h); setRegionFilter('all'); }} className={`px-2 py-1 rounded text-xs ${hostFilter === h ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                        <button key={h} onClick={() => { setHostFilter(h); setRegionFilter('all'); setStFilter('all'); }} className={`px-2 py-1 rounded text-xs ${hostFilter === h ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
                           {h}
                         </button>
                       ))}
@@ -288,10 +293,22 @@ export default function ResistomeTrackerTool() {
                   {locations.length > 0 && (
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-gray-400">Region:</span>
-                      <button onClick={() => { setRegionFilter('all'); setHostFilter('all'); }} className={`px-2 py-1 rounded text-xs ${regionFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>All</button>
+                      <button onClick={() => { setRegionFilter('all'); setHostFilter('all'); setStFilter('all'); }} className={`px-2 py-1 rounded text-xs ${regionFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>All</button>
                       {locations.map((loc) => (
-                        <button key={loc} onClick={() => { setRegionFilter(loc); setHostFilter('all'); }} className={`px-2 py-1 rounded text-xs ${regionFilter === loc ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                        <button key={loc} onClick={() => { setRegionFilter(loc); setHostFilter('all'); setStFilter('all'); }} className={`px-2 py-1 rounded text-xs ${regionFilter === loc ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
                           {loc}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {/* ST filter */}
+                  {(data.temporal.sts?.length ?? 0) > 0 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-400">ST:</span>
+                      <button onClick={() => { setStFilter('all'); setHostFilter('all'); setRegionFilter('all'); }} className={`px-2 py-1 rounded text-xs ${stFilter === 'all' ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>All</button>
+                      {data.temporal.sts!.map((st) => (
+                        <button key={st} onClick={() => { setStFilter(st); setHostFilter('all'); setRegionFilter('all'); }} className={`px-2 py-1 rounded text-xs ${stFilter === st ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                          {st}
                         </button>
                       ))}
                     </div>
@@ -314,6 +331,7 @@ export default function ResistomeTrackerTool() {
                   Stacked bars. Y-axis = number of isolates carrying resistance.
                   {regionFilter !== 'all' && ` Region: ${regionFilter}.`}
                   {hostFilter !== 'all' && ` Host: ${hostFilter}.`}
+                  {stFilter !== 'all' && ` ST: ${stFilter}.`}
                 </p>
               </div>
             );

@@ -268,6 +268,16 @@ def get_resistome_for_samples(
         if h:
             all_hosts.add(h)
 
+    # --- ST data ---
+    sample_st_map = {}
+    all_sts = set()
+    for s in samples:
+        mlst = db.query(MLSTResult).filter(MLSTResult.sample_id == s.id).first()
+        st = f"ST{mlst.sequence_type}" if mlst and mlst.sequence_type else "Unknown"
+        sample_st_map[str(s.id)] = st
+        if st != "Unknown":
+            all_sts.add(st)
+
     dated_samples = []
     sample_location_map = {}  # sample_id -> location
     for s in samples:
@@ -340,6 +350,19 @@ def get_resistome_for_samples(
                     hc.append(r_count)
                 host_counts[h][dc] = hc
 
+        # Per-ST counts for ST filtering
+        all_sts_temporal = sorted(set(sample_st_map.get(str(s.id), "Unknown") for s, _ in dated_samples))
+        st_counts = {}
+        for st in all_sts_temporal:
+            st_counts[st] = {}
+            for dc in drug_classes_sorted:
+                sc = []
+                for tp in time_points:
+                    tp_samples = [s for s in date_groups[tp] if sample_st_map.get(str(s.id), "Unknown") == st]
+                    r_count = sum(1 for s in tp_samples if dc in sample_drug_map.get(str(s.id), set()))
+                    sc.append(r_count)
+                st_counts[st][dc] = sc
+
         # Build yearly aggregation
         yearly_time_points = sorted(year_groups.keys())
         yearly_counts = {}
@@ -361,6 +384,8 @@ def get_resistome_for_samples(
             "location_counts": location_counts,
             "hosts": all_hosts_temporal,
             "host_counts": host_counts,
+            "sts": all_sts_temporal,
+            "st_counts": st_counts,
             "yearly_time_points": yearly_time_points,
             "yearly_counts": yearly_counts,
             "yearly_sample_counts": yearly_sample_counts,
@@ -411,6 +436,7 @@ def get_resistome_for_samples(
             "location": meta.location or "",
             "source": meta.source or "",
             "host": getattr(meta, 'host', None) or "",
+            "st": sample_st_map.get(str(s.id), "Unknown"),
             "collection_date": str(meta.collection_date) if meta.collection_date else None,
             "drug_class_count": len(classes),
             "drug_classes": sorted(classes),
