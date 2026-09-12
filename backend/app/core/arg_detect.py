@@ -112,6 +112,7 @@ def run_amrfinderplus(sample_id: str, assembly_path: str, db, threads: int = 4) 
                     sample_id=sample_id,
                     gene=gene_name,
                     drug_class=drug_class,
+                    element_type=element_type,
                     mechanism=element_subtype or method,
                     identity=identity,
                     coverage=coverage,

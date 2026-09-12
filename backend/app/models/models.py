@@ -248,6 +248,9 @@ class ARGResult(Base):
     start = Column(Integer, nullable=True)
     end = Column(Integer, nullable=True)
     database = Column(String(100), nullable=True)
+    # AMRFinderPlus "Element type": AMR | STRESS (metal/biocide). Kept so MDR
+    # counting can exclude STRESS -- mercury/arsenic are not drug classes.
+    element_type = Column(String(20), nullable=True)
     on_plasmid = Column(Boolean, default=False)
     on_prophage = Column(Boolean, default=False)
     contig_type = Column(String(50), nullable=True)  # chromosome, plasmid, prophage
