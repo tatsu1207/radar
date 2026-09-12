@@ -1,0 +1,1 @@
+ALTER TABLE arg_results ADD COLUMN IF NOT EXISTS element_type VARCHAR(20);
