@@ -16,7 +16,7 @@ import os
 from typing import Dict, List, Optional, Tuple
 
 from app.config import settings
-from app.models.models import Sample, SampleStatus, ARGResult, MobilityResult, PlasmidResult
+from app.models.models import Sample, SampleStatus, ARGResult, MobilityResult
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +157,23 @@ def _compute_synteny_score(
     return round(score, 4), n_shared, total
 
 
+_NON_AMR_CLASSES = {
+    "arsenic", "arsenate", "copper", "copper/silver", "silver",
+    "mercury", "organomercury", "zinc", "cadmium", "chromium", "lead",
+    "tellurium", "nickel", "cobalt", "quaternary ammonium", "hydrogen peroxide",
+    "triclosan", "benzalkonium", "chlorhexidine", "na",
+}
+
+
+def _is_amr(arg) -> bool:
+    """True if the ARG is antimicrobial resistance, not metal/biocide/stress."""
+    if arg.element_type and arg.element_type.upper() in ("STRESS", "VIRULENCE"):
+        return False
+    if arg.drug_class and arg.drug_class.lower() in _NON_AMR_CLASSES:
+        return False
+    return True
+
+
 def _norm_contig(c) -> str:
     """FASTA identifier = text before the first whitespace.
 
@@ -175,8 +192,10 @@ def _get_anchor_regions(sample_id: str, db, flanking: int = 20000) -> List[Tuple
     """
     regions = []
 
-    # ARG positions
+    # ARG positions (AMR only — exclude metal/biocide/stress)
     for a in db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all():
+        if not _is_amr(a):
+            continue
         if a.contig and a.start is not None and a.end is not None:
             regions.append((_norm_contig(a.contig), max(0, a.start - flanking), a.end + flanking))
 
@@ -313,19 +332,8 @@ def compute_synteny_for_samples(sample_ids: List[str], db, mode: str = "full", f
         sample_mobile_args = {}
         for s, genes in sample_info:
             sid = str(s.id)
-            args = db.query(ARGResult).filter(ARGResult.sample_id == sid).all()
+            args = [a for a in db.query(ARGResult).filter(ARGResult.sample_id == sid).all() if _is_amr(a)]
             mges = db.query(MobilityResult).filter(MobilityResult.sample_id == sid).all()
-            plasmids = db.query(PlasmidResult).filter(PlasmidResult.sample_id == sid).all()
-
-            # Build contig → plasmid replicon mapping
-            contig_replicon = {}
-            for p in plasmids:
-                if p.replicon:
-                    # MOB-recon assigns contigs to plasmid clusters
-                    # Match via ARG contig_type which contains plasmid_id
-                    for a in args:
-                        if a.on_plasmid and a.contig_type and p.plasmid_id and p.plasmid_id in a.contig_type:
-                            contig_replicon[_norm_contig(a.contig)] = p.replicon
 
             mobile = []
             for a in args:
@@ -348,15 +356,12 @@ def compute_synteny_for_samples(sample_ids: List[str], db, mode: str = "full", f
                         nearest_dist = dist
                         nearest_mge = m
                 if nearest_mge and nearest_dist <= flanking:
-                    replicon = contig_replicon.get(_norm_contig(a.contig), "")
                     mobile.append({
                         "gene": a.gene,
                         "drug_class": a.drug_class or "",
                         "mge_name": nearest_mge.element_type or nearest_mge.family or "IS",
                         "mge_distance": nearest_dist,
                         "contig": a.contig,
-                        "on_plasmid": a.on_plasmid or False,
-                        "replicon": replicon,
                     })
             sample_mobile_args[s.name] = mobile
 
@@ -371,48 +376,23 @@ def compute_synteny_for_samples(sample_ids: List[str], db, mode: str = "full", f
                         "drug_class": m["drug_class"],
                         "strains": [],
                         "mge_names": set(),
-                        "replicons": set(),
-                        "strain_replicons": {},  # strain_name -> replicon
                         "min_distance": m["mge_distance"],
-                        "on_plasmid": False,
                     }
                 all_mobile_genes[key]["strains"].append(name)
                 all_mobile_genes[key]["mge_names"].add(m["mge_name"])
                 all_mobile_genes[key]["min_distance"] = min(
                     all_mobile_genes[key]["min_distance"], m["mge_distance"]
                 )
-                if m["on_plasmid"]:
-                    all_mobile_genes[key]["on_plasmid"] = True
-                if m["replicon"]:
-                    all_mobile_genes[key]["replicons"].add(m["replicon"])
-                    all_mobile_genes[key]["strain_replicons"][name] = m["replicon"]
 
         # Convert to list, sorted by number of strains (shared first)
         mobile_args_list = []
         sample_names = [s.name for s, _ in sample_info]
         for info in sorted(all_mobile_genes.values(), key=lambda x: (-len(x["strains"]), x["gene"])):
-            replicons = sorted(info["replicons"])
-            # Check if the same replicon appears in multiple strains (same plasmid family)
-            same_plasmid = False
-            if len(info["strain_replicons"]) >= 2:
-                rep_values = list(info["strain_replicons"].values())
-                same_plasmid = len(set(rep_values)) < len(rep_values) or any(
-                    rep_values.count(r) >= 2 for r in set(rep_values)
-                )
-                # Also check if any single replicon appears in 2+ strains
-                from collections import Counter
-                rep_counts = Counter(rep_values)
-                same_plasmid = any(c >= 2 for c in rep_counts.values())
-
             mobile_args_list.append({
                 "gene": info["gene"],
                 "drug_class": info["drug_class"],
                 "mge_names": sorted(info["mge_names"]),
                 "min_distance": info["min_distance"],
-                "on_plasmid": info["on_plasmid"],
-                "replicons": replicons,
-                "same_plasmid_family": same_plasmid,
-                "strain_replicons": info["strain_replicons"],
                 "strain_count": len(info["strains"]),
                 "strains": info["strains"],
                 "present_in": {name: name in info["strains"] for name in sample_names},
@@ -435,6 +415,8 @@ def compute_synteny_for_samples(sample_ids: List[str], db, mode: str = "full", f
             # Get individual anchor points (not merged)
             anchors = []
             for a in db.query(ARGResult).filter(ARGResult.sample_id == s.id).all():
+                if not _is_amr(a):
+                    continue
                 if a.contig and a.start is not None and a.end is not None:
                     mid = (a.start + a.end) // 2
                     anchors.append((_norm_contig(a.contig), max(0, mid - flanking), mid + flanking, a.gene, "arg"))
@@ -465,7 +447,7 @@ def compute_synteny_for_samples(sample_ids: List[str], db, mode: str = "full", f
                         gene_name = None
                         for a in [x for x in db.query(ARGResult).filter(
                             ARGResult.sample_id == s.id
-                        ).all() if _norm_contig(x.contig) == _norm_contig(contig)]:
+                        ).all() if _is_amr(x) and _norm_contig(x.contig) == _norm_contig(contig)]:
                             if a.start is not None and abs(a.start - start) < 100:
                                 gene_type = "arg"
                                 gene_name = a.gene
