@@ -157,6 +157,17 @@ def _compute_synteny_score(
     return round(score, 4), n_shared, total
 
 
+def _norm_contig(c) -> str:
+    """FASTA identifier = text before the first whitespace.
+
+    Tools disagree on what they store: AMRFinderPlus writes the ID only
+    ("contig_1") while MobileElementFinder keeps the whole header
+    ("contig_1 polypolish"), so a raw == comparison between an ARG contig and
+    an MGE contig never matches and every ARG looks non-mobile.
+    """
+    return (c or "").split()[0] if c else ""
+
+
 def _get_anchor_regions(sample_id: str, db, flanking: int = 20000) -> List[Tuple[str, int, int]]:
     """Get genomic regions around ARGs and mobile elements.
 
@@ -167,12 +178,12 @@ def _get_anchor_regions(sample_id: str, db, flanking: int = 20000) -> List[Tuple
     # ARG positions
     for a in db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all():
         if a.contig and a.start is not None and a.end is not None:
-            regions.append((a.contig, max(0, a.start - flanking), a.end + flanking))
+            regions.append((_norm_contig(a.contig), max(0, a.start - flanking), a.end + flanking))
 
     # Mobile element positions
     for m in db.query(MobilityResult).filter(MobilityResult.sample_id == sample_id).all():
         if m.contig and m.start is not None and m.end is not None:
-            regions.append((m.contig, max(0, m.start - flanking), m.end + flanking))
+            regions.append((_norm_contig(m.contig), max(0, m.start - flanking), m.end + flanking))
 
     if not regions:
         return []
@@ -211,7 +222,7 @@ def _filter_genes_by_regions(
     for gene in genes:
         md5, contig, start, end, strand = gene
         for r_contig, r_start, r_end in regions:
-            if contig == r_contig and start < r_end and end > r_start:
+            if _norm_contig(contig) == r_contig and start < r_end and end > r_start:
                 filtered.append(gene)
                 break
     return filtered
@@ -314,7 +325,7 @@ def compute_synteny_for_samples(sample_ids: List[str], db, mode: str = "full", f
                     # Match via ARG contig_type which contains plasmid_id
                     for a in args:
                         if a.on_plasmid and a.contig_type and p.plasmid_id and p.plasmid_id in a.contig_type:
-                            contig_replicon[a.contig] = p.replicon
+                            contig_replicon[_norm_contig(a.contig)] = p.replicon
 
             mobile = []
             for a in args:
@@ -325,7 +336,7 @@ def compute_synteny_for_samples(sample_ids: List[str], db, mode: str = "full", f
                 for m in mges:
                     if not m.contig or m.start is None or m.end is None:
                         continue
-                    if m.contig != a.contig:
+                    if _norm_contig(m.contig) != _norm_contig(a.contig):
                         continue
                     if m.end <= a.start:
                         dist = a.start - m.end
@@ -337,7 +348,7 @@ def compute_synteny_for_samples(sample_ids: List[str], db, mode: str = "full", f
                         nearest_dist = dist
                         nearest_mge = m
                 if nearest_mge and nearest_dist <= flanking:
-                    replicon = contig_replicon.get(a.contig, "")
+                    replicon = contig_replicon.get(_norm_contig(a.contig), "")
                     mobile.append({
                         "gene": a.gene,
                         "drug_class": a.drug_class or "",
@@ -426,11 +437,11 @@ def compute_synteny_for_samples(sample_ids: List[str], db, mode: str = "full", f
             for a in db.query(ARGResult).filter(ARGResult.sample_id == s.id).all():
                 if a.contig and a.start is not None and a.end is not None:
                     mid = (a.start + a.end) // 2
-                    anchors.append((a.contig, max(0, mid - flanking), mid + flanking, a.gene, "arg"))
+                    anchors.append((_norm_contig(a.contig), max(0, mid - flanking), mid + flanking, a.gene, "arg"))
             for m in db.query(MobilityResult).filter(MobilityResult.sample_id == s.id).all():
                 if m.contig and m.start is not None and m.end is not None:
                     mid = (m.start + m.end) // 2
-                    anchors.append((m.contig, max(0, mid - flanking), mid + flanking, m.element_type or m.family, "mge"))
+                    anchors.append((_norm_contig(m.contig), max(0, mid - flanking), mid + flanking, m.element_type or m.family, "mge"))
             # Deduplicate overlapping anchors: keep the one with ARG priority
             # Sort by contig + start, skip if too close to previous
             anchors.sort(key=lambda x: (x[0], x[1]))
@@ -448,21 +459,21 @@ def compute_synteny_for_samples(sample_ids: List[str], db, mode: str = "full", f
                 region_genes = []
                 for gene in genes:
                     md5, contig, start, end, strand = gene
-                    if contig == r_contig and start < r_end and end > r_start:
+                    if _norm_contig(contig) == r_contig and start < r_end and end > r_start:
                         # Check if this gene is an ARG or MGE
                         gene_type = "cds"
                         gene_name = None
-                        for a in db.query(ARGResult).filter(
-                            ARGResult.sample_id == s.id, ARGResult.contig == contig
-                        ).all():
+                        for a in [x for x in db.query(ARGResult).filter(
+                            ARGResult.sample_id == s.id
+                        ).all() if _norm_contig(x.contig) == _norm_contig(contig)]:
                             if a.start is not None and abs(a.start - start) < 100:
                                 gene_type = "arg"
                                 gene_name = a.gene
                                 break
                         if gene_type == "cds":
-                            for m in db.query(MobilityResult).filter(
-                                MobilityResult.sample_id == s.id, MobilityResult.contig == contig
-                            ).all():
+                            for m in [x for x in db.query(MobilityResult).filter(
+                                MobilityResult.sample_id == s.id
+                            ).all() if _norm_contig(x.contig) == _norm_contig(contig)]:
                                 if m.start is not None and abs(m.start - start) < 100:
                                     gene_type = "mge"
                                     gene_name = m.element_type or m.family
