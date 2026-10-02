@@ -75,7 +75,12 @@ radar/
 Based on the research methodology. For FASTQ input all steps run. For FASTA input (including BV-BRC pre-assembled), steps 1-3 are skipped.
 
 1. **QC** - fastp: adapter trimming, quality filtering (Illumina); Chopper: ONT long-read quality filtering and trimming
-2. **Assembly** - SPAdes (Illumina-only), Flye + Medaka + Polypolish (hybrid), Flye (long-read-only; --nano-hq for ONT, --pacbio-hifi for PacBio)
+2. **Assembly** - four supported input types:
+   - Illumina-only: SPAdes
+   - ONT-only: Flye (--nano-hq) → Medaka
+   - PacBio-only: Flye (--pacbio-hifi), no polishing. If Illumina reads are also present they are ignored (HiFi alone is sufficient)
+   - Illumina + ONT hybrid: Flye (--nano-hq) → Medaka → Polypolish
+   - Medaka runs `medaka_consensus --bacteria`, falling back to automatic model selection when read headers lack basecaller model info
 3. **Assembly QC** - QUAST + BUSCO: assembly quality metrics and genome completeness
 4. **ARG detection** - AMRFinderPlus: resistance gene identification
 5. **Promoter analysis** - extract 500bp upstream of each ARG, run BPROM for LDF scores, TF binding site count, promoter-to-ARG distance, UP element AT-rich ratio (20bp upstream of predicted promoter)

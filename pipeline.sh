@@ -9,7 +9,8 @@ set -euo pipefail
 # Cases:
 #   i)   Illumina only:    -1 R1.fastq.gz -2 R2.fastq.gz
 #   ii)  Illumina + ONT:   -1 R1.fastq.gz -2 R2.fastq.gz -l ont.fastq.gz
-#   iii) PacBio HiFi only: -l hifi.fastq.gz -p pacbio
+#   iii) ONT only:         -l ont.fastq.gz                     (Flye -> Medaka)
+#   iv)  PacBio HiFi only: -l hifi.fastq.gz -p pacbio  (Illumina reads, if given, are ignored)
 #
 # Usage:
 #   ./pipeline.sh -1 R1.fastq.gz -2 R2.fastq.gz -o outdir [-t threads] [-s sample_name]
@@ -42,7 +43,9 @@ Options:
 Cases:
   Illumina only:      -1 R1.fq.gz -2 R2.fq.gz -o out/
   Illumina + ONT:     -1 R1.fq.gz -2 R2.fq.gz -l ont.fq.gz -o out/
+  ONT only:           -l ont.fq.gz -o out/
   PacBio HiFi only:   -l hifi.fq.gz -p pacbio -o out/
+                      (Illumina reads, if also given, are ignored)
 EOF
     exit 0
 }
@@ -75,6 +78,12 @@ fi
 
 if [ -n "$R1" ] && [ -z "$R2" ]; then
     echo "ERROR: R2 required when R1 is provided (-2)" >&2; exit 1
+fi
+
+# PacBio HiFi alone is sufficient — ignore Illumina reads if both are given
+if [ -n "$LONG" ] && [ "$PLATFORM" = "pacbio" ] && [ -n "$R1" ]; then
+    echo "NOTE: PacBio HiFi reads provided — Illumina reads ignored (PacBio-only assembly)" >&2
+    R1="" R2=""
 fi
 
 # Determine case
@@ -135,6 +144,27 @@ run_noncritical() {
     else
         log "  ${name} failed (non-critical, continuing)"
     fi
+}
+
+# Medaka polish; prints the polished FASTA path (or the draft if Medaka fails).
+# --bacteria needs basecaller model info in read headers (recent Dorado output);
+# older reads are rejected, so retry with automatic model selection.
+run_medaka() {
+    local reads=$1 draft=$2 out="${ASM_DIR}/medaka_out"
+    local extra
+    for extra in "--bacteria" ""; do
+        rm -rf "$out"
+        log "── Medaka polish ${extra} ──" >&2
+        if conda run -n radar-medaka medaka_consensus \
+                -i "$reads" -d "$draft" -o "$out" -t "$THREADS" $extra >> "$LOG" 2>&1 \
+            && [ -s "${out}/consensus.fasta" ]; then
+            log "  Medaka complete" >&2
+            echo "${out}/consensus.fasta"
+            return 0
+        fi
+    done
+    log "  Medaka failed (non-critical, using unpolished draft)" >&2
+    echo "$draft"
 }
 
 # --------------------------------------------------------------------------
@@ -234,30 +264,8 @@ case "$CASE" in
                 --threads "$THREADS"
         CURRENT_ASM="${ASM_DIR}/flye_out/assembly.fasta"
 
-        # Medaka polish (v2.x: mini_align → inference → sequence)
-        MEDAKA_DIR="${ASM_DIR}/medaka_out"
-        mkdir -p "$MEDAKA_DIR"
-        MEDAKA_BAM="${MEDAKA_DIR}/calls_to_draft.bam"
-        MEDAKA_HDF="${MEDAKA_DIR}/consensus_probs.hdf"
-        if run_noncritical "Medaka alignment" \
-            conda run -n radar-medaka \
-            mini_align \
-                -i "$LONG_INPUT" -r "$CURRENT_ASM" \
-                -t "$THREADS" \
-                -p "${MEDAKA_DIR}/calls_to_draft"; then
-            if run_noncritical "Medaka inference" \
-                conda run -n radar-medaka \
-                medaka inference \
-                    "$MEDAKA_BAM" "$MEDAKA_HDF" \
-                    --threads "$THREADS"; then
-                if run_noncritical "Medaka sequence" \
-                    conda run -n radar-medaka \
-                    medaka sequence \
-                        "$MEDAKA_HDF" "$CURRENT_ASM" "${MEDAKA_DIR}/consensus.fasta"; then
-                    [ -f "${MEDAKA_DIR}/consensus.fasta" ] && CURRENT_ASM="${MEDAKA_DIR}/consensus.fasta"
-                fi
-            fi
-        fi
+        # Medaka polish
+        CURRENT_ASM=$(run_medaka "$LONG_INPUT" "$CURRENT_ASM")
 
         # Polypolish (short-read polishing)
         POLY_DIR="${ASM_DIR}/polypolish_out"
@@ -299,7 +307,13 @@ case "$CASE" in
                 $FLYE_MODE "$LONG_INPUT" \
                 --out-dir "${ASM_DIR}/flye_out" \
                 --threads "$THREADS"
-        cp "${ASM_DIR}/flye_out/assembly.fasta" "$ASSEMBLY"
+        CURRENT_ASM="${ASM_DIR}/flye_out/assembly.fasta"
+
+        # ONT-only: Medaka polish (PacBio HiFi doesn't need long-read polishing)
+        if [ "$PLATFORM" = "ont" ]; then
+            CURRENT_ASM=$(run_medaka "$LONG_INPUT" "$CURRENT_ASM")
+        fi
+        cp "$CURRENT_ASM" "$ASSEMBLY"
         ;;
 esac
 

@@ -5,7 +5,7 @@ import subprocess
 from typing import List
 
 from app.config import settings
-from app.models.models import SampleFile, PairType
+from app.models.models import SampleFile, PairType, SequencingPlatform
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,7 @@ def run_fastp(sample_id: str, input_files: List[str], db=None, threads: int = 4)
     r1_files = []
     r2_files = []
     long_files = []
+    has_pacbio = False
 
     if db:
         sample_files = db.query(SampleFile).filter(SampleFile.sample_id == sample_id).all()
@@ -42,6 +43,8 @@ def run_fastp(sample_id: str, input_files: List[str], db=None, threads: int = 4)
                 r2_files.append(sf.file_path)
             elif sf.pair == PairType.long_read:
                 long_files.append(sf.file_path)
+                if sf.platform == SequencingPlatform.pacbio:
+                    has_pacbio = True
     else:
         # Fallback: guess from filenames
         for f in input_files:
@@ -55,6 +58,10 @@ def run_fastp(sample_id: str, input_files: List[str], db=None, threads: int = 4)
     html_report = os.path.join(results_dir, "fastp_report.html")
     json_report = os.path.join(results_dir, "fastp_report.json")
     trimmed_files = []
+
+    # PacBio HiFi alone is sufficient for assembly — Illumina reads are ignored
+    if has_pacbio:
+        r1_files, r2_files = [], []
 
     if r1_files and r2_files:
         # Paired-end Illumina

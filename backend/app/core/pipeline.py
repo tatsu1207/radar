@@ -416,6 +416,12 @@ def _run_assembly_phase(sample_id: str, job, db, threads: int) -> str:
             long_read_platform = "pacbio"
             break
 
+    # PacBio HiFi alone is sufficient — skip Illumina trimming/hybrid assembly
+    if has_long_read and long_read_platform == "pacbio" and has_illumina:
+        job.log += "  PacBio HiFi reads present — Illumina reads ignored (PacBio-only assembly)\n"
+        db.commit()
+        has_illumina = False
+
     qc_dir = os.path.join(settings.RESULTS_DIR, str(sample_id), "qc")
     asm_dir = os.path.join(settings.RESULTS_DIR, str(sample_id), "assembly")
     existing_assembly = os.path.join(asm_dir, "assembly.fasta")

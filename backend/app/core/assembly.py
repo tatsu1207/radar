@@ -22,8 +22,9 @@ def run_assembly(sample_id: str, input_files: List[str], db=None, threads: int =
     """Run genome assembly using the appropriate strategy.
 
     - Short-read only (R1+R2): SPAdes
-    - Long-read only: Flye (--nano-hq for ONT, --pacbio-hifi for PacBio)
-    - Hybrid (short + long): Flye -> Medaka -> Polypolish
+    - PacBio HiFi: Flye --pacbio-hifi (always alone; Illumina reads are ignored)
+    - Hybrid (Illumina + ONT): Flye -> Medaka -> Polypolish
+    - ONT only: Flye --nano-hq -> Medaka
 
     Args:
         sample_id: UUID of the sample
@@ -46,7 +47,9 @@ def run_assembly(sample_id: str, input_files: List[str], db=None, threads: int =
                 platform = "pacbio"
                 break
 
-    if r1 and r2 and long_read:
+    if long_read and platform == "pacbio":
+        return _run_flye(sample_id, long_read, threads, platform=platform)
+    elif r1 and r2 and long_read:
         return _run_hybrid_assembly(sample_id, r1, r2, long_read, threads)
     elif r1 and r2:
         return _run_spades(sample_id, r1, r2, threads)
@@ -99,7 +102,7 @@ def _run_spades(sample_id: str, r1: str, r2: str, threads: int) -> str:
 
 
 def _run_flye(sample_id: str, long_read: str, threads: int, platform: str = "ont") -> str:
-    """Run Flye for long-read-only assembly."""
+    """Run Flye for long-read-only assembly (ONT: Flye -> Medaka; PacBio HiFi: Flye)."""
     logger.info(f"Running Flye (long-read, {platform}) for sample {sample_id}")
 
     results_dir = os.path.join(settings.RESULTS_DIR, str(sample_id), "assembly")
@@ -129,11 +132,46 @@ def _run_flye(sample_id: str, long_read: str, threads: int, platform: str = "ont
     if not os.path.exists(flye_assembly):
         raise RuntimeError(f"Flye output not found at {flye_assembly}")
 
+    # ONT-only: polish with Medaka (HiFi reads don't need long-read polishing)
+    final_src = flye_assembly
+    if platform == "ont":
+        final_src = _run_medaka(long_read, flye_assembly, results_dir, threads)
+
     final_assembly = os.path.join(results_dir, "assembly.fasta")
-    shutil.copy2(flye_assembly, final_assembly)
+    shutil.copy2(final_src, final_assembly)
 
     logger.info(f"Flye assembly complete for sample {sample_id}")
     return final_assembly
+
+
+def _run_medaka(long_read: str, draft: str, results_dir: str, threads: int) -> str:
+    """Polish a draft assembly with Medaka. Returns the polished FASTA path,
+    or the draft path unchanged if Medaka fails (non-critical)."""
+    medaka_dir = os.path.join(results_dir, "medaka_out")
+
+    # --bacteria picks the bacterial methylation-aware model, but only works when
+    # read headers carry basecaller model info (recent Dorado output). Older reads
+    # are rejected, so retry with medaka's automatic model selection.
+    polished = os.path.join(medaka_dir, "consensus.fasta")
+    for extra in (["--bacteria"], []):
+        if os.path.exists(medaka_dir):
+            shutil.rmtree(medaka_dir)
+        cmd = [
+            "conda", "run", "-n", CONDA_MEDAKA,
+            "medaka_consensus",
+            "-i", long_read,
+            "-d", draft,
+            "-o", medaka_dir,
+            "-t", str(threads),
+            *extra,
+        ]
+        logger.info(f"Medaka command: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
+        if result.returncode == 0 and os.path.exists(polished) and os.path.getsize(polished) > 0:
+            return polished
+
+    logger.warning(f"Medaka failed (using unpolished draft): {result.stderr[-500:]}")
+    return draft
 
 
 def _run_hybrid_assembly(
@@ -173,39 +211,8 @@ def _run_hybrid_assembly(
         raise RuntimeError("Flye output not found")
 
     # ── Step 2: Medaka long-read polishing ──
-    # Medaka v2.x: medaka inference → medaka sequence (replaces old medaka_polish)
     logger.info("Hybrid step 2/3: Medaka")
-    medaka_dir = os.path.join(results_dir, "medaka_out")
-    if os.path.exists(medaka_dir):
-        shutil.rmtree(medaka_dir)
-    os.makedirs(medaka_dir, exist_ok=True)
-
-    medaka_hdf = os.path.join(medaka_dir, "consensus_probs.hdf")
-    medaka_assembly = os.path.join(medaka_dir, "consensus.fasta")
-    medaka_ok = False
-
-    # Step 2a: medaka inference (align reads + run neural network)
-    cmd_inference = [
-        "conda", "run", "-n", CONDA_MEDAKA,
-        "medaka", "inference",
-        long_read, flye_assembly, medaka_hdf,
-        "--threads", str(threads),
-    ]
-    result = subprocess.run(cmd_inference, capture_output=True, text=True, timeout=7200)
-
-    if result.returncode == 0 and os.path.exists(medaka_hdf):
-        # Step 2b: medaka sequence (decode HDF → consensus FASTA)
-        cmd_sequence = [
-            "conda", "run", "-n", CONDA_MEDAKA,
-            "medaka", "sequence", medaka_hdf, flye_assembly, medaka_assembly,
-        ]
-        result = subprocess.run(cmd_sequence, capture_output=True, text=True, timeout=3600)
-        if result.returncode == 0 and os.path.exists(medaka_assembly):
-            medaka_ok = True
-
-    if not medaka_ok:
-        logger.warning(f"Medaka failed (using Flye output directly): {result.stderr[-500:]}")
-        medaka_assembly = flye_assembly
+    medaka_assembly = _run_medaka(long_read, flye_assembly, results_dir, threads)
 
     # ── Step 3: Polypolish short-read polishing ──
     logger.info("Hybrid step 3/3: Polypolish")
