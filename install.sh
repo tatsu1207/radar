@@ -89,7 +89,6 @@ pip_install_one "defense-finder" mdmparis-defense-finder "click==8.0.3"
 pip_install_one "integron_finder" integron_finder
 pip_install_one "chewbbaca" chewbbaca
 pip_install_one "resfinder" resfinder
-pip_install_one "OSTIR" OSTIR
 
 # Frontend: Node.js >= 18.17 (Next.js 14) and npm packages.
 # A node already on PATH (e.g. nvm) is used if new enough; otherwise nodejs is added to the radar env.
@@ -253,6 +252,22 @@ else
     echo "  SKIP  radar-plassembler (already exists)"
 fi
 
+# OSTIR: RBS analysis. Needs ViennaRNA >= 2.6 Python bindings for py3.11; in the base env
+# that upgrade would remove mlst (old perl), so OSTIR gets its own env.
+if ! conda env list 2>/dev/null | grep -qE "^radar-ostir\s"; then
+    echo -n "  ...   radar-ostir"
+    if mamba create -n radar-ostir -y -c conda-forge -c bioconda python=3.11 "viennarna>=2.6" > /tmp/radar_install_radar-ostir.log 2>&1 \
+        && conda run -n radar-ostir pip install --quiet "ostir==1.1.3" >> /tmp/radar_install_radar-ostir.log 2>&1 \
+        && conda run -n radar-ostir python -c "import RNA, ostir" >> /tmp/radar_install_radar-ostir.log 2>&1; then
+        echo -e "\r  OK    radar-ostir"
+    else
+        echo -e "\r  FAIL  radar-ostir (see /tmp/radar_install_radar-ostir.log)"
+        FAIL=1
+    fi
+else
+    echo "  SKIP  radar-ostir (already exists)"
+fi
+
 # BUSCO: complex deps (hmmer, prodigal, bbmap + pip from gitlab)
 if ! conda env list 2>/dev/null | grep -qE "^radar-busco\s"; then
     echo -n "  ...   radar-busco"
@@ -312,10 +327,10 @@ echo "    Base:     radar (fastp, chopper, flye, spades, polypolish, bwa,"
 echo "              hmmer, blast, mlst, skani, minced, prodigal,"
 echo "              sra-tools, viennarna, infernal,"
 echo "              defense-finder, integron_finder, chewbbaca, resfinder,"
-echo "              OSTIR, AMRFinderPlus, BPROM, backend requirements, nodejs)"
+echo "              AMRFinderPlus, BPROM, backend requirements, nodejs)"
 echo "    Separate: radar-sistr, radar-quast, radar-mobsuite,"
 echo "              radar-mefinder, radar-medaka, radar-genomad, radar-busco,"
-echo "              radar-plassembler"
+echo "              radar-plassembler, radar-ostir"
 echo ""
 echo "  Next step: download databases"
 echo "    ./databases/download_dbs.sh"

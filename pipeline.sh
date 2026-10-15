@@ -600,12 +600,49 @@ if command -v bprom &>/dev/null || conda run -n radar which bprom &>/dev/null 2>
 fi
 
 # --- RBS analysis (OSTIR) ---
+# For each AMRFinderPlus hit that starts with a start codon: 51 bp upstream to 19 bp into the
+# gene on its own strand (start codon at position 52), scored by OSTIR for that codon only.
+# OSTIR runs in radar-ostir (ViennaRNA's py3.11 bindings conflict with mlst/perl in radar).
+run_ostir_rbs() {
+    local rbs="${ANNOT_DIR}/rbs"
+    mkdir -p "$rbs"
+    # conda run does not forward stdin, so the script goes through a file
+    cat > "${rbs}/make_windows.py" <<'PYEOF'
+import csv, sys
+from Bio import SeqIO
+from Bio.Seq import Seq
+amr, asm, out = sys.argv[1:4]
+contigs = {r.id: str(r.seq).upper() for r in SeqIO.parse(asm, "fasta")}
+n = 0
+with open(out, "w") as fh:
+    for i, row in enumerate(csv.DictReader(open(amr), delimiter="\t")):
+        seq = contigs.get(row["Contig id"])
+        if seq is None:
+            continue
+        s0, e0 = int(row["Start"]) - 1, int(row["Stop"])
+        if row["Strand"] == "+":
+            if s0 < 51:
+                continue
+            w = seq[s0 - 51:s0 + 19]
+        else:
+            if e0 + 51 > len(seq):
+                continue
+            w = str(Seq(seq[e0 - 19:e0 + 51]).reverse_complement())
+        if w[51:54] not in ("ATG", "GTG", "TTG"):
+            continue  # partial hit or no start codon
+        fh.write(f">{i}|{row['Element symbol']}|{row['Contig id']}:{row['Start']}-{row['Stop']}{row['Strand']}\n{w}\n")
+        n += 1
+print(f"{n} RBS windows", file=sys.stderr)
+PYEOF
+    conda run -n radar python "${rbs}/make_windows.py" "${ANNOT_DIR}/amrfinder.tsv" "$ASSEMBLY" \
+        "${rbs}/windows.fasta" || return 1
+    rm -f "${rbs}/make_windows.py"
+    [ -s "${rbs}/windows.fasta" ] || return 0
+    conda run -n radar-ostir ostir -i "${rbs}/windows.fasta" -t fasta -s 52 -e 52 \
+        -j "$THREADS" -o "${rbs}/ostir_results.csv"
+}
 if [ -f "${ANNOT_DIR}/amrfinder.tsv" ]; then
-    run_noncritical "OSTIR (RBS analysis)" \
-        bash -c "
-            mkdir -p '${ANNOT_DIR}/rbs'
-            # OSTIR analyzes translation initiation for each ARG — handled by context annotation
-        "
+    run_noncritical "OSTIR (RBS analysis)" run_ostir_rbs
 fi
 
 # --- Context annotations (sRNA via cmscan against Rfam) ---

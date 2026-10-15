@@ -85,7 +85,7 @@ Based on the research methodology. For FASTQ input all steps run. For FASTA inpu
 3. **Assembly QC** - QUAST + BUSCO: assembly quality metrics and genome completeness
 4. **ARG detection** - AMRFinderPlus: resistance gene identification
 5. **Promoter analysis** - extract 500bp upstream of each ARG, run BPROM for LDF scores, TF binding site count, promoter-to-ARG distance, UP element AT-rich ratio (20bp upstream of predicted promoter)
-6. **RBS analysis** - extract -51bp to +19bp relative to each ARG start codon, run OSTIR for expression level, dG_total, dG_mRNA
+6. **RBS analysis** - for each ARG, take 51 bp upstream of the start codon to 19 bp into the gene on the gene's strand (start codon at position 52; strand inferred from start/stop codons since ARGResult stores none; partial hits skipped) and run OSTIR (`radar-ostir` env) for that start codon only (`-s 52 -e 52`): expression level, dG_total, dG_mRNA. pipeline.sh does the same from amrfinder.tsv → `annotation/rbs/ostir_results.csv`
 7. **MGE detection** - MobileElementFinder (`mefinder`): IS elements within 5kbp of each ARG, recording IS count, nearest IS distance, strand orientation consistency
 8. **Plasmid analysis** - MOB-recon: plasmid identification, replicon typing, mobility classification; cross-references ARGs as plasmid-borne
 9. **Virulence** - virulence factor detection
@@ -112,12 +112,12 @@ All tools run on CPU only (no GPU required). Installed via `install.sh` into 9 c
 | Prodigal | Gene prediction (used by DefenseFinder, context annotations) |
 | BLAST + Infernal | Nucleotide searches (16S, ICEberg, sRNA/Rfam) |
 | sra-tools | Download FASTQ from SRA (prefetch + fasterq-dump) |
-| ViennaRNA | RNA structure (used by OSTIR) |
+| ViennaRNA | RNA structure (used by OSTIR; ≥2.6 in `radar-ostir`) |
 | DefenseFinder | Bacterial defense system detection (pip) |
 | IntegronFinder | Integron detection (pip) |
 | chewBBACA | Core-genome MLST (pip) |
 | ResFinder | PointFinder point mutations (pip) |
-| OSTIR | RBS translation initiation rate prediction (pip) |
+| OSTIR | RBS translation initiation rate prediction (pip, `radar-ostir` env) |
 
 **Separate environments (dependency conflicts):**
 

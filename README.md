@@ -107,7 +107,7 @@ Also supports SRA accession fetch and BV-BRC genome import.
 | Biocide/metal | BacMet2 (blastp) | `radar` |
 | Gene prediction | Prodigal | `radar` |
 | Promoter | BPROM | binary |
-| RBS | OSTIR | `radar` |
+| RBS | OSTIR | `radar-ostir` |
 | sRNA | Infernal / Rfam | `radar` |
 | ML phenotype | scikit-learn Random Forest | `radar` (main env) |
 | Risk scoring | Composite algorithm | `radar` (main env) |
@@ -223,8 +223,8 @@ Creates the conda environments and installs the backend and frontend packages. A
 ```
 
 **What it installs:**
-- **Base env (`radar`)**: fastp, Chopper, SPAdes, Flye, Polypolish, AMRFinderPlus (v4.2.7 binary), mlst, skani, IntegronFinder, chewBBACA, minced, DefenseFinder, BLAST, Prodigal, OSTIR, ResFinder, sra-tools, Infernal, PostgreSQL, Redis, the backend Python packages (`backend/requirements.txt`), Node.js (if needed) and BPROM (from `bin/`)
-- **Separate envs**: `radar-sistr` (SISTR/Kleborate/SerotypeFinder), `radar-quast` (QUAST), `radar-mobsuite` (MOB-suite), `radar-mefinder` (MobileElementFinder), `radar-medaka` (Medaka, CPU-only PyTorch), `radar-genomad` (geNomad, CPU-only TensorFlow), `radar-busco` (BUSCO), `radar-plassembler` (Plassembler, dnaapler)
+- **Base env (`radar`)**: fastp, Chopper, SPAdes, Flye, Polypolish, AMRFinderPlus (v4.2.7 binary), mlst, skani, IntegronFinder, chewBBACA, minced, DefenseFinder, BLAST, Prodigal, ResFinder, sra-tools, Infernal, PostgreSQL, Redis, the backend Python packages (`backend/requirements.txt`), Node.js (if needed) and BPROM (from `bin/`)
+- **Separate envs**: `radar-sistr` (SISTR/Kleborate/SerotypeFinder), `radar-quast` (QUAST), `radar-mobsuite` (MOB-suite), `radar-mefinder` (MobileElementFinder), `radar-medaka` (Medaka, CPU-only PyTorch), `radar-genomad` (geNomad, CPU-only TensorFlow), `radar-busco` (BUSCO), `radar-plassembler` (Plassembler, dnaapler), `radar-ostir` (OSTIR + ViennaRNA 2.7; ViennaRNA's py3.11 bindings conflict with mlst's Perl in `radar`)
 - **Frontend**: `npm ci` in `frontend/`
 
 **download_dbs.sh** downloads AMRFinderPlus, geNomad (~3.5 GB), NCBI 16S rRNA, MOB-suite, PointFinder, ResFinder, Rfam, DefenseFinder models, cgMLST schemas, SerotypeFinder and the Plassembler PLSDB database (~0.4 GB). The skani GTDB sketch (~30 GB) is optional and printed as a manual step; without it species are identified by 16S BLAST. BacMet2 and the BUSCO lineage are fetched automatically on first use.
