@@ -114,18 +114,23 @@ Also supports SRA accession fetch and BV-BRC genome import.
 
 ## Quick Start
 
-### Option 1: Bare-metal (recommended for bioinformatics servers)
+### Installation (bare-metal, Linux)
+
+**Requirements:** Linux x86-64, [Miniforge](https://github.com/conda-forge/miniforge) (`mamba`), git, internet access, ~10 GB disk for databases (without the optional 30 GB skani GTDB sketch) and ~20 GB for conda environments. Node.js is installed into the `radar` env if a suitable version (≥18.17) is not already on PATH. BPROM (promoter prediction) is a 32-bit binary and needs the 32-bit C library (`sudo apt install libc6:i386` on Debian/Ubuntu); without it only promoter prediction is skipped.
 
 ```bash
 # Clone
 git clone https://github.com/tatsu1207/radar.git
 cd radar
 
-# Install tools (conda environments, CPU-only)
+# Install tools (conda environments, backend Python packages, Node.js + frontend packages, BPROM)
 ./install.sh
 
-# Download reference databases
+# Download reference databases (optional: -d /path/to/databases -t threads)
 ./databases/download_dbs.sh
+
+# Optional settings (login secret, e-mail verification)
+cp .env.example .env   # then edit
 
 # Start all services
 ./start.sh
@@ -134,7 +139,7 @@ cd radar
 ./stop.sh
 ```
 
-Ports are derived from UID for multi-user machines: frontend=7200+UID, backend=7210+UID, PostgreSQL=7220+UID, Redis=7230+UID.
+On the first `./start.sh`, ports are derived from your UID so several users can share a server (frontend=7200+UID, backend=7210+UID, PostgreSQL=7220+UID, Redis=7230+UID) and written to `data/ports.env`; edit that file to change them. PostgreSQL and Redis run from the `radar` env with their data in `data/`; no system services or root access are needed.
 
 ### Access
 
@@ -195,36 +200,32 @@ radar/
       app/           # Next.js pages (files, results, metadata, tools, samples)
       components/    # React components (PlasmidMap, LinearGenomeMap, ARGTable, ...)
       lib/api.ts     # Backend API client
-  install.sh         # Install all conda envs + databases
+  install.sh         # Install conda envs, backend/frontend packages, BPROM
   pipeline.sh        # Standalone CLI pipeline (no web UI)
   start.sh           # Start all services
   stop.sh            # Stop all services
-  databases/         # Reference databases (auto-downloaded by install.sh)
+  databases/         # Reference databases (download_dbs.sh downloads them here)
 ```
 
 ## Command-Line Tools
 
 RADAR also provides standalone scripts for installation and analysis without the web interface.
 
-### install.sh — Environment & Database Setup
+### install.sh — Environment Setup
 
-Installs 9 conda environments and downloads 8 reference databases. All tools are CPU-only (no GPU required). Safe to re-run: existing environments are skipped automatically.
+Creates the conda environments and installs the backend and frontend packages. All tools are CPU-only (no GPU required). Safe to re-run: existing environments are skipped automatically.
 
 ```bash
-# Default: install everything in ./databases
-./install.sh
-
-# Custom database directory and thread count
-./install.sh -d /path/to/databases -t 8
+./install.sh                      # tools and packages
+./databases/download_dbs.sh       # reference databases (-d DIR, -t THREADS)
 ```
 
 **What it installs:**
-- **Base env (`radar`)**: fastp, Chopper, SPAdes, Flye, Polypolish, AMRFinderPlus (v4.2.7 binary), mlst, skani, IntegronFinder, chewBBACA, minced, DefenseFinder, BLAST, Prodigal, OSTIR, ResFinder, sra-tools, Infernal
-- **Separate envs**: `radar-sistr` (SISTR/Kleborate), `radar-quast` (QUAST), `radar-mobsuite` (MOB-suite), `radar-mefinder` (MobileElementFinder), `radar-medaka` (Medaka, CPU-only PyTorch), `radar-genomad` (geNomad, CPU-only TensorFlow), `radar-busco` (BUSCO)
-- **8 databases**: AMRFinderPlus DB, geNomad DB (~3.5 GB), skani GTDB sketch (~1.5 GB), NCBI 16S rRNA, MOB-suite DB, PointFinder DB, ResFinder DB, Rfam CM, DefenseFinder models
-- **Optional**: BPROM binary (if found at `/tmp/bprom`)
+- **Base env (`radar`)**: fastp, Chopper, SPAdes, Flye, Polypolish, AMRFinderPlus (v4.2.7 binary), mlst, skani, IntegronFinder, chewBBACA, minced, DefenseFinder, BLAST, Prodigal, OSTIR, ResFinder, sra-tools, Infernal, PostgreSQL, Redis, the backend Python packages (`backend/requirements.txt`), Node.js (if needed) and BPROM (from `bin/`)
+- **Separate envs**: `radar-sistr` (SISTR/Kleborate/SerotypeFinder), `radar-quast` (QUAST), `radar-mobsuite` (MOB-suite), `radar-mefinder` (MobileElementFinder), `radar-medaka` (Medaka, CPU-only PyTorch), `radar-genomad` (geNomad, CPU-only TensorFlow), `radar-busco` (BUSCO), `radar-plassembler` (Plassembler)
+- **Frontend**: `npm ci` in `frontend/`
 
-**Requirements**: mamba (Miniforge), ~10 GB disk for databases, ~8 GB for conda envs. No GPU needed.
+**download_dbs.sh** downloads AMRFinderPlus, geNomad (~3.5 GB), NCBI 16S rRNA, MOB-suite, PointFinder, ResFinder, Rfam, DefenseFinder models, cgMLST schemas, SerotypeFinder and the Plassembler PLSDB database (~0.4 GB). The skani GTDB sketch (~30 GB) is optional and printed as a manual step; without it species are identified by 16S BLAST. BacMet2 and the BUSCO lineage are fetched automatically on first use.
 
 ### pipeline.sh — Standalone Analysis Pipeline
 

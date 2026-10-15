@@ -8,8 +8,32 @@ PID_FILE="${DATA_DIR}/pids.env"
 
 mkdir -p "${LOG_DIR}"
 
-# Load port configuration
+# Optional settings (RADAR_* variables, see .env.example)
+if [ -f "${SCRIPT_DIR}/.env" ]; then
+    set -a; source "${SCRIPT_DIR}/.env"; set +a
+fi
+
+# Port configuration: created on first start from the UID so several users can share a server
+if [ ! -f "${DATA_DIR}/ports.env" ]; then
+    U=$(id -u)
+    [ $((7230 + U)) -gt 65535 ] && U=$(( U % 10000 ))
+    cat > "${DATA_DIR}/ports.env" << EOF
+PORT_FRONTEND=$((7200 + U))
+PORT_BACKEND=$((7210 + U))
+PORT_PG=$((7220 + U))
+PORT_REDIS=$((7230 + U))
+EOF
+    echo "Created ${DATA_DIR}/ports.env (edit it to change ports)"
+fi
 source "${DATA_DIR}/ports.env"
+
+# Persistent JWT secret, so logins survive restarts and backend reloads
+if [ -z "${RADAR_JWT_SECRET_KEY:-}" ]; then
+    if [ ! -s "${DATA_DIR}/jwt_secret" ]; then
+        (umask 077; python3 -c 'import secrets; print(secrets.token_urlsafe(32))' > "${DATA_DIR}/jwt_secret")
+    fi
+    export RADAR_JWT_SECRET_KEY="$(cat "${DATA_DIR}/jwt_secret")"
+fi
 
 eval "$(conda shell.bash hook)"
 conda activate radar
@@ -36,6 +60,8 @@ if [ -f "${PID_FILE}" ]; then
     pkill -f "uvicorn.*app.main" 2>/dev/null || true
     pkill -f "next-router-worker" 2>/dev/null || true
     pkill -f "next dev" 2>/dev/null || true
+    pkill -f "next-server" 2>/dev/null || true
+    pkill -f "next start" 2>/dev/null || true
     rm -f "${PID_FILE}"
     if [ "${RESTARTING}" -eq 1 ]; then
         echo "Stopped previous RADAR processes."

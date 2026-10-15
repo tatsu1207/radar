@@ -20,7 +20,8 @@ set -euo pipefail
 #   8. DefenseFinder       (~100 MB) - Defense system models
 #   9. cgMLST schemas      (~1-5 GB) - Core-genome MLST (chewBBACA via Chewie-NS)
 #  10. SerotypeFinder      (~5 MB)   - E. coli O:H serotyping
-#  11. skani GTDB          (~30 GB)  - Species ID via ANI (OPTIONAL, skipped by default)
+#  11. Plassembler PLSDB   (~380 MB) - Plasmid matching for Plassembler (optional; run with --skip_mash without it)
+#  12. skani GTDB          (~30 GB)  - Species ID via ANI (OPTIONAL, skipped by default)
 # ============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -53,7 +54,7 @@ FAIL=0
 # -------------------------------------------------------------------
 # 1. AMRFinderPlus database
 # -------------------------------------------------------------------
-echo -n "  [1/10] AMRFinderPlus database..."
+echo -n "  [1/12] AMRFinderPlus database..."
 AMRFINDER_DB_DIR="${DB_DIR}/amrfinderplus"
 if [ -d "${AMRFINDER_DB_DIR}" ] && [ -f "${AMRFINDER_DB_DIR}/AMRProt" ]; then
     echo " exists"
@@ -94,7 +95,7 @@ fi
 # -------------------------------------------------------------------
 # 2. geNomad database (~3.5 GB)
 # -------------------------------------------------------------------
-echo -n "  [2/10] geNomad database..."
+echo -n "  [2/12] geNomad database..."
 if [ -d "${DB_DIR}/genomad_db" ]; then
     echo " exists"
 else
@@ -109,7 +110,7 @@ fi
 # -------------------------------------------------------------------
 # 3. NCBI 16S rRNA BLAST database
 # -------------------------------------------------------------------
-echo -n "  [3/10] 16S rRNA BLAST database..."
+echo -n "  [3/12] 16S rRNA BLAST database..."
 if [ -f "${DB_DIR}/16S/16S_ribosomal_RNA.ndb" ]; then
     echo " exists"
 else
@@ -128,7 +129,7 @@ fi
 # -------------------------------------------------------------------
 # 4. MOB-suite database
 # -------------------------------------------------------------------
-echo -n "  [4/10] MOB-suite database..."
+echo -n "  [4/12] MOB-suite database..."
 if conda run -n radar-mobsuite mob_init > /tmp/radar_db_mobsuite.log 2>&1; then
     echo " done"
 else
@@ -138,7 +139,7 @@ fi
 # -------------------------------------------------------------------
 # 5. PointFinder database
 # -------------------------------------------------------------------
-echo -n "  [5/10] PointFinder database..."
+echo -n "  [5/12] PointFinder database..."
 if [ -d "${DB_DIR}/pointfinder_db" ]; then
     echo " exists"
 else
@@ -153,7 +154,7 @@ fi
 # -------------------------------------------------------------------
 # 6. ResFinder database
 # -------------------------------------------------------------------
-echo -n "  [6/10] ResFinder database..."
+echo -n "  [6/12] ResFinder database..."
 if [ -d "${DB_DIR}/resfinder_db" ]; then
     echo " exists"
 else
@@ -168,7 +169,7 @@ fi
 # -------------------------------------------------------------------
 # 7. Rfam CM database (for sRNA annotation via cmscan)
 # -------------------------------------------------------------------
-echo -n "  [7/10] Rfam database..."
+echo -n "  [7/12] Rfam database..."
 if [ -f "${DB_DIR}/Rfam.cm" ]; then
     echo " exists"
 else
@@ -185,7 +186,7 @@ fi
 # -------------------------------------------------------------------
 # 8. DefenseFinder models
 # -------------------------------------------------------------------
-echo -n "  [8/10] DefenseFinder models..."
+echo -n "  [8/12] DefenseFinder models..."
 if conda run -n radar defense-finder update > /tmp/radar_db_defense.log 2>&1; then
     echo " done"
 else
@@ -196,7 +197,7 @@ fi
 # -------------------------------------------------------------------
 # 9. cgMLST schemas (chewBBACA via Chewie-NS)
 # -------------------------------------------------------------------
-echo "  [9/10] cgMLST schemas (chewBBACA)..."
+echo "  [9/12] cgMLST schemas (chewBBACA)..."
 CGMLST_DIR="${DB_DIR}/cgmlst_schemas"
 mkdir -p "${CGMLST_DIR}"
 
@@ -312,7 +313,7 @@ fi
 # -------------------------------------------------------------------
 # 10. SerotypeFinder database
 # -------------------------------------------------------------------
-echo -n "  [10/11] SerotypeFinder database..."
+echo -n "  [10/12] SerotypeFinder database..."
 if [ -d "${DB_DIR}/serotypefinder_db" ] && [ -f "${DB_DIR}/serotypefinder_db/config" ]; then
     echo " exists"
 else
@@ -336,9 +337,24 @@ else
 fi
 
 # -------------------------------------------------------------------
-# 11. skani GTDB sketch database (OPTIONAL — ~30 GB)
+# 11. Plassembler PLSDB database (~380 MB)
 # -------------------------------------------------------------------
-echo "  [11/11] skani GTDB database... skipped (30 GB, optional)"
+echo -n "  [11/12] Plassembler database..."
+if [ -d "${DB_DIR}/plassembler_db" ] && [ -n "$(ls -A "${DB_DIR}/plassembler_db" 2>/dev/null)" ]; then
+    echo " exists"
+else
+    if conda run -n radar-plassembler plassembler download -d "${DB_DIR}/plassembler_db" -f > /tmp/radar_db_plassembler.log 2>&1; then
+        echo " done"
+    else
+        echo " FAILED (see /tmp/radar_db_plassembler.log)"
+        FAIL=1
+    fi
+fi
+
+# -------------------------------------------------------------------
+# 12. skani GTDB sketch database (OPTIONAL — ~30 GB)
+# -------------------------------------------------------------------
+echo "  [12/12] skani GTDB database... skipped (30 GB, optional)"
 echo "         To install manually:"
 echo "           mkdir -p ${DB_DIR}/skani"
 echo "           curl -L -o ${DB_DIR}/skani/skani_gtdb_r226-v0.3.tar.gz \\"
@@ -373,5 +389,6 @@ echo "    Rfam           : ${DB_DIR}/Rfam.cm"
 echo "    DefenseFinder  : (managed by defense-finder)"
 echo "    cgMLST schemas : ${DB_DIR}/cgmlst_schemas"
 echo "    SerotypeFinder : ${DB_DIR}/serotypefinder_db"
+echo "    Plassembler    : ${DB_DIR}/plassembler_db"
 echo "    skani GTDB     : (optional, see above)"
 echo ""

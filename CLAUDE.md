@@ -134,7 +134,7 @@ All tools run on CPU only (no GPU required). Installed via `install.sh` into 9 c
 
 | Tool | Purpose |
 |------|---------|
-| BPROM | Bacterial promoter prediction (LDF scores, TF binding sites). Linux binary at `/tmp/bprom`, copied to conda bin during setup |
+| BPROM | Bacterial promoter prediction (LDF scores, TF binding sites). 32-bit Linux binary shipped in `bin/` (optionally overridden by `/tmp/bprom`), copied to the radar env bin by install.sh; needs libc6:i386 |
 
 ## File Manager
 

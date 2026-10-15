@@ -3,6 +3,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATA_DIR="${SCRIPT_DIR}/data"
 PID_FILE="${DATA_DIR}/pids.env"
 
+[ -f "${DATA_DIR}/ports.env" ] || { echo "RADAR has not been started here (no data/ports.env)."; exit 0; }
 source "${DATA_DIR}/ports.env"
 
 eval "$(conda shell.bash hook)"

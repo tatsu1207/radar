@@ -75,11 +75,47 @@ pip_install_one() {
 }
 
 : > /tmp/radar_install_radar_pip.log
-pip_install_one "defense-finder" mdmparis-defense-finder
+# Backend web-app dependencies (FastAPI, Celery, SQLAlchemy, scikit-learn, ...).
+# Installed before defense-finder, which pins click==8.0.3 (celery asks for >=8.1.2 but runs with 8.0.3).
+echo -n "  ...   backend requirements"
+if conda run -n radar pip install --quiet -r "${SCRIPT_DIR}/backend/requirements.txt" >> /tmp/radar_install_radar_pip.log 2>&1; then
+    echo -e "\r  OK    backend requirements"
+else
+    echo -e "\r  FAIL  backend requirements (see /tmp/radar_install_radar_pip.log)"
+    FAIL=1
+fi
+
+pip_install_one "defense-finder" mdmparis-defense-finder "click==8.0.3"
 pip_install_one "integron_finder" integron_finder
 pip_install_one "chewbbaca" chewbbaca
 pip_install_one "resfinder" resfinder
 pip_install_one "OSTIR" OSTIR
+
+# Frontend: Node.js >= 18.17 (Next.js 14) and npm packages.
+# A node already on PATH (e.g. nvm) is used if new enough; otherwise nodejs is added to the radar env.
+echo ""
+echo "  --- Frontend (Node.js + npm packages) ---"
+node_ok() {
+    conda run -n radar node -e 'const [a,b]=process.versions.node.split(".").map(Number); process.exit(a>18||(a==18&&b>=17)?0:1)' >/dev/null 2>&1
+}
+if node_ok; then
+    echo "  SKIP  nodejs ($(conda run -n radar node -v 2>/dev/null) already available)"
+else
+    echo -n "  ...   nodejs"
+    if mamba install -n radar -y -c conda-forge "nodejs>=18.17,<23" > /tmp/radar_install_nodejs.log 2>&1 && node_ok; then
+        echo -e "\r  OK    nodejs"
+    else
+        echo -e "\r  FAIL  nodejs (see /tmp/radar_install_nodejs.log)"
+        FAIL=1
+    fi
+fi
+echo -n "  ...   npm packages"
+if (cd "${SCRIPT_DIR}/frontend" && conda run -n radar npm ci --no-audit --no-fund) > /tmp/radar_install_npm.log 2>&1; then
+    echo -e "\r  OK    npm packages"
+else
+    echo -e "\r  FAIL  npm packages (see /tmp/radar_install_npm.log)"
+    FAIL=1
+fi
 
 # sistr_cmd + kleborate + serotypefinder: need separate env due to pytables/hdf5/libcurl conflicts
 echo ""
@@ -203,6 +239,20 @@ else
     echo "  SKIP  radar-genomad (already exists)"
 fi
 
+# Plassembler: small-plasmid recovery after Flye (Flye misses plasmids < ~20 kb).
+# Pins its own flye/unicycler/dnaapler versions, so it gets a separate env.
+if ! conda env list 2>/dev/null | grep -qE "^radar-plassembler\s"; then
+    echo -n "  ...   radar-plassembler"
+    if mamba create -n radar-plassembler -y -c conda-forge -c bioconda "plassembler=1.8.5" > /tmp/radar_install_radar-plassembler.log 2>&1; then
+        echo -e "\r  OK    radar-plassembler"
+    else
+        echo -e "\r  FAIL  radar-plassembler (see /tmp/radar_install_radar-plassembler.log)"
+        FAIL=1
+    fi
+else
+    echo "  SKIP  radar-plassembler (already exists)"
+fi
+
 # BUSCO: complex deps (hmmer, prodigal, bbmap + pip from gitlab)
 if ! conda env list 2>/dev/null | grep -qE "^radar-busco\s"; then
     echo -n "  ...   radar-busco"
@@ -223,20 +273,24 @@ fi
 echo ""
 echo "[2/2] Checking optional tools..."
 
-BPROM_BIN=""
-if [ -d /tmp/bprom ] || [ -f /tmp/bprom ]; then
-    BPROM_BIN="$(conda run --no-banner -n radar bash -c 'dirname $(which prodigal)' 2>/dev/null)" || true
-fi
-
-if [ -d /tmp/bprom ] && [ -n "$BPROM_BIN" ]; then
-    cp /tmp/bprom/linux/bprom "${BPROM_BIN}/bprom" 2>/dev/null && chmod +x "${BPROM_BIN}/bprom" || true
-    cp /tmp/bprom/bprom_data/* "${BPROM_BIN}/" 2>/dev/null || true
-    echo "  BPROM installed"
-elif [ -f /tmp/bprom ] && [ -n "$BPROM_BIN" ]; then
-    cp /tmp/bprom "${BPROM_BIN}/bprom" 2>/dev/null && chmod +x "${BPROM_BIN}/bprom" || true
-    echo "  BPROM binary installed (data files may be missing)"
+# BPROM (promoter prediction) ships in bin/ (32-bit i386 binary + data files). It is copied into
+# the radar env's bin/, where the pipeline finds the binary on PATH and the data via TSS_DATA.
+BPROM_BIN="$(conda run -n radar bash -c 'echo $CONDA_PREFIX/bin' 2>/dev/null)" || true
+BPROM_SRC="${SCRIPT_DIR}/bin"
+[ -d /tmp/bprom/linux ] && BPROM_SRC=/tmp/bprom/linux  # optional override with a newer copy
+if [ -n "$BPROM_BIN" ] && [ -f "${BPROM_SRC}/bprom" ]; then
+    cp "${BPROM_SRC}/bprom" "${BPROM_BIN}/bprom" && chmod +x "${BPROM_BIN}/bprom"
+    cp "${SCRIPT_DIR}/bin/bprom_data/"* "${BPROM_BIN}/" 2>/dev/null || true
+    [ -d /tmp/bprom/bprom_data ] && cp /tmp/bprom/bprom_data/* "${BPROM_BIN}/" 2>/dev/null || true
+    if [ -e /lib/ld-linux.so.2 ]; then
+        echo "  OK    BPROM"
+    else
+        echo "  WARN  BPROM installed, but it is a 32-bit binary and the 32-bit loader is missing."
+        echo "        Install it to enable promoter prediction, e.g. Debian/Ubuntu:"
+        echo "          sudo dpkg --add-architecture i386 && sudo apt update && sudo apt install libc6:i386"
+    fi
 else
-    echo "  BPROM not found at /tmp/bprom — skipping (optional)"
+    echo "  SKIP  BPROM (bin/bprom not found; promoter prediction disabled)"
 fi
 
 # --------------------------------------------------------------------------
@@ -258,9 +312,10 @@ echo "    Base:     radar (fastp, chopper, flye, spades, polypolish, bwa,"
 echo "              hmmer, blast, mlst, skani, minced, prodigal,"
 echo "              sra-tools, viennarna, infernal,"
 echo "              defense-finder, integron_finder, chewbbaca, resfinder,"
-echo "              OSTIR, AMRFinderPlus)"
+echo "              OSTIR, AMRFinderPlus, BPROM, backend requirements, nodejs)"
 echo "    Separate: radar-sistr, radar-quast, radar-mobsuite,"
-echo "              radar-mefinder, radar-medaka, radar-genomad, radar-busco"
+echo "              radar-mefinder, radar-medaka, radar-genomad, radar-busco,"
+echo "              radar-plassembler"
 echo ""
 echo "  Next step: download databases"
 echo "    ./databases/download_dbs.sh"
