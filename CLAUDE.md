@@ -81,6 +81,7 @@ Based on the research methodology. For FASTQ input all steps run. For FASTA inpu
    - PacBio-only: Flye (--pacbio-hifi), no polishing. If Illumina reads are also present they are ignored (HiFi alone is sufficient)
    - Illumina + ONT hybrid: Flye (--nano-hq) → Medaka → Polypolish
    - Medaka runs `medaka_consensus --bacteria`, falling back to automatic model selection when read headers lack basecaller model info
+   - pipeline.sh only (not yet the web app): Plassembler (`radar-plassembler` env) runs after Flye on all long-read inputs (long mode; hybrid mode with Illumina) and adds plasmids Flye missed (circular → `plassembler_N`, linear → `plassembler_linear_N`) before polishing. The final assembly is then normalised (names only, longest contig first) because Polypolish/Plassembler header descriptions and small-contig-first order make MobileElementFinder fail
 3. **Assembly QC** - QUAST + BUSCO: assembly quality metrics and genome completeness
 4. **ARG detection** - AMRFinderPlus: resistance gene identification
 5. **Promoter analysis** - extract 500bp upstream of each ARG, run BPROM for LDF scores, TF binding site count, promoter-to-ARG distance, UP element AT-rich ratio (20bp upstream of predicted promoter)

@@ -65,10 +65,12 @@ Predictions for these antibiotics should be interpreted with caution, especially
 | Input Type | Files | Pipeline |
 |-----------|-------|----------|
 | Illumina paired-end | `SAMPLE_R1.fastq.gz` + `SAMPLE_R2.fastq.gz` | fastp -> SPAdes -> annotation |
-| Hybrid (Illumina + ONT) | R1 + R2 + `SAMPLE_ONT.fastq.gz` | fastp + Chopper -> Flye -> Medaka -> Polypolish -> annotation |
-| PacBio HiFi | `SAMPLE_PB.fastq.gz` | Flye (--pacbio-hifi) -> annotation |
-| ONT only | `SAMPLE_ONT.fastq.gz` | Chopper -> Flye -> annotation |
+| Hybrid (Illumina + ONT) | R1 + R2 + `SAMPLE_ONT.fastq.gz` | fastp + Chopper -> Flye -> Plassembler* -> Medaka -> Polypolish -> annotation |
+| PacBio HiFi | `SAMPLE_PB.fastq.gz` | Flye (--pacbio-hifi) -> Plassembler* -> annotation |
+| ONT only | `SAMPLE_ONT.fastq.gz` | Chopper -> Flye -> Plassembler* -> Medaka -> annotation |
 | Pre-assembled | `SAMPLE.fasta` | annotation only (skips QC + assembly) |
+
+\* Plassembler is currently run by `pipeline.sh` only; the web app's assembly step does not run it yet.
 
 ### Filename Conventions
 
@@ -255,7 +257,7 @@ Runs the full annotation pipeline from the command line. Supports Illumina, hybr
 
 **Pipeline flow:**
 1. **QC**: fastp (Illumina) / Chopper (ONT)
-2. **Assembly**: SPAdes (Illumina) / Flye + Medaka + Polypolish (hybrid) / Flye (long-read)
+2. **Assembly**: SPAdes (Illumina) / Flye + Plassembler + Medaka + Polypolish (hybrid) / Flye + Plassembler (+ Medaka for ONT) (long-read). Plassembler recovers small plasmids (< ~20 kb) that Flye misses; only plasmids not already in the Flye assembly are added, before polishing
 3. **Assembly QC**: QUAST + BUSCO
 4. **Annotation**: AMRFinderPlus, MOB-recon, MobileElementFinder, IntegronFinder, geNomad, species ID, MLST, serotyping, CRISPR, DefenseFinder, BacMet2, promoter/RBS analysis
 

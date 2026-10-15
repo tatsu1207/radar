@@ -8,9 +8,9 @@ set -euo pipefail
 #
 # Cases:
 #   i)   Illumina only:    -1 R1.fastq.gz -2 R2.fastq.gz
-#   ii)  Illumina + ONT:   -1 R1.fastq.gz -2 R2.fastq.gz -l ont.fastq.gz
-#   iii) ONT only:         -l ont.fastq.gz                     (Flye -> Medaka)
-#   iv)  PacBio HiFi only: -l hifi.fastq.gz -p pacbio  (Illumina reads, if given, are ignored)
+#   ii)  Illumina + ONT:   -1 R1.fastq.gz -2 R2.fastq.gz -l ont.fastq.gz  (Flye -> Plassembler -> Medaka -> Polypolish)
+#   iii) ONT only:         -l ont.fastq.gz                     (Flye -> Plassembler -> Medaka)
+#   iv)  PacBio HiFi only: -l hifi.fastq.gz -p pacbio  (Flye -> Plassembler; Illumina reads, if given, are ignored)
 #
 # Usage:
 #   ./pipeline.sh -1 R1.fastq.gz -2 R2.fastq.gz -o outdir [-t threads] [-s sample_name]
@@ -167,6 +167,42 @@ run_medaka() {
     echo "$draft"
 }
 
+# Plassembler: recover small plasmids (< ~20 kb) that Flye misses. Plasmids not already in the Flye
+# assembly (no Flye contig covering >=90% of them) are appended to the draft before polishing, so they
+# are polished too and their short reads do not pile onto similar chromosome regions.
+# Uses the raw long reads: Chopper's 1 kb minimum would drop reads from plasmids < 1 kb, and
+# Plassembler applies its own read filter. Long mode for ONT/HiFi, hybrid mode with Illumina reads.
+# Prints the merged FASTA path (or the draft unchanged if Plassembler fails or adds nothing).
+add_plassembler_plasmids() {
+    local draft=$1 out="${ASM_DIR}/plassembler_out" merged="${ASM_DIR}/flye_plus_plasmids.fasta"
+    local mode=long extra=() db=(--skip_mash)
+    [ -n "$R1" ] && mode=run && extra+=(-1 "$TRIMMED_R1" -2 "$TRIMMED_R2")
+    [ "$PLATFORM" = "pacbio" ] && extra+=(--pacbio_model pacbio-hifi)
+    compgen -G "${DB_DIR}/plassembler_db/*.msh" > /dev/null && db=(-d "${DB_DIR}/plassembler_db")
+    log "── Plassembler (${mode}) ──" >&2
+    if ! conda run -n radar-plassembler plassembler "$mode" -l "$LONG" "${extra[@]}" \
+            --flye_directory "${ASM_DIR}/flye_out" -o "$out" -t "$THREADS" "${db[@]}" -f >> "$LOG" 2>&1; then
+        log "  Plassembler failed (non-critical, using the Flye assembly)" >&2
+        echo "$draft"; return 0
+    fi
+    local pf="${out}/plassembler_plasmids.fasta"
+    if [ ! -s "$pf" ]; then
+        log "  Plassembler found no plasmids" >&2
+        echo "$draft"; return 0
+    fi
+    conda run -n radar-plassembler minimap2 -x asm5 -c "$draft" "$pf" 2>> "$LOG" \
+        | awk '{c[$1]+=$4-$3; L[$1]=$2} END{for(k in c) if(c[k]>=0.9*L[k]) print k}' > "${out}/in_flye.txt"
+    cp "$draft" "$merged"
+    # circular contigs -> plassembler_N; linear ones (sometimes a chromosome piece Flye dropped) -> plassembler_linear_N.
+    # Header descriptions are dropped (they break MOB-recon's report); copy numbers stay in plassembler_out/.
+    awk 'FILENAME==ARGV[1]{s[$1]; next} /^>/{id=substr($1,2); keep=!(id in s); if(keep) print (tolower($0) ~ /circular=true/ ? ">plassembler_" : ">plassembler_linear_") id; next} keep' \
+        "${out}/in_flye.txt" "$pf" >> "$merged"
+    local n_new
+    n_new=$(grep -c '^>plassembler_' "$merged" || true)
+    log "  Plassembler: $(grep -c '^>' "$pf") contig(s), ${n_new} not in the Flye assembly added ($(grep -c '^>plassembler_linear_' "$merged" || true) linear)" >&2
+    if [ "$n_new" -gt 0 ]; then echo "$merged"; else echo "$draft"; fi
+}
+
 # --------------------------------------------------------------------------
 # Print summary
 # --------------------------------------------------------------------------
@@ -251,7 +287,7 @@ case "$CASE" in
         fi
         ;;
     hybrid)
-        # Flye -> Medaka -> Polypolish
+        # Flye -> Plassembler -> Medaka -> Polypolish
         LONG_INPUT="$FILTERED_LONG"
         [ ! -f "$LONG_INPUT" ] && LONG_INPUT="$LONG"
 
@@ -263,6 +299,9 @@ case "$CASE" in
                 --out-dir "${ASM_DIR}/flye_out" \
                 --threads "$THREADS"
         CURRENT_ASM="${ASM_DIR}/flye_out/assembly.fasta"
+
+        # Plassembler: add small plasmids Flye missed (before polishing)
+        CURRENT_ASM=$(add_plassembler_plasmids "$CURRENT_ASM")
 
         # Medaka polish
         CURRENT_ASM=$(run_medaka "$LONG_INPUT" "$CURRENT_ASM")
@@ -309,6 +348,9 @@ case "$CASE" in
                 --threads "$THREADS"
         CURRENT_ASM="${ASM_DIR}/flye_out/assembly.fasta"
 
+        # Plassembler: add small plasmids Flye missed (before polishing)
+        CURRENT_ASM=$(add_plassembler_plasmids "$CURRENT_ASM")
+
         # ONT-only: Medaka polish (PacBio HiFi doesn't need long-read polishing)
         if [ "$PLATFORM" = "ont" ]; then
             CURRENT_ASM=$(run_medaka "$LONG_INPUT" "$CURRENT_ASM")
@@ -316,6 +358,14 @@ case "$CASE" in
         cp "$CURRENT_ASM" "$ASSEMBLY"
         ;;
 esac
+
+# Normalise the assembly for the annotation tools: keep only contig names (Polypolish appends
+# " polypolish" and Plassembler adds descriptions; both make MobileElementFinder fail) and order
+# contigs longest first (MobileElementFinder can also fail when a small contig precedes the chromosome).
+awk '/^>/{if(n!="") print n "\t" length(s) "\t" s; n=$1; s=""; next} {s=s $0} END{if(n!="") print n "\t" length(s) "\t" s}' "$ASSEMBLY" \
+    | sort -t $'\t' -k2,2nr -s \
+    | awk -F'\t' '{print $1; for(i=1;i<=length($3);i+=60) print substr($3,i,60)}' > "${ASSEMBLY}.tmp" \
+    && mv "${ASSEMBLY}.tmp" "$ASSEMBLY"
 
 log "Assembly: ${ASSEMBLY}"
 
