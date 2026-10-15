@@ -8,9 +8,9 @@ set -euo pipefail
 #
 # Cases:
 #   i)   Illumina only:    -1 R1.fastq.gz -2 R2.fastq.gz
-#   ii)  Illumina + ONT:   -1 R1.fastq.gz -2 R2.fastq.gz -l ont.fastq.gz  (Flye -> Plassembler -> Medaka -> Polypolish)
-#   iii) ONT only:         -l ont.fastq.gz                     (Flye -> Plassembler -> Medaka)
-#   iv)  PacBio HiFi only: -l hifi.fastq.gz -p pacbio  (Flye -> Plassembler; Illumina reads, if given, are ignored)
+#   ii)  Illumina + ONT:   -1 R1.fastq.gz -2 R2.fastq.gz -l ont.fastq.gz  (Flye -> Plassembler -> dnaapler -> Medaka -> Polypolish)
+#   iii) ONT only:         -l ont.fastq.gz                     (Flye -> Plassembler -> dnaapler -> Medaka)
+#   iv)  PacBio HiFi only: -l hifi.fastq.gz -p pacbio  (Flye -> Plassembler -> dnaapler; Illumina reads, if given, are ignored)
 #
 # Usage:
 #   ./pipeline.sh -1 R1.fastq.gz -2 R2.fastq.gz -o outdir [-t threads] [-s sample_name]
@@ -203,6 +203,23 @@ add_plassembler_plasmids() {
     if [ "$n_new" -gt 0 ]; then echo "$merged"; else echo "$draft"; fi
 }
 
+rotate_contigs() {
+    # dnaapler: start circular contigs at dnaA (chromosome), repA (plasmid) or terL (phage), so no
+    # gene spans the contig end (such genes are reported as partial). Runs before polishing, so the
+    # former contig ends are polished as ordinary sequence. Linear contigs are left as they are.
+    local draft=$1 out="${ASM_DIR}/dnaapler_out" ign="${ASM_DIR}/dnaapler_ignore.txt"
+    { awk -F'\t' '!/^#/ && $4=="N"{print $1}' "${ASM_DIR}/flye_out/assembly_info.txt" 2>/dev/null
+      grep -o '^>plassembler_linear_[^ ]*' "$draft" | cut -c2-; } > "$ign"
+    log "── dnaapler (rotate circular contigs) ──" >&2
+    if conda run -n radar-plassembler dnaapler all -i "$draft" -o "$out" -p dnaapler -t "$THREADS" \
+            --ignore "$ign" -f >> "$LOG" 2>&1 && [ -s "${out}/dnaapler_reoriented.fasta" ]; then
+        echo "${out}/dnaapler_reoriented.fasta"
+    else
+        log "  dnaapler failed (non-critical, contigs not rotated)" >&2
+        echo "$draft"
+    fi
+}
+
 # --------------------------------------------------------------------------
 # Print summary
 # --------------------------------------------------------------------------
@@ -302,6 +319,7 @@ case "$CASE" in
 
         # Plassembler: add small plasmids Flye missed (before polishing)
         CURRENT_ASM=$(add_plassembler_plasmids "$CURRENT_ASM")
+        CURRENT_ASM=$(rotate_contigs "$CURRENT_ASM")
 
         # Medaka polish
         CURRENT_ASM=$(run_medaka "$LONG_INPUT" "$CURRENT_ASM")
@@ -350,6 +368,7 @@ case "$CASE" in
 
         # Plassembler: add small plasmids Flye missed (before polishing)
         CURRENT_ASM=$(add_plassembler_plasmids "$CURRENT_ASM")
+        CURRENT_ASM=$(rotate_contigs "$CURRENT_ASM")
 
         # ONT-only: Medaka polish (PacBio HiFi doesn't need long-read polishing)
         if [ "$PLATFORM" = "ont" ]; then

@@ -65,12 +65,12 @@ Predictions for these antibiotics should be interpreted with caution, especially
 | Input Type | Files | Pipeline |
 |-----------|-------|----------|
 | Illumina paired-end | `SAMPLE_R1.fastq.gz` + `SAMPLE_R2.fastq.gz` | fastp -> SPAdes -> annotation |
-| Hybrid (Illumina + ONT) | R1 + R2 + `SAMPLE_ONT.fastq.gz` | fastp + Chopper -> Flye -> Plassembler -> Medaka -> Polypolish -> annotation |
-| PacBio HiFi | `SAMPLE_PB.fastq.gz` | Flye (--pacbio-hifi) -> Plassembler -> annotation |
-| ONT only | `SAMPLE_ONT.fastq.gz` | Chopper -> Flye -> Plassembler -> Medaka -> annotation |
+| Hybrid (Illumina + ONT) | R1 + R2 + `SAMPLE_ONT.fastq.gz` | fastp + Chopper -> Flye -> Plassembler -> dnaapler -> Medaka -> Polypolish -> annotation |
+| PacBio HiFi | `SAMPLE_PB.fastq.gz` | Flye (--pacbio-hifi) -> Plassembler -> dnaapler -> annotation |
+| ONT only | `SAMPLE_ONT.fastq.gz` | Chopper -> Flye -> Plassembler -> dnaapler -> Medaka -> annotation |
 | Pre-assembled | `SAMPLE.fasta` | annotation only (skips QC + assembly) |
 
-Plassembler runs in both `pipeline.sh` and the web app.
+Plassembler and dnaapler run in both `pipeline.sh` and the web app. dnaapler rotates circular contigs to start at dnaA (chromosome), repA (plasmid) or terL (phage), so genes are not split across a contig's start and end.
 
 ### Filename Conventions
 
@@ -224,7 +224,7 @@ Creates the conda environments and installs the backend and frontend packages. A
 
 **What it installs:**
 - **Base env (`radar`)**: fastp, Chopper, SPAdes, Flye, Polypolish, AMRFinderPlus (v4.2.7 binary), mlst, skani, IntegronFinder, chewBBACA, minced, DefenseFinder, BLAST, Prodigal, OSTIR, ResFinder, sra-tools, Infernal, PostgreSQL, Redis, the backend Python packages (`backend/requirements.txt`), Node.js (if needed) and BPROM (from `bin/`)
-- **Separate envs**: `radar-sistr` (SISTR/Kleborate/SerotypeFinder), `radar-quast` (QUAST), `radar-mobsuite` (MOB-suite), `radar-mefinder` (MobileElementFinder), `radar-medaka` (Medaka, CPU-only PyTorch), `radar-genomad` (geNomad, CPU-only TensorFlow), `radar-busco` (BUSCO), `radar-plassembler` (Plassembler)
+- **Separate envs**: `radar-sistr` (SISTR/Kleborate/SerotypeFinder), `radar-quast` (QUAST), `radar-mobsuite` (MOB-suite), `radar-mefinder` (MobileElementFinder), `radar-medaka` (Medaka, CPU-only PyTorch), `radar-genomad` (geNomad, CPU-only TensorFlow), `radar-busco` (BUSCO), `radar-plassembler` (Plassembler, dnaapler)
 - **Frontend**: `npm ci` in `frontend/`
 
 **download_dbs.sh** downloads AMRFinderPlus, geNomad (~3.5 GB), NCBI 16S rRNA, MOB-suite, PointFinder, ResFinder, Rfam, DefenseFinder models, cgMLST schemas, SerotypeFinder and the Plassembler PLSDB database (~0.4 GB). The skani GTDB sketch (~30 GB) is optional and printed as a manual step; without it species are identified by 16S BLAST. BacMet2 and the BUSCO lineage are fetched automatically on first use.
@@ -257,7 +257,7 @@ Runs the full annotation pipeline from the command line. Supports Illumina, hybr
 
 **Pipeline flow:**
 1. **QC**: fastp (Illumina) / Chopper (ONT)
-2. **Assembly**: SPAdes (Illumina) / Flye + Plassembler + Medaka + Polypolish (hybrid) / Flye + Plassembler (+ Medaka for ONT) (long-read). Plassembler recovers small plasmids (< ~20 kb) that Flye misses; only plasmids not already in the Flye assembly are added, before polishing
+2. **Assembly**: SPAdes (Illumina) / Flye + Plassembler + Medaka + Polypolish (hybrid) / Flye + Plassembler (+ Medaka for ONT) (long-read). Plassembler recovers small plasmids (< ~20 kb) that Flye misses; only plasmids not already in the Flye assembly are added, before polishing. dnaapler then rotates circular contigs to start at dnaA/repA/terL
 3. **Assembly QC**: QUAST + BUSCO
 4. **Annotation**: AMRFinderPlus, MOB-recon, MobileElementFinder, IntegronFinder, geNomad, species ID, MLST, serotyping, CRISPR, DefenseFinder, BacMet2, promoter/RBS analysis
 

@@ -25,12 +25,13 @@ def run_assembly(sample_id: str, input_files: List[str], db=None, threads: int =
     """Run genome assembly using the appropriate strategy.
 
     - Short-read only (R1+R2): SPAdes
-    - PacBio HiFi: Flye --pacbio-hifi -> Plassembler (always alone; Illumina reads are ignored)
-    - Hybrid (Illumina + ONT): Flye -> Plassembler -> Medaka -> Polypolish
-    - ONT only: Flye --nano-hq -> Plassembler -> Medaka
+    - PacBio HiFi: Flye --pacbio-hifi -> Plassembler -> dnaapler (always alone; Illumina reads are ignored)
+    - Hybrid (Illumina + ONT): Flye -> Plassembler -> dnaapler -> Medaka -> Polypolish
+    - ONT only: Flye --nano-hq -> Plassembler -> dnaapler -> Medaka
 
     Plassembler recovers small plasmids that Flye often misses; the ones not
-    already in the Flye assembly are added before polishing.
+    already in the Flye assembly are added before polishing. dnaapler then rotates
+    circular contigs to start at dnaA/repA/terL.
 
     Args:
         sample_id: UUID of the sample
@@ -143,6 +144,7 @@ def _run_flye(sample_id: str, long_read: str, threads: int, platform: str = "ont
 
     final_src = _add_plassembler_plasmids(long_read, None, None, flye_assembly, results_dir,
                                           threads, platform=platform)
+    final_src = _rotate_contigs(final_src, results_dir, threads)
 
     # ONT-only: polish with Medaka (HiFi reads don't need long-read polishing)
     if platform == "ont":
@@ -192,7 +194,8 @@ def _run_hybrid_assembly(
 
     1. Flye: long-read assembly (produces contiguous contigs)
     2. Plassembler: adds small plasmids missing from the Flye assembly, so they are
-       polished too and their short reads are not pulled onto the chromosome
+       polished too and their short reads are not pulled onto the chromosome;
+       dnaapler then rotates circular contigs to start at dnaA/repA/terL
     3. Medaka: long-read polishing (corrects systematic errors)
     4. Polypolish: short-read polishing (fixes remaining base errors)
     """
@@ -226,6 +229,7 @@ def _run_hybrid_assembly(
     # ── Step 2: Plassembler (small plasmids Flye missed) ──
     logger.info("Hybrid step 2/4: Plassembler")
     draft = _add_plassembler_plasmids(long_read, r1, r2, flye_assembly, results_dir, threads)
+    draft = _rotate_contigs(draft, results_dir, threads)
 
     # ── Step 3: Medaka long-read polishing ──
     logger.info("Hybrid step 3/4: Medaka")
@@ -393,6 +397,46 @@ def _add_plassembler_plasmids(
             for i in range(0, len(seq), 60):
                 fh.write(seq[i:i + 60] + "\n")
     return merged
+
+
+def _rotate_contigs(draft: str, results_dir: str, threads: int) -> str:
+    """Rotate circular contigs with dnaapler so they start at dnaA (chromosome), repA
+    (plasmid) or terL (phage) and no gene spans the contig end (such genes are reported
+    as partial). Runs before polishing, so the former contig ends get polished as ordinary
+    sequence. Linear contigs are skipped. Returns the draft unchanged on failure."""
+    out = os.path.join(results_dir, "dnaapler_out")
+    ignore = os.path.join(results_dir, "dnaapler_ignore.txt")
+
+    linear = []
+    info = os.path.join(results_dir, "flye_out", "assembly_info.txt")
+    if os.path.exists(info):
+        with open(info) as fh:
+            for line in fh:
+                f = line.rstrip("\n").split("\t")
+                if not line.startswith("#") and len(f) > 3 and f[3] == "N":
+                    linear.append(f[0])
+    linear += [h.split()[0] for h, _ in _read_fasta(draft)
+               if h.startswith("plassembler_linear_")]
+    with open(ignore, "w") as fh:
+        fh.writelines(n + "\n" for n in linear)
+
+    cmd = [
+        "conda", "run", "-n", CONDA_PLASSEMBLER,
+        "dnaapler", "all",
+        "-i", draft, "-o", out, "-p", "dnaapler",
+        "-t", str(threads), "--ignore", ignore, "-f",
+    ]
+    logger.info(f"dnaapler command: {' '.join(cmd)}")
+    rotated = os.path.join(out, "dnaapler_reoriented.fasta")
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+    except (subprocess.TimeoutExpired, OSError) as e:
+        logger.warning(f"dnaapler failed (contigs not rotated): {e}")
+        return draft
+    if result.returncode != 0 or not os.path.exists(rotated) or os.path.getsize(rotated) == 0:
+        logger.warning(f"dnaapler failed (contigs not rotated): {result.stderr[-500:]}")
+        return draft
+    return rotated
 
 
 def _read_fasta(path: str) -> list:

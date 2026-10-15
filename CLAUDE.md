@@ -32,7 +32,7 @@ radar/
 │   │   ├── core/              # Bioinformatics pipeline modules
 │   │   │   ├── pipeline.py    # Main orchestrator
 │   │   │   ├── qc.py          # Read QC (fastp)
-│   │   │   ├── assembly.py    # Genome assembly (SPAdes/Flye/Plassembler/Medaka/Polypolish)
+│   │   │   ├── assembly.py    # Genome assembly (SPAdes/Flye/Plassembler/dnaapler/Medaka/Polypolish)
 │   │   │   ├── arg_detect.py  # ARG detection (AMRFinderPlus only)
 │   │   │   ├── promoter.py    # Promoter analysis (BPROM, UP element)
 │   │   │   ├── rbs.py         # Ribosome binding site analysis (OSTIR)
@@ -77,11 +77,11 @@ Based on the research methodology. For FASTQ input all steps run. For FASTA inpu
 1. **QC** - fastp: adapter trimming, quality filtering (Illumina); Chopper: ONT long-read quality filtering and trimming
 2. **Assembly** - four supported input types:
    - Illumina-only: SPAdes
-   - ONT-only: Flye (--nano-hq) → Plassembler → Medaka
-   - PacBio-only: Flye (--pacbio-hifi) → Plassembler, no polishing. If Illumina reads are also present they are ignored (HiFi alone is sufficient)
-   - Illumina + ONT hybrid: Flye (--nano-hq) → Plassembler → Medaka → Polypolish
+   - ONT-only: Flye (--nano-hq) → Plassembler → dnaapler → Medaka
+   - PacBio-only: Flye (--pacbio-hifi) → Plassembler → dnaapler, no polishing. If Illumina reads are also present they are ignored (HiFi alone is sufficient)
+   - Illumina + ONT hybrid: Flye (--nano-hq) → Plassembler → dnaapler → Medaka → Polypolish
    - Medaka runs `medaka_consensus --bacteria`, falling back to automatic model selection when read headers lack basecaller model info
-   - Plassembler (pipeline.sh and backend/app/core/assembly.py) (`radar-plassembler` env) runs after Flye on all long-read inputs (long mode; hybrid mode with Illumina) and adds plasmids Flye missed (circular → `plassembler_N`, linear → `plassembler_linear_N`) before polishing. The final assembly is then normalised (names only, longest contig first) because Polypolish/Plassembler header descriptions and small-contig-first order make MobileElementFinder fail. The web app also writes `assembly/circular.txt` (Flye circular contigs + circular Plassembler plasmids), which the QC report uses for circularity
+   - Plassembler (pipeline.sh and backend/app/core/assembly.py) (`radar-plassembler` env) runs after Flye on all long-read inputs (long mode; hybrid mode with Illumina) and adds plasmids Flye missed (circular → `plassembler_N`, linear → `plassembler_linear_N`) before polishing. dnaapler (`dnaapler all`, from the `radar-plassembler` env) then rotates circular contigs to start at dnaA/repA/terL, before polishing so the old contig ends get polished; linear contigs (Flye circ.=N, `plassembler_linear_*`) are passed via --ignore. The final assembly is then normalised (names only, longest contig first) because Polypolish/Plassembler header descriptions and small-contig-first order make MobileElementFinder fail. The web app also writes `assembly/circular.txt` (Flye circular contigs + circular Plassembler plasmids), which the QC report uses for circularity
 3. **Assembly QC** - QUAST + BUSCO: assembly quality metrics and genome completeness
 4. **ARG detection** - AMRFinderPlus: resistance gene identification
 5. **Promoter analysis** - extract 500bp upstream of each ARG, run BPROM for LDF scores, TF binding site count, promoter-to-ARG distance, UP element AT-rich ratio (20bp upstream of predicted promoter)
