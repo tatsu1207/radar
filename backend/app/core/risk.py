@@ -42,110 +42,163 @@ logger = logging.getLogger(__name__)
 #   4. No tier (intrinsic/undetermined)
 # ---------------------------------------------------------------------------
 
-# Step 1: Individual antibiotic agent → AWaRe tier (WHO AWaRe 2023)
-# These must be actual agent names, NOT class names.
+# Step 1: Individual antibiotic agent → AWaRe tier.
+# Source: WHO AWaRe classification of antibiotics for evaluation and monitoring
+# of use, 2023 (WHO/MHP/HPS/EML/2023.04, sheet "AWaRe classification 2023").
+# These must be actual agent names, NOT class names; spellings follow the
+# AMRFinderPlus Subclass vocabulary where it differs from WHO's (e.g. "rifampin").
+# Where WHO splits an agent by route (fosfomycin, minocycline: IV Reserve, oral
+# Watch) the worst case is used, as an ARG defeats both formulations.
 _AGENT_TIER = {
     # Reserve agents
     "colistin": "Reserve",
     "polymyxin": "Reserve",
     "polymyxin b": "Reserve",
-    "imipenem": "Reserve",
-    "meropenem": "Reserve",
-    "ertapenem": "Reserve",
-    "doripenem": "Reserve",
+    "aztreonam": "Reserve",
+    "cefiderocol": "Reserve",
+    "ceftaroline": "Reserve",
+    "ceftobiprole": "Reserve",
+    "ceftazidime-avibactam": "Reserve",
+    "ceftolozane-tazobactam": "Reserve",
+    "meropenem-vaborbactam": "Reserve",
+    "imipenem-relebactam": "Reserve",
+    # AMRFinderPlus writes "CARBAPENEM/VABORBACTAM" for resistance to the
+    # carbapenem/vaborbactam combination; its only marketed form is meropenem/vaborbactam.
+    "vaborbactam": "Reserve",
+    "faropenem": "Reserve",
     "tigecycline": "Reserve",
+    "eravacycline": "Reserve",
+    "omadacycline": "Reserve",
+    "minocycline": "Reserve",  # IV Reserve, oral Watch
     "linezolid": "Reserve",
     "tedizolid": "Reserve",
     "daptomycin": "Reserve",
-    "fosfomycin": "Reserve",
-    "ceftazidime-avibactam": "Reserve",
-    "ceftolozane-tazobactam": "Reserve",
+    "dalbavancin": "Reserve",
+    "oritavancin": "Reserve",
+    "telavancin": "Reserve",
+    "fosfomycin": "Reserve",  # IV Reserve, oral Watch
     "plazomicin": "Reserve",
-    "vancomycin": "Reserve",
-    "teicoplanin": "Reserve",
-    "aztreonam": "Reserve",
+    "quinupristin-dalfopristin": "Reserve",
+    "lefamulin": "Reserve",
+    "iclaprim": "Reserve",
     # Watch agents
+    "imipenem": "Watch",
+    "meropenem": "Watch",
+    "ertapenem": "Watch",
+    "doripenem": "Watch",
+    "vancomycin": "Watch",
+    "teicoplanin": "Watch",
+    "cefuroxime": "Watch",
+    "cefoxitin": "Watch",
     "cefotaxime": "Watch",
     "ceftriaxone": "Watch",
     "ceftazidime": "Watch",
+    "cefoperazone": "Watch",
     "cefepime": "Watch",
     "cefixime": "Watch",
     "cefpodoxime": "Watch",
+    "piperacillin": "Watch",
+    "piperacillin-tazobactam": "Watch",
+    "ticarcillin": "Watch",
+    "ticarcillin-clavulanic acid": "Watch",
+    "temocillin": "Watch",
     "ciprofloxacin": "Watch",
     "levofloxacin": "Watch",
     "moxifloxacin": "Watch",
     "norfloxacin": "Watch",
     "ofloxacin": "Watch",
+    # Not listed in AWaRe 2023; every quinolone that is listed is Watch.
+    "nalidixic acid": "Watch",
     "azithromycin": "Watch",
     "clarithromycin": "Watch",
     "erythromycin": "Watch",
-    "gentamicin": "Watch",
-    "amikacin": "Watch",
+    "telithromycin": "Watch",
+    "fidaxomicin": "Watch",
+    "pristinamycin": "Watch",
+    "lincomycin": "Watch",
     "tobramycin": "Watch",
-    "piperacillin-tazobactam": "Watch",
-    "ampicillin-sulbactam": "Watch",
-    "amoxicillin-clavulanate": "Watch",
+    "streptomycin": "Watch",
+    "kanamycin": "Watch",
+    "neomycin": "Watch",
+    "rifampin": "Watch",
+    "rifampicin": "Watch",
+    "rifaximin": "Watch",
+    "fusidic acid": "Watch",
     # Access agents
+    "gentamicin": "Access",
+    "amikacin": "Access",
+    "spectinomycin": "Access",
     "amoxicillin": "Access",
+    "amoxicillin-clavulanate": "Access",
+    "amoxicillin-clavulanic acid": "Access",
     "ampicillin": "Access",
+    "ampicillin-sulbactam": "Access",
     "penicillin": "Access",
+    "benzylpenicillin": "Access",
+    "methicillin": "Access",
+    "oxacillin": "Access",
+    "cloxacillin": "Access",
+    "flucloxacillin": "Access",
+    "mecillinam": "Access",
+    "cephalothin": "Access",
+    "cefalotin": "Access",
+    "cefazolin": "Access",
+    "cefalexin": "Access",
     "doxycycline": "Access",
     "tetracycline": "Access",
     "chloramphenicol": "Access",
+    "thiamphenicol": "Access",
     "trimethoprim": "Access",
     "sulfamethoxazole": "Access",
     "nitrofurantoin": "Access",
     "metronidazole": "Access",
     "clindamycin": "Access",
-    "streptomycin": "Access",
-    "kanamycin": "Access",
-    "spectinomycin": "Access",
-    "nalidixic acid": "Access",
-    "florfenicol": "Access",
-    "mupirocin": "Access",
 }
 
 # Step 2: Antibiotic class → mode AWaRe tier (representative value)
-# Mode = most frequent tier among the class's agents; ties → higher tier.
-# This is the FALLBACK when no specific agent matches in step 1.
+# Mode = most frequent tier among the class's agents in AWaRe 2023; ties → higher
+# tier. Cephalosporins pool all generations; Watch/Reserve counts per class are
+# noted where the class is mixed. This is the FALLBACK when no agent matches in step 1.
+# Classes with no agent in AWaRe 2023 (aminocoumarin, mupirocin, thiostrepton,
+# elfamycin/kirromycin, bleomycin, streptothricin, ...) are deliberately absent:
+# they fall through to step 3/4 and give no tier.
 _CLASS_MODE_TIER = {
-    # Reserve-mode classes (majority of agents are Reserve)
-    "glycopeptide": "Reserve",
+    # Reserve-mode classes
+    "glycopeptide": "Reserve",     # 3 Reserve vs 3 Watch → tie → Reserve
     "lipopeptide": "Reserve",
     "oxazolidinone": "Reserve",
     "polymyxin": "Reserve",
-    "carbapenem": "Reserve",
+    "colistin": "Reserve",
     "glycylcycline": "Reserve",
-    # Watch-mode classes (majority of agents are Watch)
-    "cephalosporin": "Watch",
+    "monobactam": "Reserve",
+    "fosfomycin": "Reserve",       # 1 Reserve (IV) vs 1 Watch (oral) → tie → Reserve
+    "streptogramin": "Reserve",    # 1 Reserve vs 1 Watch → tie → Reserve
+    "pleuromutilin": "Reserve",    # lefamulin is the only listed agent
+    # Watch-mode classes
+    "carbapenem": "Watch",         # 7 Watch vs 2 Reserve (BL/BLI combinations)
+    "cephalosporin": "Watch",      # 36 Watch, 12 Access, 5 Reserve
     "fluoroquinolone": "Watch",
     "quinolone": "Watch",
     "macrolide": "Watch",
-    "aminoglycoside": "Watch",
-    "monobactam": "Watch",
+    "aminoglycoside": "Watch",     # 16 Watch, 2 Access, 1 Reserve
+    "tetracycline": "Watch",       # 10 Watch, 3 Reserve, 2 Access
+    "lincosamide": "Watch",        # 1 Watch vs 1 Access → tie → Watch
     "rifamycin": "Watch",
-    "streptogramin": "Watch",
-    # Access-mode classes (majority of agents are Access)
+    "fusidic acid": "Watch",
+    "fusidane": "Watch",
+    # Access-mode classes
+    # AMRFinderPlus uses "BETA-LACTAM" as the subclass of narrow-spectrum
+    # beta-lactamases (penicillinases such as blaTEM-1); broader enzymes carry
+    # CEPHALOSPORIN or CARBAPENEM. Penicillins are Access-mode (24 vs 10 Watch).
     "beta-lactam": "Access",
     "penicillin": "Access",
-    "tetracycline": "Access",
     "phenicol": "Access",
     "sulfonamide": "Access",
     "trimethoprim": "Access",
-    "fosfomycin": "Reserve",
-    "lincosamide": "Access",
+    "trimethoprim-sulfamethoxazole": "Access",
+    "diaminopyrimidine": "Access",
     "nitroimidazole": "Access",
     "nitrofuran": "Access",
-    "fusidane": "Access",
-    "mupirocin": "Access",
-    "aminocoumarin": "Access",
-    "diaminopyrimidine": "Access",
-    "nucleoside": "Access",
-    "pleuromutilin": "Access",
-    "elfamycin": "Access",
-    "tunicamycin": "Access",
-    "bicyclomycin": "Access",
-    "thiostrepton": "Access",
 }
 
 _TIER_ORDER = {"Reserve": 3, "Watch": 2, "Access": 1}

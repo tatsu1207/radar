@@ -2,7 +2,7 @@
 
 ## What is RADAR?
 
-**RADAR (Resistome Analysis, Detection, Assessment, and Risk)** is a web platform for bacterial whole-genome sequencing (WGS) antibiotic resistance analysis. It takes raw Illumina or long-read (ONT/PacBio) sequencing reads, or pre-assembled genomes, and runs them through a multi-step bioinformatics pipeline to detect resistance genes, characterize their regulatory context (promoters, RBS), identify mobile genetic elements, virulence factors, and plasmids, then produces a composite clinical risk score.
+**RADAR (Resistome Analysis, Detection, Assessment, and Risk)** is a web platform for bacterial whole-genome sequencing (WGS) antibiotic resistance analysis. It takes raw Illumina or long-read (ONT/PacBio) sequencing reads, or pre-assembled genomes, and runs them through a multi-step bioinformatics pipeline to detect resistance genes, characterize their regulatory context (promoters, RBS), identify mobile genetic elements, virulence factors, and plasmids, then assigns an isolate-level AMR hazard rank (R1–R12/NG).
 
 ## Tech Stack
 
@@ -40,7 +40,7 @@ radar/
 │   │   │   ├── mobility.py    # IS detection (MobileElementFinder)
 │   │   │   ├── virulence.py   # Virulence factor detection (AMRFinderPlus --organism)
 │   │   │   ├── phenotype.py   # Resistance phenotype prediction
-│   │   │   ├── risk.py        # Composite risk scoring
+│   │   │   ├── risk.py        # Hazard rank (AWaRe tier × transmissibility)
 │   │   │   ├── sra.py         # SRA download (prefetch + fasterq-dump)
 │   │   │   ├── bvbrc.py       # BV-BRC genome fetch
 │   │   │   └── tracking.py    # Resistome matrix & clustering
@@ -90,7 +90,7 @@ Based on the research methodology. For FASTQ input all steps run. For FASTA inpu
 8. **Plasmid analysis** - MOB-recon: plasmid identification, replicon typing, mobility classification; cross-references ARGs as plasmid-borne
 9. **Virulence** - virulence factor detection
 10. **Phenotype prediction** - rule-based SIR prediction from detected ARGs
-11. **Risk scoring** - composite score (0-10) from ARG burden, virulence, and mobility; categories: low/medium/high/critical
+11. **Risk scoring** - hazard rank R1–R12/NG from the worst-case ARG's WHO AWaRe tier and transmissibility level (see Risk Scoring Algorithm)
 
 ## Bioinformatics Tools
 
@@ -197,7 +197,7 @@ Known columns map to Metadata model fields; extra columns go into `custom_json`.
 - **ARGResult** - detected resistance genes (gene, drug class, mechanism, identity%, coverage%, contig, database source, plasmid flag)
 - **VirulenceResult** - virulence factors
 - **PlasmidResult** - plasmids (replicon type, mobility, transferability)
-- **RiskScore** - ARG/VF/mobility sub-scores and composite score with risk category
+- **RiskScore** - hazard rank, AWaRe tier, transmissibility level, worst-case ARG (gene, class, location), MDR flag, drug-class and VF-category counts; legacy composite_score/risk_category derived from the rank
 - **ASTResult** - phenotypic antibiotic susceptibility test results (SIR)
 
 ### New models
@@ -217,10 +217,28 @@ Known columns map to Metadata model fields; extra columns go into `custom_json`.
 
 ## Risk Scoring Algorithm
 
-- **ARG score (0-10)**: gene count (0-4pts) + drug class diversity (0-3pts) + WHO critically important antimicrobial genes (0-3pts)
-- **VF score (0-10)**: VF count (0-5pts) + high-concern categories (0-5pts)
-- **Mobility score (0-10)**: transferable plasmids (0-3pts) + IS/integrons (0-3pts) + mobile ARGs (0-4pts)
-- **Composite**: weighted average → low (<2.5), medium (2.5-5.0), high (5.0-7.5), critical (>=7.5)
+Hazard rank framework (`backend/app/core/risk.py`), based on Cheon & Unno (2026). Each isolate is ranked by its single worst-case ARG.
+
+1. **ARGs considered**: AMRFinderPlus Type=AMR only (STRESS/METAL/BIOCIDE/ACID excluded). Species-intrinsic chromosomal genes (`_INTRINSIC_GENES`, e.g. blaOXA-51-like in *A. baumannii*, blaSHV-1 in *K. pneumoniae*, acrAB/tolC in Enterobacterales) are skipped unless activated by a point mutation or a known IS element (`_ACTIVATING_IS`, e.g. ISAba1, ISEcp1) within 500 bp (from MobileElementFinder).
+2. **WHO AWaRe tier** of each ARG (Reserve > Watch > Access), via a four-step cascade:
+   1. Agents in the AMRFinderPlus Subclass → `_AGENT_TIER`, worst case across agents
+   2. Antibiotic class → `_CLASS_MODE_TIER`: the most frequent tier among that class's agents in AWaRe 2023, ties → higher tier
+   3. Gene family → `_GENE_FAMILY_TIER` (worst case; used only when the class/subclass gives nothing)
+   4. No tier
+   - Source: WHO AWaRe classification 2023 (WHO/MHP/HPS/EML/2023.04, 257 antibiotics). Carbapenems (meropenem, imipenem, ertapenem), vancomycin and teicoplanin are **Watch**; gentamicin and amikacin are **Access**; streptomycin and kanamycin are **Watch**. Agents WHO splits by route (fosfomycin, minocycline: IV Reserve, oral Watch) use the worst case. Classes absent from AWaRe (aminocoumarin, mupirocin, thiostrepton, ...) get no tier.
+   - AMRFinderPlus subclass `BETA-LACTAM` (narrow-spectrum penicillinases such as blaTEM-1) maps to Access (penicillin class mode).
+3. **Transmissibility level** (1–5) of that ARG's location:
+   - 5 = conjugative plasmid, broad host range (MOB-suite Mash neighbour genus ≠ isolate genus, or unknown)
+   - 4 = conjugative plasmid, narrow host range (same genus), or chromosomal ARG inside an ICE (ICEfinder; point mutations never re-scored)
+   - 3 = mobilizable plasmid with a conjugative plasmid in the same isolate
+   - 2 = mobilizable plasmid without a helper
+   - 1 = non-mobilizable plasmid, chromosome or unknown
+4. **Worst-case ARG**: highest tier, then highest transmissibility.
+5. **Rank**: Reserve + level 5→1 = R1–R5; Watch + level 5→1 = R6–R10; Access = R11; no AMR ARG = R12; AMR ARGs present but none with a tier = NG.
+6. **Annotations (do not change the rank)**: MDR flag (≥3 distinct antimicrobial classes; efflux and non-AMR classes excluded), VF category count.
+7. **Legacy fields** for backwards compatibility: `composite_score` (R1 = 10 … R12 = 0, NG = 1) and `risk_category` (R1–R3 critical, R4–R5 high, R6–R10 medium, R11/R12/NG low). The old weighted ARG/VF/mobility score is no longer computed (`vf_score`/`mobility_score` are stored as 0).
+
+Ranks are stored when the pipeline runs; changing the tables does not update existing samples until risk scoring is re-run for them.
 
 ## Running the Platform
 
