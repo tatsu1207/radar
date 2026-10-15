@@ -276,20 +276,34 @@ def download_qc_report(sample_id: uuid.UUID, db: Session = Depends(get_db), curr
         import re
         parts.append("Contig Circularity")
         parts.append("-" * 30)
+        # Assemblies are written with names only; circular contigs are listed in circular.txt
+        # (older results may instead carry "length=... depth=...x circular=true" in the header).
+        circ_file = os.path.join(qc_dir, "circular.txt")
+        circular_names = None
+        if os.path.exists(circ_file):
+            with open(circ_file) as f:
+                circular_names = {l.strip() for l in f if l.strip()}
+        contigs = []
         with open(assembly_fasta) as f:
             for line in f:
                 if line.startswith(">"):
-                    header = line.strip()[1:]
-                    # Parse: "1 length=5268325 depth=1.00x circular=true"
-                    name = header.split()[0]
-                    length_m = re.search(r'length=(\d+)', header)
-                    depth_m = re.search(r'depth=([\d.]+)x', header)
-                    circ_m = re.search(r'circular=(\w+)', header)
-                    length = length_m.group(1) if length_m else "?"
-                    depth = depth_m.group(1) if depth_m else "?"
-                    circular = circ_m.group(1) if circ_m else "unknown"
-                    status = "CIRCULAR" if circular == "true" else "LINEAR"
-                    parts.append(f"  Contig {name}: {length} bp, depth {depth}x, {status}")
+                    contigs.append([line.strip()[1:], 0])
+                elif contigs:
+                    contigs[-1][1] += len(line.strip())
+        for header, seq_len in contigs:
+            name = header.split()[0]
+            length_m = re.search(r'length=(\d+)', header)
+            depth_m = re.search(r'depth=([\d.]+)x', header)
+            circ_m = re.search(r'circular=(\w+)', header)
+            length = length_m.group(1) if length_m else str(seq_len)
+            depth = f", depth {depth_m.group(1)}x" if depth_m else ""
+            if circular_names is not None:
+                status = "CIRCULAR" if name in circular_names else "LINEAR"
+            elif circ_m:
+                status = "CIRCULAR" if circ_m.group(1) == "true" else "LINEAR"
+            else:
+                status = "unknown"
+            parts.append(f"  Contig {name}: {length} bp{depth}, {status}")
         parts.append("")
 
     # QUAST

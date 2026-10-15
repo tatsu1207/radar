@@ -16,15 +16,21 @@ CONDA_MEDAKA = "radar-medaka"
 CONDA_POLYPOLISH = "radar"
 CONDA_QUAST = "radar-quast"
 CONDA_BUSCO = "radar-busco"
+CONDA_PLASSEMBLER = "radar-plassembler"
+PLASSEMBLER_DB = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))))), "databases", "plassembler_db")
 
 
 def run_assembly(sample_id: str, input_files: List[str], db=None, threads: int = 4) -> str:
     """Run genome assembly using the appropriate strategy.
 
     - Short-read only (R1+R2): SPAdes
-    - PacBio HiFi: Flye --pacbio-hifi (always alone; Illumina reads are ignored)
-    - Hybrid (Illumina + ONT): Flye -> Medaka -> Polypolish
-    - ONT only: Flye --nano-hq -> Medaka
+    - PacBio HiFi: Flye --pacbio-hifi -> Plassembler (always alone; Illumina reads are ignored)
+    - Hybrid (Illumina + ONT): Flye -> Plassembler -> Medaka -> Polypolish
+    - ONT only: Flye --nano-hq -> Plassembler -> Medaka
+
+    Plassembler recovers small plasmids that Flye often misses; the ones not
+    already in the Flye assembly are added before polishing.
 
     Args:
         sample_id: UUID of the sample
@@ -48,15 +54,18 @@ def run_assembly(sample_id: str, input_files: List[str], db=None, threads: int =
                 break
 
     if long_read and platform == "pacbio":
-        return _run_flye(sample_id, long_read, threads, platform=platform)
+        assembly = _run_flye(sample_id, long_read, threads, platform=platform)
     elif r1 and r2 and long_read:
-        return _run_hybrid_assembly(sample_id, r1, r2, long_read, threads)
+        assembly = _run_hybrid_assembly(sample_id, r1, r2, long_read, threads)
     elif r1 and r2:
-        return _run_spades(sample_id, r1, r2, threads)
+        assembly = _run_spades(sample_id, r1, r2, threads)
     elif long_read:
-        return _run_flye(sample_id, long_read, threads, platform=platform)
+        assembly = _run_flye(sample_id, long_read, threads, platform=platform)
     else:
         raise ValueError("No suitable read files found for assembly")
+
+    _normalise_assembly(assembly)
+    return assembly
 
 
 def _run_spades(sample_id: str, r1: str, r2: str, threads: int) -> str:
@@ -132,10 +141,12 @@ def _run_flye(sample_id: str, long_read: str, threads: int, platform: str = "ont
     if not os.path.exists(flye_assembly):
         raise RuntimeError(f"Flye output not found at {flye_assembly}")
 
+    final_src = _add_plassembler_plasmids(long_read, None, None, flye_assembly, results_dir,
+                                          threads, platform=platform)
+
     # ONT-only: polish with Medaka (HiFi reads don't need long-read polishing)
-    final_src = flye_assembly
     if platform == "ont":
-        final_src = _run_medaka(long_read, flye_assembly, results_dir, threads)
+        final_src = _run_medaka(long_read, final_src, results_dir, threads)
 
     final_assembly = os.path.join(results_dir, "assembly.fasta")
     shutil.copy2(final_src, final_assembly)
@@ -177,19 +188,21 @@ def _run_medaka(long_read: str, draft: str, results_dir: str, threads: int) -> s
 def _run_hybrid_assembly(
     sample_id: str, r1: str, r2: str, long_read: str, threads: int
 ) -> str:
-    """Run hybrid assembly: Flye -> Medaka -> Polypolish.
+    """Run hybrid assembly: Flye -> Plassembler -> Medaka -> Polypolish.
 
     1. Flye: long-read assembly (produces contiguous contigs)
-    2. Medaka: long-read polishing (corrects systematic errors)
-    3. Polypolish: short-read polishing (fixes remaining base errors)
+    2. Plassembler: adds small plasmids missing from the Flye assembly, so they are
+       polished too and their short reads are not pulled onto the chromosome
+    3. Medaka: long-read polishing (corrects systematic errors)
+    4. Polypolish: short-read polishing (fixes remaining base errors)
     """
-    logger.info(f"Running hybrid assembly (Flye+Medaka+Polypolish) for sample {sample_id}")
+    logger.info(f"Running hybrid assembly (Flye+Plassembler+Medaka+Polypolish) for sample {sample_id}")
 
     results_dir = os.path.join(settings.RESULTS_DIR, str(sample_id), "assembly")
     os.makedirs(results_dir, exist_ok=True)
 
     # ── Step 1: Flye long-read assembly ──
-    logger.info("Hybrid step 1/3: Flye")
+    logger.info("Hybrid step 1/4: Flye")
     flye_dir = os.path.join(results_dir, "flye_out")
     if os.path.exists(flye_dir):
         shutil.rmtree(flye_dir)
@@ -210,12 +223,16 @@ def _run_hybrid_assembly(
     if not os.path.exists(flye_assembly):
         raise RuntimeError("Flye output not found")
 
-    # ── Step 2: Medaka long-read polishing ──
-    logger.info("Hybrid step 2/3: Medaka")
-    medaka_assembly = _run_medaka(long_read, flye_assembly, results_dir, threads)
+    # ── Step 2: Plassembler (small plasmids Flye missed) ──
+    logger.info("Hybrid step 2/4: Plassembler")
+    draft = _add_plassembler_plasmids(long_read, r1, r2, flye_assembly, results_dir, threads)
 
-    # ── Step 3: Polypolish short-read polishing ──
-    logger.info("Hybrid step 3/3: Polypolish")
+    # ── Step 3: Medaka long-read polishing ──
+    logger.info("Hybrid step 3/4: Medaka")
+    medaka_assembly = _run_medaka(long_read, draft, results_dir, threads)
+
+    # ── Step 4: Polypolish short-read polishing ──
+    logger.info("Hybrid step 4/4: Polypolish")
     polypolish_dir = os.path.join(results_dir, "polypolish_out")
     os.makedirs(polypolish_dir, exist_ok=True)
 
@@ -294,6 +311,141 @@ def _run_hybrid_assembly(
 
     logger.info(f"Hybrid assembly complete for sample {sample_id}")
     return final_assembly
+
+
+def _add_plassembler_plasmids(
+    long_read: str, r1: Optional[str], r2: Optional[str], draft: str,
+    results_dir: str, threads: int, platform: str = "ont",
+) -> str:
+    """Run Plassembler on the reads and append plasmids not already in the Flye
+    assembly (no >=90%-covering hit). Returns the merged FASTA path, or the draft
+    unchanged if Plassembler fails or adds nothing (non-critical).
+
+    Circular plasmids are named plassembler_N; linear contigs (sometimes a piece of
+    chromosome Flye dropped) plassembler_linear_N."""
+    out = os.path.join(results_dir, "plassembler_out")
+    merged = os.path.join(results_dir, "flye_plus_plasmids.fasta")
+
+    mode, extra = "long", []
+    if r1 and r2:
+        mode, extra = "run", ["-1", r1, "-2", r2]
+    if platform == "pacbio":
+        extra += ["--pacbio_model", "pacbio-hifi"]
+    has_db = os.path.isdir(PLASSEMBLER_DB) and any(
+        f.endswith(".msh") for f in os.listdir(PLASSEMBLER_DB))
+    db_args = ["-d", PLASSEMBLER_DB] if has_db else ["--skip_mash"]
+
+    cmd = [
+        "conda", "run", "-n", CONDA_PLASSEMBLER,
+        "plassembler", mode,
+        "-l", long_read, *extra,
+        "--flye_directory", os.path.dirname(draft),
+        "-o", out, "-t", str(threads), *db_args, "-f",
+    ]
+    logger.info(f"Plassembler command: {' '.join(cmd)}")
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
+    except (subprocess.TimeoutExpired, OSError) as e:
+        logger.warning(f"Plassembler failed (using the Flye assembly): {e}")
+        return draft
+    if result.returncode != 0:
+        logger.warning(f"Plassembler failed (using the Flye assembly): {result.stderr[-500:]}")
+        return draft
+
+    plasmids = _read_fasta(os.path.join(out, "plassembler_plasmids.fasta"))
+    if not plasmids:
+        logger.info("Plassembler found no plasmids")
+        return draft
+
+    # Plasmids already present in the Flye assembly (>=90% of their length aligned)
+    cmd_map = [
+        "conda", "run", "-n", CONDA_PLASSEMBLER,
+        "minimap2", "-x", "asm5", "-c", draft,
+        os.path.join(out, "plassembler_plasmids.fasta"),
+    ]
+    result = subprocess.run(cmd_map, capture_output=True, text=True, timeout=1800)
+    if result.returncode != 0:
+        logger.warning(f"minimap2 failed (using the Flye assembly): {result.stderr[-500:]}")
+        return draft
+    aligned, lengths = {}, {}
+    for line in result.stdout.splitlines():
+        f = line.split("\t")
+        if len(f) >= 4:
+            aligned[f[0]] = aligned.get(f[0], 0) + int(f[3]) - int(f[2])
+            lengths[f[0]] = int(f[1])
+    in_flye = {k for k in aligned if aligned[k] >= 0.9 * lengths[k]}
+
+    added = []
+    for header, seq in plasmids:
+        pid = header.split()[0]
+        if pid in in_flye:
+            continue
+        circular = "circular=true" in header.lower()
+        added.append(((f"plassembler_{pid}" if circular else f"plassembler_linear_{pid}"), seq))
+    logger.info(f"Plassembler: {len(plasmids)} contig(s), {len(added)} not in the Flye assembly added")
+    if not added:
+        return draft
+
+    shutil.copy2(draft, merged)
+    with open(merged, "a") as fh:
+        for name, seq in added:
+            fh.write(f">{name}\n")
+            for i in range(0, len(seq), 60):
+                fh.write(seq[i:i + 60] + "\n")
+    return merged
+
+
+def _read_fasta(path: str) -> list:
+    """Return [(header, sequence)] from a FASTA file ([] if missing)."""
+    records = []
+    if not os.path.exists(path):
+        return records
+    header, seq = None, []
+    with open(path) as fh:
+        for line in fh:
+            line = line.strip()
+            if line.startswith(">"):
+                if header is not None:
+                    records.append((header, "".join(seq)))
+                header, seq = line[1:], []
+            elif line:
+                seq.append(line)
+    if header is not None:
+        records.append((header, "".join(seq)))
+    return records
+
+
+def _normalise_assembly(path: str) -> None:
+    """Rewrite the final assembly for the annotation tools: keep only contig names
+    (Polypolish appends " polypolish", which makes MobileElementFinder fail) and order
+    contigs longest first (MobileElementFinder can also fail when a small contig
+    precedes the chromosome). Circular contigs are listed in circular.txt next to it."""
+    records = _read_fasta(path)
+    if not records:
+        return
+    records.sort(key=lambda r: len(r[1]), reverse=True)
+    with open(path + ".tmp", "w") as fh:
+        for header, seq in records:
+            fh.write(f">{header.split()[0]}\n")
+            for i in range(0, len(seq), 60):
+                fh.write(seq[i:i + 60] + "\n")
+    os.replace(path + ".tmp", path)
+
+    # Circularity: Flye's assembly_info.txt plus circular Plassembler plasmids
+    results_dir = os.path.dirname(path)
+    circular = set()
+    info = os.path.join(results_dir, "flye_out", "assembly_info.txt")
+    if os.path.exists(info):
+        with open(info) as fh:
+            for line in fh:
+                f = line.rstrip("\n").split("\t")
+                if len(f) > 3 and f[3] == "Y":
+                    circular.add(f[0])
+    names = [h.split()[0] for h, _ in records]
+    with open(os.path.join(results_dir, "circular.txt"), "w") as fh:
+        for n in names:
+            if n in circular or (n.startswith("plassembler_") and not n.startswith("plassembler_linear_")):
+                fh.write(n + "\n")
 
 
 def _resolve_read_files(sample_id: str, input_files: List[str], db) -> tuple:

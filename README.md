@@ -65,12 +65,12 @@ Predictions for these antibiotics should be interpreted with caution, especially
 | Input Type | Files | Pipeline |
 |-----------|-------|----------|
 | Illumina paired-end | `SAMPLE_R1.fastq.gz` + `SAMPLE_R2.fastq.gz` | fastp -> SPAdes -> annotation |
-| Hybrid (Illumina + ONT) | R1 + R2 + `SAMPLE_ONT.fastq.gz` | fastp + Chopper -> Flye -> Plassembler* -> Medaka -> Polypolish -> annotation |
-| PacBio HiFi | `SAMPLE_PB.fastq.gz` | Flye (--pacbio-hifi) -> Plassembler* -> annotation |
-| ONT only | `SAMPLE_ONT.fastq.gz` | Chopper -> Flye -> Plassembler* -> Medaka -> annotation |
+| Hybrid (Illumina + ONT) | R1 + R2 + `SAMPLE_ONT.fastq.gz` | fastp + Chopper -> Flye -> Plassembler -> Medaka -> Polypolish -> annotation |
+| PacBio HiFi | `SAMPLE_PB.fastq.gz` | Flye (--pacbio-hifi) -> Plassembler -> annotation |
+| ONT only | `SAMPLE_ONT.fastq.gz` | Chopper -> Flye -> Plassembler -> Medaka -> annotation |
 | Pre-assembled | `SAMPLE.fasta` | annotation only (skips QC + assembly) |
 
-\* Plassembler is currently run by `pipeline.sh` only; the web app's assembly step does not run it yet.
+Plassembler runs in both `pipeline.sh` and the web app.
 
 ### Filename Conventions
 
