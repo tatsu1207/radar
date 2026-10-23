@@ -72,6 +72,9 @@ def run_pipeline(self, sample_id: str, master_job_id: str = None, threads: int =
                 master_job.log = "Pipeline started\n"
                 db.commit()
 
+        # Long-read BAM (e.g. PacBio HiFi) -> FASTQ.gz before any read tool runs
+        from app.core.qc import convert_bam_long_reads
+        convert_bam_long_reads(sample_id, db, threads=threads)
         input_files = db.query(SampleFile).filter(SampleFile.sample_id == sample_id).all()
         file_paths = [f.file_path for f in input_files]
 
@@ -393,6 +396,11 @@ def _run_assembly_phase(sample_id: str, job, db, threads: int) -> str:
     import subprocess
 
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    # Long-read BAM (e.g. PacBio HiFi) -> FASTQ.gz before any read tool runs
+    from app.core.qc import convert_bam_long_reads
+    for fq in convert_bam_long_reads(sample_id, db, threads=threads):
+        job.log += f"  Long-read BAM converted to FASTQ: {os.path.basename(fq)}\n"
+        db.commit()
     input_files = db.query(SampleFile).filter(SampleFile.sample_id == sample_id).all()
     file_paths = [f.file_path for f in input_files]
 
@@ -893,6 +901,9 @@ def run_single_step(self, sample_id: str, job_id: str, tool: str, threads: int =
         job.log = f"Running {tool}...\n"
         db.commit()
 
+        # Long-read BAM (e.g. PacBio HiFi) -> FASTQ.gz before any read tool runs
+        from app.core.qc import convert_bam_long_reads
+        convert_bam_long_reads(sample_id, db, threads=threads)
         input_files = db.query(SampleFile).filter(SampleFile.sample_id == sample_id).all()
         file_paths = [f.file_path for f in input_files]
 

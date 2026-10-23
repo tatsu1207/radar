@@ -5,6 +5,7 @@ import { Check, AlertTriangle, Minus, Trash2, Upload, Download, X, Play, Square,
 import {
   getAllFileManager,
   deleteFileManagerSample,
+  setFileManagerFilePlatform,
   globalUploadFiles,
   globalSubmitSRA,
   globalGetSRADownloads,
@@ -163,6 +164,107 @@ function SRAStatusBadge({ status }: { status: string }) {
   );
 }
 
+const NAMING_RULES: { pattern: string; meaning: string }[] = [
+  { pattern: 'SAMPLE_R1.fastq.gz / SAMPLE_1.fastq.gz', meaning: 'Illumina read 1' },
+  { pattern: 'SAMPLE_R2.fastq.gz / SAMPLE_2.fastq.gz', meaning: 'Illumina read 2' },
+  { pattern: 'SAMPLE_ONT.fastq.gz  (or _nanopore)', meaning: 'Oxford Nanopore long reads' },
+  { pattern: 'SAMPLE_PB.fastq.gz  (or _PacBio, _HiFi, _CCS)', meaning: 'PacBio HiFi long reads' },
+  { pattern: 'SAMPLE_PB.bam  (or _PacBio, _HiFi, _CCS)', meaning: 'PacBio HiFi unaligned BAM (converted to FASTQ automatically)' },
+  { pattern: 'SAMPLE.fasta / .fa / .fna', meaning: 'Pre-assembled genome (QC and assembly skipped)' },
+];
+
+// File naming instructions; collapsed state is remembered per browser.
+function NamingGuide() {
+  const [open, setOpen] = useState(true);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('radar.files.namingGuide') === 'closed') setOpen(false);
+    } catch {}
+  }, []);
+  const toggle = () => {
+    setOpen((o) => {
+      try { localStorage.setItem('radar.files.namingGuide', o ? 'closed' : 'open'); } catch {}
+      return !o;
+    });
+  };
+
+  return (
+    <div className="mb-4 rounded-lg border border-gray-700 bg-gray-800/40 text-sm">
+      <button onClick={toggle} className="w-full flex items-center justify-between px-4 py-2.5 text-left">
+        <span className="font-medium text-gray-200">File naming guide</span>
+        <span className="text-xs text-gray-400">{open ? 'Hide' : 'Show'}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-4 space-y-3 text-gray-400">
+          <p>
+            The part before the suffix is the <span className="text-gray-200">sample name</span>. Files with the same
+            sample name go into one sample, so a hybrid sample is <code className="text-gray-200">S1_R1.fastq.gz</code> +{' '}
+            <code className="text-gray-200">S1_R2.fastq.gz</code> + <code className="text-gray-200">S1_ONT.fastq.gz</code>.
+          </p>
+          <table className="w-full">
+            <tbody>
+              {NAMING_RULES.map((r) => (
+                <tr key={r.pattern} className="border-t border-gray-700/60">
+                  <td className="py-1.5 pr-4 font-mono text-xs text-gray-200 whitespace-nowrap">{r.pattern}</td>
+                  <td className="py-1.5">{r.meaning}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>Suffixes are not case-sensitive (<code>_pb</code>, <code>_PB</code> and <code>_PacBio</code> all mean PacBio).</li>
+            <li>
+              Without a platform suffix (e.g. <code>S1.fastq.gz</code>), ONT or PacBio is guessed from the read headers or
+              BAM header. If the guess is wrong, use the <span className="text-gray-200">→ PacBio</span> /{' '}
+              <span className="text-gray-200">→ ONT</span> button next to the file in the table.
+            </li>
+            <li>
+              Rename PacBio output files before uploading: a name like{' '}
+              <code>m84011_220902_175841_s1.hifi_reads.bc1001.bam</code> works, but becomes the sample name as is.
+              Use <code>Kp_001_PB.bam</code> instead.
+            </li>
+            <li>When PacBio HiFi reads are present, Illumina reads in the same sample are ignored (HiFi-only assembly).</li>
+            <li>
+              File names <span className="text-gray-200">must not contain spaces</span>; files with spaces are rejected.
+              Use letters, numbers, <code>-</code> and <code>_</code> (e.g. <code>Kp_001_R1.fastq.gz</code>).
+            </li>
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ONT/PacBio column cell: shows the long-read file in its platform's column, with
+// a button to move it to the other platform when auto-detection guessed wrong.
+function LongReadCell({
+  sample,
+  show,
+  onSwitch,
+}: {
+  sample: FileManagerSample;
+  show: 'ont' | 'pacbio';
+  onSwitch: (sample: FileManagerSample, platform: 'ont' | 'pacbio') => void;
+}) {
+  const platform = sample.long_read_platform === 'pacbio' ? 'pacbio' : 'ont';
+  if (!sample.long_read || platform !== show) {
+    return <FileSlotCell file={null} isMissingPair={false} />;
+  }
+  const other = show === 'ont' ? 'pacbio' : 'ont';
+  return (
+    <div className="flex items-center gap-1.5">
+      <FileSlotCell file={sample.long_read} isMissingPair={false} />
+      <button
+        onClick={() => onSwitch(sample, other)}
+        className="text-[10px] px-1 py-0.5 rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-400"
+        title={`Wrong platform? Treat these reads as ${other === 'pacbio' ? 'PacBio HiFi' : 'ONT'}`}
+      >
+        → {other === 'pacbio' ? 'PacBio' : 'ONT'}
+      </button>
+    </div>
+  );
+}
+
 export default function GlobalFilesPage() {
   const [samples, setSamples] = useState<FileManagerSample[]>([]);
   const [sraDownloads, setSraDownloads] = useState<SRADownload[]>([]);
@@ -229,6 +331,12 @@ export default function GlobalFilesPage() {
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const fileList = e.target.files;
     if (!fileList || fileList.length === 0) return;
+    const withSpaces = Array.from(fileList).filter((f) => /\s/.test(f.name)).map((f) => f.name);
+    if (withSpaces.length > 0) {
+      setError(`File names must not contain spaces; rename and try again: ${withSpaces.join(', ')}`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
     setUploading(true);
     setUploadProgress(0);
     setError(null);
@@ -279,6 +387,18 @@ export default function GlobalFilesPage() {
       setDeleteConfirm(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete sample');
+    }
+  }
+
+  async function handlePlatformSwitch(sample: FileManagerSample, platform: 'ont' | 'pacbio') {
+    if (!sample.project_id || !sample.long_read) return;
+    try {
+      await setFileManagerFilePlatform(sample.project_id, sample.long_read.id, platform);
+      setSamples((prev) =>
+        prev.map((s) => (s.sample_id === sample.sample_id ? { ...s, long_read_platform: platform } : s))
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to change platform');
     }
   }
 
@@ -436,7 +556,7 @@ export default function GlobalFilesPage() {
               ref={fileInputRef}
               type="file"
               multiple
-              accept=".fastq,.fq,.fasta,.fa,.fna,.gz"
+              accept=".fastq,.fq,.fasta,.fa,.fna,.gz,.bam"
               className="hidden"
               onChange={handleUpload}
               disabled={uploading}
@@ -444,6 +564,8 @@ export default function GlobalFilesPage() {
           </label>
         </div>
       </div>
+
+      <NamingGuide />
 
       {uploading && (
         <div className="mb-4">
@@ -648,10 +770,10 @@ export default function GlobalFilesPage() {
                         <FileSlotCell file={sample.illumina_r2} isMissingPair={r2MissingPair} />
                       </td>
                       <td className="table-cell">
-                        <FileSlotCell file={sample.long_read_platform !== 'pacbio' ? sample.long_read : null} isMissingPair={false} />
+                        <LongReadCell sample={sample} show="ont" onSwitch={handlePlatformSwitch} />
                       </td>
                       <td className="table-cell">
-                        <FileSlotCell file={sample.long_read_platform === 'pacbio' ? sample.long_read : null} isMissingPair={false} />
+                        <LongReadCell sample={sample} show="pacbio" onSwitch={handlePlatformSwitch} />
                       </td>
                       <td className="table-cell">
                         <InlineHostPicker value={sample.host} onSave={(v) => handleMetaSave(sample.sample_id, 'host', v)} />

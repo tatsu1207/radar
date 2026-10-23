@@ -161,6 +161,8 @@ Each row = one sample. Columns: Sample ID, Illumina R1, Illumina R2, Long Read (
 {sample_id}_PB.fastq.gz   → pair=long_read, platform=pacbio
 ```
 
+Also `_NANOPORE` (ONT) and `_PACBIO`/`_HIFI`/`_CCS` (PacBio), any case. Without a tag the platform comes from the read headers (ONT runid/UUID; PacBio movie names incl. Sequel IIe `m64012e_` and Revio `_s1`, also inside SRA-renamed headers). Long reads may be an unaligned `.bam` (PacBio HiFi): the platform comes from `@RG PL:` / `@PG ccs`, and the pipeline converts it to FASTQ.gz (`samtools fastq`, `qc.convert_bam_long_reads`) before QC, removing RADAR's BAM copy. The Files page has a → PacBio / → ONT button to correct a wrong guess (`PATCH .../files/{file_id}/platform`). Server-path registration skips non-sequence sidecars (`.bam.pbi`, `.xml`). File names with whitespace are rejected (400; the Files page checks before uploading), and the Files page shows a collapsible naming guide.
+
 ### Metadata TSV Format
 
 ```

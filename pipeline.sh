@@ -11,6 +11,8 @@ set -euo pipefail
 #   ii)  Illumina + ONT:   -1 R1.fastq.gz -2 R2.fastq.gz -l ont.fastq.gz  (Flye -> Plassembler -> dnaapler -> Medaka -> Polypolish)
 #   iii) ONT only:         -l ont.fastq.gz                     (Flye -> Plassembler -> dnaapler -> Medaka)
 #   iv)  PacBio HiFi only: -l hifi.fastq.gz -p pacbio  (Flye -> Plassembler -> dnaapler; Illumina reads, if given, are ignored)
+#   Long reads may also be an unaligned BAM (-l hifi.bam); it is converted to FASTQ, and
+#   without -p the platform is taken from the BAM header (@RG PL:PACBIO / PL:ONT).
 #
 # Usage:
 #   ./pipeline.sh -1 R1.fastq.gz -2 R2.fastq.gz -o outdir [-t threads] [-s sample_name]
@@ -21,7 +23,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DB_DIR="${SCRIPT_DIR}/databases"
 
-R1="" R2="" LONG="" PLATFORM="ont" OUTDIR="" THREADS=4 SAMPLE=""
+R1="" R2="" LONG="" PLATFORM="" OUTDIR="" THREADS=4 SAMPLE=""
 
 usage() {
     cat <<EOF
@@ -30,8 +32,9 @@ Usage: $0 [options]
 Input (at least one required):
   -1 FILE    Illumina R1 reads (.fastq.gz)
   -2 FILE    Illumina R2 reads (.fastq.gz)
-  -l FILE    Long reads - ONT or PacBio HiFi (.fastq.gz)
-  -p PLAT    Long-read platform: ont (default) or pacbio
+  -l FILE    Long reads - ONT or PacBio HiFi (.fastq.gz, or unaligned .bam)
+  -p PLAT    Long-read platform: ont (default) or pacbio; for a BAM without -p,
+             taken from the BAM header
 
 Options:
   -o DIR     Output directory (required)
@@ -80,6 +83,26 @@ if [ -n "$R1" ] && [ -z "$R2" ]; then
     echo "ERROR: R2 required when R1 is provided (-2)" >&2; exit 1
 fi
 
+# samtools: radar env, else the copy in radar-plassembler
+if conda run -n radar samtools --version >/dev/null 2>&1; then
+    SAMTOOLS=(conda run -n radar samtools)
+else
+    SAMTOOLS=(conda run -n radar-plassembler samtools)
+fi
+
+# Long-read BAM without -p: platform from the @RG PL tag / @PG lines
+if [ -n "$LONG" ] && [ -z "$PLATFORM" ] && [[ "${LONG,,}" == *.bam ]]; then
+    BAM_HEADER=$("${SAMTOOLS[@]}" view -H "$LONG" 2>/dev/null || true)
+    if grep -qiE '^@RG[[:space:]].*[[:space:]]PL:PACBIO|^@PG[[:space:]].*(ID|PN):(pb)?ccs([[:space:]]|$)|READTYPE=CCS' <<< "$BAM_HEADER"; then
+        PLATFORM="pacbio"
+    fi
+    echo "NOTE: platform from BAM header: ${PLATFORM:-ont}" >&2
+fi
+PLATFORM="${PLATFORM:-ont}"
+if [ "$PLATFORM" != "ont" ] && [ "$PLATFORM" != "pacbio" ]; then
+    echo "ERROR: -p must be ont or pacbio" >&2; exit 1
+fi
+
 # PacBio HiFi alone is sufficient — ignore Illumina reads if both are given
 if [ -n "$LONG" ] && [ "$PLATFORM" = "pacbio" ] && [ -n "$R1" ]; then
     echo "NOTE: PacBio HiFi reads provided — Illumina reads ignored (PacBio-only assembly)" >&2
@@ -100,7 +123,7 @@ if [ -z "$SAMPLE" ]; then
     if [ -n "$R1" ]; then
         SAMPLE=$(basename "$R1" | sed 's/_R1.*//; s/\.fastq.*//; s/\.fq.*//')
     else
-        SAMPLE=$(basename "$LONG" | sed 's/\.fastq.*//; s/\.fq.*//')
+        SAMPLE=$(basename "$LONG" | sed 's/\.fastq.*//; s/\.fq.*//; s/\.bam$//')
     fi
 fi
 
@@ -239,6 +262,16 @@ echo ""
 # PHASE 1: QC & ASSEMBLY
 # ══════════════════════════════════════════════════════════════════════════
 log "═══ PHASE 1: QC & Assembly ═══"
+
+# --- Step 0: long-read BAM -> FASTQ (fastp/Chopper/Flye/Plassembler/Medaka need FASTQ) ---
+if [ -n "$LONG" ] && [[ "${LONG,,}" == *.bam ]]; then
+    BAM_FASTQ="${QC_DIR}/long_reads.fastq.gz"
+    if [ ! -s "$BAM_FASTQ" ]; then
+        run_step "BAM to FASTQ (samtools)" \
+            "${SAMTOOLS[@]}" fastq -@ "$THREADS" -c 6 -0 "$BAM_FASTQ" "$LONG"
+    fi
+    LONG="$BAM_FASTQ"
+fi
 
 TRIMMED_R1="${QC_DIR}/trimmed_R1.fastq.gz"
 TRIMMED_R2="${QC_DIR}/trimmed_R2.fastq.gz"

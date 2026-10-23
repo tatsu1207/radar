@@ -984,6 +984,10 @@ export async function deleteFileManagerFile(projectId: string, fileId: string): 
   return fetchAPI<void>(`/api/projects/${projectId}/file-manager/files/${fileId}`, { method: 'DELETE' });
 }
 
+export async function setFileManagerFilePlatform(projectId: string, fileId: string, platform: 'ont' | 'pacbio'): Promise<void> {
+  return fetchAPI<void>(`/api/projects/${projectId}/file-manager/files/${fileId}/platform?platform=${platform}`, { method: 'PATCH' });
+}
+
 export async function deleteFileManagerSample(projectId: string, sampleId: string): Promise<void> {
   return fetchAPI<void>(`/api/projects/${projectId}/file-manager/samples/${sampleId}`, { method: 'DELETE' });
 }

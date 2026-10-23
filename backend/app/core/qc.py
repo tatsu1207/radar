@@ -132,3 +132,53 @@ def run_fastp(sample_id: str, input_files: List[str], db=None, threads: int = 4)
 
     logger.info(f"fastp QC complete for sample {sample_id}")
     return summary
+
+
+def _samtools_cmd() -> List[str]:
+    """samtools from the radar env, else the copy that ships with radar-plassembler."""
+    import shutil
+    if shutil.which("samtools"):
+        return ["samtools"]
+    return ["conda", "run", "-n", "radar-plassembler", "samtools"]
+
+
+def convert_bam_long_reads(sample_id: str, db, threads: int = 4) -> List[str]:
+    """Convert long-read BAM inputs (e.g. PacBio HiFi unaligned BAM) to FASTQ.gz.
+
+    fastp, Chopper, Flye, Plassembler and Medaka all need FASTQ, so the
+    SampleFile is repointed at the converted file and RADAR's copy of the BAM is
+    removed (uploads are copies/hard links, so the user's original is untouched).
+    If the platform was not set at upload, it is detected from the BAM header.
+
+    Returns the converted FASTQ paths (empty when there was nothing to convert).
+    """
+    from app.api.file_manager import _detect_platform_from_bam
+
+    converted = []
+    sample_files = db.query(SampleFile).filter(SampleFile.sample_id == sample_id).all()
+    for sf in sample_files:
+        if sf.pair != PairType.long_read or not sf.file_path.lower().endswith(".bam"):
+            continue
+
+        bam = sf.file_path
+        fastq = bam[: -len(".bam")] + ".fastq.gz"
+        if sf.platform is None:
+            sf.platform = _detect_platform_from_bam(bam)
+
+        logger.info(f"Converting long-read BAM to FASTQ: {bam} -> {fastq}")
+        tmp = fastq + ".tmp.gz"
+        cmd = _samtools_cmd() + ["fastq", "-@", str(threads), "-c", "6", "-0", tmp, bam]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
+        if result.returncode != 0 or not os.path.exists(tmp) or os.path.getsize(tmp) == 0:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            raise RuntimeError(f"samtools fastq failed for {bam}: {result.stderr[-2000:]}")
+        os.rename(tmp, fastq)
+        os.remove(bam)
+
+        sf.file_path = fastq
+        sf.file_type = ".fastq.gz"
+        sf.file_size = os.path.getsize(fastq)
+        db.commit()
+        converted.append(fastq)
+    return converted

@@ -47,7 +47,7 @@ if ! conda env list 2>/dev/null | grep -qE "^radar\s"; then
         fastp chopper flye spades polypolish bwa \
         hmmer blast \
         mlst skani minced prodigal \
-        sra-tools viennarna infernal \
+        sra-tools viennarna infernal samtools \
         postgresql redis-server \
         > /tmp/radar_install_radar.log 2>&1; then
         echo -e "\r  OK    radar"
@@ -325,7 +325,7 @@ echo ""
 echo "  Conda environments installed:"
 echo "    Base:     radar (fastp, chopper, flye, spades, polypolish, bwa,"
 echo "              hmmer, blast, mlst, skani, minced, prodigal,"
-echo "              sra-tools, viennarna, infernal,"
+echo "              sra-tools, viennarna, infernal, samtools,"
 echo "              defense-finder, integron_finder, chewbbaca, resfinder,"
 echo "              AMRFinderPlus, BPROM, backend requirements, nodejs)"
 echo "    Separate: radar-sistr, radar-quast, radar-mobsuite,"
