@@ -190,10 +190,10 @@ def run_pipeline(self, sample_id: str, master_job_id: str = None, threads: int =
         # ── Step 6: Phenotype prediction ──
         _append_master_log(db, master_job_id, "Step 6: Phenotype prediction & risk scoring...")
 
-        from app.core.phenotype import predict_phenotype
+        from app.core.phenotype import run_phenotype_prediction
         pheno_job = _create_job(db, sample_id, "phenotype_prediction", threads)
         try:
-            predict_phenotype(sample_id, db)
+            run_phenotype_prediction(sample_id, db)
             _complete_job(db, pheno_job, "Phenotype prediction complete")
             _append_master_log(db, master_job_id, "  Phenotype prediction complete")
         except Exception as e:
@@ -671,7 +671,7 @@ def _run_annotation_phase(sample_id: str, assembly_path: str, job, db, threads: 
         SpeciesResult, MLSTResult, SerotypeResult, ARGResult,
         PlasmidResult, MobilityResult, IntegronResult, ProphageResult,
         CgMLSTResult, CRISPRResult, DefenseFinderResult, ICEResult,
-        BacMetResult, RiskScore, MLPhenotypePrediction,
+        BacMetResult, RiskScore,
     )
 
     _ensure_databases(job, db)
@@ -849,17 +849,9 @@ def _run_annotation_phase(sample_id: str, assembly_path: str, job, db, threads: 
     from app.core.colistin import detect_colistin_resistance
     _run_noncritical(db, job, "Colistin resistance", lambda: detect_colistin_resistance(sample_id, assembly_path, db))
 
-    # ML phenotype prediction
-    if not _has_results(db, MLPhenotypePrediction, sample_id):
-        from app.core.ml_phenotype import run_ml_phenotype
-        _run_noncritical(db, job, "ML phenotype prediction", lambda: run_ml_phenotype(sample_id, db))
-    else:
-        job.log += "  ML phenotype prediction — skipped\n"
-        db.commit()
-
-    # Phenotype prediction (rule-based) — always re-run (fast, depends on ARGs)
-    from app.core.phenotype import predict_phenotype
-    _run_noncritical(db, job, "Phenotype prediction", lambda: predict_phenotype(sample_id, db))
+    # Phenotype prediction (ML, rule-based fallback) — always re-run (fast, depends on ARGs/species)
+    from app.core.phenotype import run_phenotype_prediction
+    _run_noncritical(db, job, "Phenotype prediction", lambda: run_phenotype_prediction(sample_id, db))
 
     # Risk scoring — always re-run (fast, depends on ARGs/VFs/mobility)
     from app.core.risk import calculate_composite_risk
@@ -958,8 +950,8 @@ def run_single_step(self, sample_id: str, job_id: str, tool: str, threads: int =
             job.log += "MobileElementFinder complete\n"
 
         elif tool == "phenotype_prediction":
-            from app.core.phenotype import predict_phenotype
-            predict_phenotype(sample_id, db)
+            from app.core.phenotype import run_phenotype_prediction
+            run_phenotype_prediction(sample_id, db)
             job.log += "Phenotype prediction complete\n"
 
         elif tool == "risk_scoring":
