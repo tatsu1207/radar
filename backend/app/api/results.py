@@ -13,6 +13,7 @@ from app.config import settings
 from app.db import get_db
 from app.models.models import User
 from app.core.auth import get_current_user
+from app.core.risk import _is_amr_entry
 from app.models.models import (
     Sample,
     ARGResult,
@@ -667,8 +668,10 @@ def get_sample_summary(sample_id: uuid.UUID, db: Session = Depends(get_db), curr
     # Serotype
     sero_row = db.query(SerotypeResult).filter(SerotypeResult.sample_id == sample_id).first()
 
-    # ARGs
-    args = db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
+    # ARGs — antimicrobial resistance only; AMRFinderPlus STRESS/METAL/BIOCIDE/ACID
+    # hits are not ARGs (metal/biocide resistance is reported as MRG via BacMet)
+    args = [a for a in db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
+            if _is_amr_entry(a)]
     arg_genes = [a.gene for a in args]
     drug_classes = sorted(set(dc.strip() for a in args if a.drug_class for dc in a.drug_class.split(";")))
 
