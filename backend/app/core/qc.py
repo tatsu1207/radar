@@ -135,10 +135,19 @@ def run_fastp(sample_id: str, input_files: List[str], db=None, threads: int = 4)
 
 
 def _samtools_cmd() -> List[str]:
-    """samtools from the radar env, else the copy that ships with radar-plassembler."""
+    """samtools from the radar env, else the copy that ships with radar-plassembler.
+
+    The radar env can resolve to samtools 0.1.19, which has neither --version nor
+    fastq, so a samtools that fails --version is skipped (as in pipeline.sh).
+    """
     import shutil
     if shutil.which("samtools"):
-        return ["samtools"]
+        try:
+            if subprocess.run(["samtools", "--version"], capture_output=True,
+                              timeout=30).returncode == 0:
+                return ["samtools"]
+        except (OSError, subprocess.TimeoutExpired):
+            pass
     return ["conda", "run", "-n", "radar-plassembler", "samtools"]
 
 

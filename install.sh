@@ -47,7 +47,7 @@ if ! conda env list 2>/dev/null | grep -qE "^radar\s"; then
         fastp chopper flye spades polypolish bwa \
         hmmer blast \
         mlst skani minced prodigal \
-        sra-tools viennarna infernal samtools \
+        sra-tools viennarna infernal "samtools>=1.10" \
         postgresql redis-server \
         > /tmp/radar_install_radar.log 2>&1; then
         echo -e "\r  OK    radar"
