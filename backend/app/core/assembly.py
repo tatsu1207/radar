@@ -1,3 +1,4 @@
+import gzip
 import json
 import logging
 import os
@@ -17,6 +18,16 @@ CONDA_POLYPOLISH = "radar"
 CONDA_QUAST = "radar-quast"
 CONDA_BUSCO = "radar-busco"
 CONDA_PLASSEMBLER = "radar-plassembler"
+CONDA_PYPOLCA = "radar-pypolca"
+
+# Flye builds its initial (disjointig) assembly from the longest reads up to this depth;
+# later stages still use all reads. Long-read runs here are typically 180-390x after
+# Chopper, so this speeds Flye up without subsampling the reads that Plassembler and
+# Medaka get (subsampling by length would drop the short reads of small plasmids).
+# --asm-coverage requires --genome-size; a rough estimate is enough.
+FLYE_ASM_COVERAGE = 100
+FLYE_GENOME_SIZE = "5m"
+FLYE_DEPTH_ARGS = ["--genome-size", FLYE_GENOME_SIZE, "--asm-coverage", str(FLYE_ASM_COVERAGE)]
 PLASSEMBLER_DB = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))), "databases", "plassembler_db")
 
@@ -26,7 +37,7 @@ def run_assembly(sample_id: str, input_files: List[str], db=None, threads: int =
 
     - Short-read only (R1+R2): SPAdes
     - PacBio HiFi: Flye --pacbio-hifi -> Plassembler -> dnaapler (always alone; Illumina reads are ignored)
-    - Hybrid (Illumina + ONT): Flye -> Plassembler -> dnaapler -> Medaka -> Polypolish
+    - Hybrid (Illumina + ONT): Flye -> Plassembler -> dnaapler -> Medaka -> Polypolish -> Pypolca
     - ONT only: Flye --nano-hq -> Plassembler -> dnaapler -> Medaka
 
     Plassembler recovers small plasmids that Flye often misses; the ones not
@@ -128,6 +139,7 @@ def _run_flye(sample_id: str, long_read: str, threads: int, platform: str = "ont
         "conda", "run", "-n", CONDA_FLYE,
         "flye",
         flye_mode, long_read,
+        *FLYE_DEPTH_ARGS,
         "--out-dir", outdir,
         "--threads", str(threads),
     ]
@@ -197,15 +209,16 @@ def _run_hybrid_assembly(
        polished too and their short reads are not pulled onto the chromosome;
        dnaapler then rotates circular contigs to start at dnaA/repA/terL
     3. Medaka: long-read polishing (corrects systematic errors)
-    4. Polypolish: short-read polishing (fixes remaining base errors)
+    4. Polypolish: short-read polishing (fixes remaining base errors, incl. in repeats)
+    5. Pypolca --careful: short-read polishing (skipped below 5x short-read depth)
     """
-    logger.info(f"Running hybrid assembly (Flye+Plassembler+Medaka+Polypolish) for sample {sample_id}")
+    logger.info(f"Running hybrid assembly (Flye+Plassembler+Medaka+Polypolish+Pypolca) for sample {sample_id}")
 
     results_dir = os.path.join(settings.RESULTS_DIR, str(sample_id), "assembly")
     os.makedirs(results_dir, exist_ok=True)
 
     # ── Step 1: Flye long-read assembly ──
-    logger.info("Hybrid step 1/4: Flye")
+    logger.info("Hybrid step 1/5: Flye")
     flye_dir = os.path.join(results_dir, "flye_out")
     if os.path.exists(flye_dir):
         shutil.rmtree(flye_dir)
@@ -214,6 +227,7 @@ def _run_hybrid_assembly(
         "conda", "run", "-n", CONDA_FLYE,
         "flye",
         "--nano-hq", long_read,
+        *FLYE_DEPTH_ARGS,
         "--out-dir", flye_dir,
         "--threads", str(threads),
     ]
@@ -227,16 +241,16 @@ def _run_hybrid_assembly(
         raise RuntimeError("Flye output not found")
 
     # ── Step 2: Plassembler (small plasmids Flye missed) ──
-    logger.info("Hybrid step 2/4: Plassembler")
+    logger.info("Hybrid step 2/5: Plassembler")
     draft = _add_plassembler_plasmids(long_read, r1, r2, flye_assembly, results_dir, threads)
     draft = _rotate_contigs(draft, results_dir, threads)
 
     # ── Step 3: Medaka long-read polishing ──
-    logger.info("Hybrid step 3/4: Medaka")
+    logger.info("Hybrid step 3/5: Medaka")
     medaka_assembly = _run_medaka(long_read, draft, results_dir, threads)
 
     # ── Step 4: Polypolish short-read polishing ──
-    logger.info("Hybrid step 4/4: Polypolish")
+    logger.info("Hybrid step 4/5: Polypolish")
     polypolish_dir = os.path.join(results_dir, "polypolish_out")
     os.makedirs(polypolish_dir, exist_ok=True)
 
@@ -286,9 +300,21 @@ def _run_hybrid_assembly(
     sam_r1 = filtered_r1 if os.path.exists(filtered_r1) else aligned_r1
     sam_r2 = filtered_r2 if os.path.exists(filtered_r2) else aligned_r2
 
+    # Short-read depth decides the polishing recipe (Hybracter, Bouras et al. 2024):
+    #   < 5x   Polypolish --careful only (Pypolca can introduce errors at low depth)
+    #   5-25x  Polypolish --careful -> Pypolca --careful
+    #   > 25x  Polypolish           -> Pypolca --careful
+    depth = _short_read_depth(r1, r2, medaka_assembly)
+    careful_polypolish = depth is not None and depth <= 25
+    run_pypolca = depth is None or depth >= 5
+    logger.info(f"Short-read depth ~{depth if depth is None else round(depth, 1)}x: "
+                f"Polypolish{' --careful' if careful_polypolish else ''}"
+                f"{' -> Pypolca --careful' if run_pypolca else ''}")
+
     cmd_polish = [
         "conda", "run", "-n", CONDA_POLYPOLISH,
         "polypolish", "polish",
+        *(["--careful"] if careful_polypolish else []),
         medaka_assembly,
         sam_r1,
         sam_r2,
@@ -304,6 +330,11 @@ def _run_hybrid_assembly(
         logger.warning(f"Polypolish failed (using Medaka output): {result.stderr[-500:]}")
         final_src = medaka_assembly
 
+    # ── Step 5: Pypolca short-read polishing ──
+    if run_pypolca:
+        logger.info("Hybrid step 5/5: Pypolca")
+        final_src = _run_pypolca(final_src, r1, r2, results_dir, threads)
+
     # Copy to standard location
     final_assembly = os.path.join(results_dir, "assembly.fasta")
     shutil.copy2(final_src, final_assembly)
@@ -315,6 +346,63 @@ def _run_hybrid_assembly(
 
     logger.info(f"Hybrid assembly complete for sample {sample_id}")
     return final_assembly
+
+
+def _short_read_depth(r1: str, r2: str, assembly: str) -> Optional[float]:
+    """Estimated short-read depth over the assembly: total read bases / assembly length.
+    Read bases come from fastp's JSON report next to the trimmed reads when present,
+    otherwise from counting the FASTQs. None if it cannot be determined."""
+    asm_len = sum(len(s) for _, s in _read_fasta(assembly))
+    if not asm_len:
+        return None
+    total = None
+    report = os.path.join(os.path.dirname(r1), "fastp_report.json")
+    if os.path.exists(report):
+        try:
+            with open(report) as f:
+                total = json.load(f)["summary"]["after_filtering"]["total_bases"]
+        except (OSError, ValueError, KeyError) as e:
+            logger.warning(f"Could not read fastp report {report}: {e}")
+    if total is None:
+        total = 0
+        try:
+            for path in (r1, r2):
+                opener = gzip.open if path.endswith(".gz") else open
+                with opener(path, "rt") as f:
+                    for i, line in enumerate(f):
+                        if i % 4 == 1:
+                            total += len(line.rstrip("\n"))
+        except OSError as e:
+            logger.warning(f"Could not count short-read bases: {e}")
+            return None
+    return total / asm_len
+
+
+def _run_pypolca(draft: str, r1: str, r2: str, results_dir: str, threads: int) -> str:
+    """Polish with Pypolca --careful (radar-pypolca env). Returns the polished FASTA,
+    or the draft unchanged if Pypolca fails."""
+    out = os.path.join(results_dir, "pypolca_out")
+    cmd = [
+        "conda", "run", "-n", CONDA_PYPOLCA,
+        "pypolca", "run",
+        "-a", draft, "-1", r1, "-2", r2,
+        "-t", str(threads), "-o", out, "--careful", "--force",
+    ]
+    logger.info(f"Pypolca command: {' '.join(cmd)}")
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        logger.warning(f"Pypolca failed (keeping Polypolish output): {e}")
+        return draft
+    polished = os.path.join(out, "pypolca_corrected.fasta")
+    if result.returncode != 0 or not os.path.exists(polished) or os.path.getsize(polished) == 0:
+        logger.warning(f"Pypolca failed (keeping Polypolish output): {result.stderr[-500:]}")
+        return draft
+    # Drop the large intermediate alignment files
+    for f in os.listdir(out):
+        if f.endswith((".bam", ".bai", ".sam")):
+            os.remove(os.path.join(out, f))
+    return polished
 
 
 def _add_plassembler_plasmids(

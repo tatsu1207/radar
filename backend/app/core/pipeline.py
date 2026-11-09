@@ -491,9 +491,9 @@ def _run_assembly_phase(sample_id: str, job, db, threads: int) -> str:
         job.log += "  Running Chopper (ONT filtering)...\n"
         db.commit()
 
-        from app.core.filtlong import run_filtlong
+        from app.core.chopper import run_chopper
         try:
-            run_filtlong(sample_id, file_paths, db, threads=threads)
+            run_chopper(sample_id, file_paths, db, threads=threads)
             job.log += "    Chopper complete\n"
             db.commit()
         except Exception as e:

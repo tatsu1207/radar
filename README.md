@@ -1,6 +1,6 @@
 # RADAR
 
-**Resistome Analysis, Detection, Assessment & Risk**
+**Resistome Analysis, Detection, Assessment & Research**
 
 A bioinformatics platform for whole-genome sequencing (WGS) based antimicrobial resistance analysis. RADAR takes raw Illumina, ONT, or PacBio sequencing data (or pre-assembled genomes), runs a comprehensive annotation pipeline, then uses machine learning to predict antibiotic resistance phenotypes and compute composite clinical risk scores.
 
@@ -65,7 +65,7 @@ Predictions for these antibiotics should be interpreted with caution, especially
 | Input Type | Files | Pipeline |
 |-----------|-------|----------|
 | Illumina paired-end | `SAMPLE_R1.fastq.gz` + `SAMPLE_R2.fastq.gz` | fastp -> SPAdes -> annotation |
-| Hybrid (Illumina + ONT) | R1 + R2 + `SAMPLE_ONT.fastq.gz` | fastp + Chopper -> Flye -> Plassembler -> dnaapler -> Medaka -> Polypolish -> annotation |
+| Hybrid (Illumina + ONT) | R1 + R2 + `SAMPLE_ONT.fastq.gz` | fastp + Chopper -> Flye -> Plassembler -> dnaapler -> Medaka -> Polypolish -> Pypolca -> annotation |
 | PacBio HiFi | `SAMPLE_PB.fastq.gz` | Flye (--pacbio-hifi) -> Plassembler -> dnaapler -> annotation |
 | ONT only | `SAMPLE_ONT.fastq.gz` | Chopper -> Flye -> Plassembler -> dnaapler -> Medaka -> annotation |
 | Pre-assembled | `SAMPLE.fasta` | annotation only (skips QC + assembly) |
@@ -90,6 +90,7 @@ Also supports SRA accession fetch and BV-BRC genome import.
 |-------|-------|-----------|
 | QC | fastp, Chopper | `radar` |
 | Assembly | SPAdes, Flye, Polypolish | `radar` |
+| Short-read polishing | Pypolca | `radar-pypolca` |
 | Assembly (polish) | Medaka | `radar-medaka` |
 | Assembly QC | QUAST, BUSCO | `radar-quast` / `radar-busco` |
 | Species ID | skani (ANI vs GTDB), 16S BLAST | `radar` |
@@ -185,7 +186,7 @@ Pipeline Worker   Default Worker
 - **Backend**: Python 3.11, FastAPI, SQLAlchemy, Pydantic
 - **Workers**: Celery with Redis broker; pipeline queue (1 at a time) + default queue (parallel)
 - **Database**: PostgreSQL 16
-- **Tools**: 9 conda environments (1 base + 8 separate for dependency conflicts, CPU-only, via `install.sh`)
+- **Tools**: 11 conda environments (1 base + 10 separate for dependency conflicts, CPU-only, via `install.sh`)
 
 ## Project Structure
 
@@ -224,7 +225,7 @@ Creates the conda environments and installs the backend and frontend packages. A
 
 **What it installs:**
 - **Base env (`radar`)**: fastp, Chopper, SPAdes, Flye, Polypolish, AMRFinderPlus (v4.2.7 binary), mlst, skani, IntegronFinder, chewBBACA, minced, DefenseFinder, BLAST, Prodigal, ResFinder, sra-tools, Infernal, PostgreSQL, Redis, the backend Python packages (`backend/requirements.txt`), Node.js (if needed) and BPROM (from `bin/`)
-- **Separate envs**: `radar-sistr` (SISTR/Kleborate/SerotypeFinder), `radar-quast` (QUAST), `radar-mobsuite` (MOB-suite), `radar-mefinder` (MobileElementFinder), `radar-medaka` (Medaka, CPU-only PyTorch), `radar-genomad` (geNomad, CPU-only TensorFlow), `radar-busco` (BUSCO), `radar-plassembler` (Plassembler, dnaapler), `radar-ostir` (OSTIR + ViennaRNA 2.7; ViennaRNA's py3.11 bindings conflict with mlst's Perl in `radar`)
+- **Separate envs**: `radar-sistr` (SISTR/Kleborate/SerotypeFinder), `radar-quast` (QUAST), `radar-mobsuite` (MOB-suite), `radar-mefinder` (MobileElementFinder), `radar-medaka` (Medaka, CPU-only PyTorch), `radar-genomad` (geNomad, CPU-only TensorFlow), `radar-busco` (BUSCO), `radar-plassembler` (Plassembler, dnaapler), `radar-pypolca` (Pypolca), `radar-ostir` (OSTIR + ViennaRNA 2.7; ViennaRNA's py3.11 bindings conflict with mlst's Perl in `radar`)
 - **Frontend**: `npm ci` in `frontend/`
 
 **download_dbs.sh** downloads AMRFinderPlus, geNomad (~3.5 GB), NCBI 16S rRNA, MOB-suite, PointFinder, ResFinder, Rfam, DefenseFinder models, cgMLST schemas, SerotypeFinder and the Plassembler PLSDB database (~0.4 GB). The skani GTDB sketch (~30 GB) is optional and printed as a manual step; without it species are identified by 16S BLAST. BacMet2 and the BUSCO lineage are fetched automatically on first use.
@@ -257,7 +258,7 @@ Runs the full annotation pipeline from the command line. Supports Illumina, hybr
 
 **Pipeline flow:**
 1. **QC**: fastp (Illumina) / Chopper (ONT)
-2. **Assembly**: SPAdes (Illumina) / Flye + Plassembler + Medaka + Polypolish (hybrid) / Flye + Plassembler (+ Medaka for ONT) (long-read). Plassembler recovers small plasmids (< ~20 kb) that Flye misses; only plasmids not already in the Flye assembly are added, before polishing. dnaapler then rotates circular contigs to start at dnaA/repA/terL
+2. **Assembly**: SPAdes (Illumina) / Flye + Plassembler + Medaka + Polypolish + Pypolca (hybrid; Pypolca skipped and Polypolish run with --careful at low short-read depth) / Flye + Plassembler (+ Medaka for ONT) (long-read). Plassembler recovers small plasmids (< ~20 kb) that Flye misses; only plasmids not already in the Flye assembly are added, before polishing. dnaapler then rotates circular contigs to start at dnaA/repA/terL. Flye uses `--asm-coverage 100` (initial assembly from the longest reads up to 100×; all reads used afterwards)
 3. **Assembly QC**: QUAST + BUSCO
 4. **Annotation**: AMRFinderPlus, MOB-recon, MobileElementFinder, IntegronFinder, geNomad, species ID, MLST, serotyping, CRISPR, DefenseFinder, BacMet2, promoter/RBS analysis
 
@@ -272,6 +273,6 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 If you use RADAR in your research, please cite:
 
 ```
-RADAR: Resistome Analysis, Detection, Assessment & Risk.
+RADAR: Resistome Analysis, Detection, Assessment & Research.
 [Citation details to be added upon publication.]
 ```
