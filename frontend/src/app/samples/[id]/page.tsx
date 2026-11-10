@@ -38,8 +38,9 @@ import StatusBadge from '@/components/StatusBadge';
 import ARGTable from '@/components/ARGTable';
 import PlasmidMap from '@/components/PlasmidMap';
 import LinearGenomeMap from '@/components/LinearGenomeMap';
+import ASTPanel from '@/components/ASTPanel';
 
-const TABS = ['Summary', 'Resistance Genes', 'Plasmids', 'Mobile Elements', 'Defense Systems', 'Virulence'] as const;
+const TABS = ['Summary', 'Resistance Genes', 'Plasmids', 'Mobile Elements', 'Defense Systems', 'Virulence', 'AST'] as const;
 
 function downloadTSV(filename: string, headers: string[], rows: (string | number | boolean | null | undefined)[][]) {
   const tsv = [headers.join('\t'), ...rows.map((r) => r.map((v) => v ?? '').join('\t'))].join('\n');
@@ -832,6 +833,9 @@ export default function SampleDetailPage() {
           </div>
         </div>
       )}
+
+      {/* ── AST tab ── */}
+      {tab === 'AST' && <ASTPanel sampleId={sampleId} defaultOrganism={summary?.species || ''} />}
 
       {/* ── Virulence tab ── */}
       {tab === 'Virulence' && (

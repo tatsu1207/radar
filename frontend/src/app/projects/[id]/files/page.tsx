@@ -253,7 +253,14 @@ export default function FileManagerPage() {
       <div className="mb-6 p-4 bg-gray-800/50 border border-gray-700 rounded-lg text-sm text-gray-400">
         <span className="text-gray-300 font-medium">File naming: </span>
         <code className="text-blue-400">SAMPLE_R1.fastq.gz</code> / <code className="text-blue-400">SAMPLE_R2.fastq.gz</code> for Illumina paired-end,{' '}
-        <code className="text-blue-400">SAMPLE.fastq.gz</code> for long reads (ONT/PacBio auto-detected)
+        <code className="text-blue-400">SAMPLE_ONT.fastq.gz</code> for Nanopore,{' '}
+        <code className="text-blue-400">SAMPLE_PB.fastq.gz</code> or <code className="text-blue-400">SAMPLE.bam</code> for PacBio,{' '}
+        <code className="text-blue-400">SAMPLE.fasta</code> for an assembly.
+        <div className="mt-2 text-amber-400/90">
+          ⚠ PacBio HiFi is accepted as <code className="text-amber-300">.bam</code> (unaligned reads) and auto-converted to FASTQ — platform is read from the BAM header, so <code className="text-amber-300">SAMPLE.bam</code> is treated as PacBio.{' '}
+          For FASTQ long reads, tag <code className="text-amber-300">_PB</code> (PacBio) or <code className="text-amber-300">_ONT</code> (Nanopore); an unlabeled <code className="text-amber-300">.fastq.gz</code> may be misread as ONT.{' '}
+          Filenames must <span className="font-medium">not contain spaces</span> — use <code className="text-amber-300">_</code> (e.g. <code className="text-amber-300">ATCC_25922_PB.fastq.gz</code>).
+        </div>
       </div>
 
       {/* Action bar */}

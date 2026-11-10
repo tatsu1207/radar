@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import get_db
-from app.models.models import Sample, AnalysisJob, JobStatus, User
+from app.models.models import Sample, AnalysisJob, JobStatus, SampleStatus, User
 from app.core.auth import get_current_user
 from app.core.ownership import require_sample_owner
 from app.schemas.schemas import AnalysisJobRead, AnalysisRequest
@@ -55,10 +55,15 @@ def start_analysis(
     db.commit()
     db.refresh(job)
 
-    # Dispatch Celery task
+    # Dispatch Celery task.
+    # run_preprocessing is the COMPLETE pipeline (assembly-with-skip + full
+    # annotation: species, MLST, serotype, ARG, plasmid, mobility, integron,
+    # geNomad, cgMLST, DefenseFinder, promoter, RBS, virulence, phenotype,
+    # risk). The older run_pipeline skipped species/MLST/etc., which broke
+    # the Tools/Phenotype pages.
     try:
-        from app.core.pipeline import run_pipeline
-        result = run_pipeline.delay(str(sample_id), str(job.id), threads)
+        from app.core.pipeline import run_preprocessing
+        result = run_preprocessing.delay(str(sample_id), str(job.id), threads)
         job.celery_task_id = result.id
         db.commit()
     except Exception:
@@ -218,29 +223,31 @@ def pipeline_status(db: Session = Depends(get_db), current_user: User = Depends(
 
     result = []
     for s in samples:
-        # Find the latest preprocessing job for this sample
+        # Find the latest pipeline job for this sample (for job_id/log).
+        # NOTE: the analyze endpoint creates jobs with tool="pipeline"; the old
+        # filter looked for "preprocessing" and so never matched, leaving every
+        # sample "not_started" (which broke the Tools sample pickers).
         job = (
             db.query(AnalysisJob)
             .filter(
                 AnalysisJob.sample_id == s.id,
-                AnalysisJob.tool == "preprocessing",
+                AnalysisJob.tool == "pipeline",
             )
             .order_by(AnalysisJob.started_at.desc().nullslast())
             .first()
         )
 
-        status = "not_started"
-        job_id = None
-        log = None
-        if job:
-            job_id = str(job.id)
-            log = job.log
-            if job.status == JobStatus.complete:
-                status = "complete"
-            elif job.status in (JobStatus.running, JobStatus.pending):
-                status = "running"
-            elif job.status == JobStatus.failed:
-                status = "failed"
+        # Derive status from the sample's own status (the source of truth).
+        if s.status == SampleStatus.complete:
+            status = "complete"
+        elif s.status == SampleStatus.failed:
+            status = "failed"
+        elif s.status in (SampleStatus.qc, SampleStatus.assembling, SampleStatus.annotating):
+            status = "running"
+        else:
+            status = "not_started"
+        job_id = str(job.id) if job else None
+        log = job.log if job else None
 
         # Check if QC reports exist
         qc_dir = os.path.join(settings.RESULTS_DIR, str(s.id), "assembly")

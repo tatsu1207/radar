@@ -221,7 +221,7 @@ def get_resistome_for_samples(
     sample_gene_map = {}  # sample_id -> {drug_class -> [genes]}
 
     for s in samples:
-        args = db.query(ARGResult).filter(ARGResult.sample_id == s.id).all()
+        args = db.query(ARGResult).filter(ARGResult.sample_id == s.id, ARGResult.element_type == "AMR").all()
         classes = set()
         gene_map = defaultdict(list)
         for arg in args:
@@ -668,7 +668,7 @@ def get_sample_summary(sample_id: uuid.UUID, db: Session = Depends(get_db), curr
     sero_row = db.query(SerotypeResult).filter(SerotypeResult.sample_id == sample_id).first()
 
     # ARGs
-    args = db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
+    args = db.query(ARGResult).filter(ARGResult.sample_id == sample_id, ARGResult.element_type == "AMR").all()
     arg_genes = [a.gene for a in args]
     drug_classes = sorted(set(dc.strip() for a in args if a.drug_class for dc in a.drug_class.split(";")))
 
@@ -779,6 +779,7 @@ def get_arg_results(
     database: Optional[str] = None,
     min_identity: Optional[float] = None,
     on_plasmid: Optional[bool] = None,
+    include_stress: bool = False,
     db: Session = Depends(get_db),
 ):
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
@@ -786,6 +787,12 @@ def get_arg_results(
         raise HTTPException(status_code=404, detail="Sample not found")
 
     query = db.query(ARGResult).filter(ARGResult.sample_id == sample_id)
+
+    # Show only true antibiotic-resistance genes by default. AMRFinderPlus also
+    # reports STRESS elements (metal/biocide/acid resistance and efflux);
+    # exclude those from the Resistance Genes table unless explicitly requested.
+    if not include_stress:
+        query = query.filter(ARGResult.element_type == "AMR")
 
     if drug_class:
         query = query.filter(ARGResult.drug_class.ilike(f"%{drug_class}%"))
@@ -811,6 +818,28 @@ def get_plasmid_results(sample_id: uuid.UUID, db: Session = Depends(get_db), cur
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
     return db.query(PlasmidResult).filter(PlasmidResult.sample_id == sample_id).all()
+
+
+@router.get("/samples/{sample_id}/integrons")
+def get_integron_results(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Integrons detected by IntegronFinder for a sample."""
+    from app.models.models import IntegronResult
+    sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    if not sample:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    rows = db.query(IntegronResult).filter(IntegronResult.sample_id == sample_id).all()
+    return [
+        {
+            "id": str(r.id),
+            "integron_id": r.integron_id,
+            "integron_type": r.integron_type,
+            "contig": r.contig,
+            "start": r.start,
+            "end": r.end,
+            "cassettes": r.cassettes or [],
+        }
+        for r in rows
+    ]
 
 
 @router.get("/samples/{sample_id}/mobility", response_model=List[MobilityResultRead])
@@ -931,7 +960,7 @@ def get_heatmap_data(project_id: uuid.UUID, db: Session = Depends(get_db), curre
     sample_data: Dict[str, Dict[str, int]] = {}
 
     for sample in samples:
-        args = db.query(ARGResult).filter(ARGResult.sample_id == sample.id).all()
+        args = db.query(ARGResult).filter(ARGResult.sample_id == sample.id, ARGResult.element_type == "AMR").all()
         drug_map: Dict[str, int] = {}
         for arg in args:
             if arg.drug_class:
@@ -1199,7 +1228,7 @@ def get_is_elements(
                 })
 
     # Get ARGs and VFs
-    args = db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
+    args = db.query(ARGResult).filter(ARGResult.sample_id == sample_id, ARGResult.element_type == "AMR").all()
     vfs = db.query(VirulenceResult).filter(VirulenceResult.sample_id == sample_id).all()
 
     def _calc_distance(el_start, el_end, feat_start, feat_end):
@@ -1423,7 +1452,7 @@ def get_linear_map(sample_id: uuid.UUID, db: Session = Depends(get_db), current_
                 })
 
     # ARGs
-    args = db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
+    args = db.query(ARGResult).filter(ARGResult.sample_id == sample_id, ARGResult.element_type == "AMR").all()
     arg_features = {}
     for arg in args:
         if not arg.start or not arg.end:
@@ -1736,6 +1765,7 @@ def get_plasmid_map(sample_id: uuid.UUID, db: Session = Depends(get_db), current
     args = db.query(ARGResult).filter(
         ARGResult.sample_id == sample_id,
         ARGResult.on_plasmid == True,
+        ARGResult.element_type == "AMR",
     ).all()
 
     # Get VFs on plasmid contigs
@@ -1891,7 +1921,7 @@ def export_results_csv(sample_id: uuid.UUID, db: Session = Depends(get_db), curr
         "coverage", "contig", "start", "end", "database", "on_plasmid",
     ])
 
-    args = db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
+    args = db.query(ARGResult).filter(ARGResult.sample_id == sample_id, ARGResult.element_type == "AMR").all()
     for arg in args:
         writer.writerow([
             "ARG", arg.gene, arg.drug_class, arg.mechanism, arg.identity,
@@ -1961,7 +1991,7 @@ def export_sample_annotations_tsv(sample_id: uuid.UUID, db: Session = Depends(ge
     rows = []
 
     # ARGs
-    for a in db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all():
+    for a in db.query(ARGResult).filter(ARGResult.sample_id == sample_id, ARGResult.element_type == "AMR").all():
         rows.append([a.contig or "", _loc(a.contig), a.start or 0, a.end or 0,
                       a.gene, "ARG", a.drug_class or "", a.identity, a.coverage])
 
@@ -2075,7 +2105,7 @@ def download_gene_sequences(
     gene_count = 0
 
     if type in ("arg", "all"):
-        for a in db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all():
+        for a in db.query(ARGResult).filter(ARGResult.sample_id == sample_id, ARGResult.element_type == "AMR").all():
             cid = a.contig.split()[0] if a.contig else ""
             if cid not in contigs or not a.start or not a.end:
                 continue
@@ -2144,7 +2174,7 @@ def export_all_annotations(
                      "contig", "start", "end", "on_plasmid", "on_prophage", "cai", "gene_gc"])
         for sid in ids:
             name = sample_names.get(sid, sid)
-            for a in db.query(ARGResult).filter(ARGResult.sample_id == sid).all():
+            for a in db.query(ARGResult).filter(ARGResult.sample_id == sid, ARGResult.element_type == "AMR").all():
                 w.writerow([name, a.gene, a.drug_class, a.mechanism, a.identity, a.coverage,
                             a.contig, a.start, a.end, a.on_plasmid, a.on_prophage, a.cai, a.gene_gc])
         zf.writestr("args.tsv", out.getvalue())

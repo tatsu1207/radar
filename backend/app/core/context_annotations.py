@@ -286,8 +286,8 @@ def run_integron_finder(sample_id: str, assembly_path: str, db=None, threads: in
                         except (ValueError, IndexError):
                             pass
 
-    # Save to database
-    if db:
+    # Save to database (guard against a non-session being passed positionally)
+    if db is not None and hasattr(db, "query"):
         db.query(IntegronResult).filter(IntegronResult.sample_id == sample_id).delete()
         db.commit()
 
@@ -355,7 +355,7 @@ def annotate_arg_context(sample_id: str, assembly_path: str, db, threads: int = 
 
     # Step 16: IntegronFinder
     try:
-        integrons = run_integron_finder(sample_id, assembly_path, threads)
+        integrons = run_integron_finder(sample_id, assembly_path, db=db, threads=threads)
     except Exception as e:
         logger.warning(f"IntegronFinder failed: {e}")
         integrons = []

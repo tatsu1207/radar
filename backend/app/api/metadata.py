@@ -16,6 +16,7 @@ from app.schemas.schemas import (
     MetadataUpdate,
     ASTResultCreate,
     ASTResultRead,
+    ASTResultUpdate,
 )
 
 router = APIRouter(tags=["metadata"])
@@ -73,6 +74,29 @@ def get_metadata(sample_id: uuid.UUID, db: Session = Depends(get_db), current_us
     return meta
 
 
+def _resolve_organism_host(sample_id: uuid.UUID, db: Session):
+    """Best-effort (organism, host) for a sample, for breakpoint auto-interpretation.
+    organism: pipeline species (skani) else user metadata species.
+    host: metadata animal host mapped to dog/cat/livestock."""
+    from app.models.models import SpeciesResult
+    organism = host = None
+    sr = db.query(SpeciesResult).filter(SpeciesResult.sample_id == sample_id).first()
+    if sr and sr.species:
+        organism = sr.species
+    meta = db.query(Metadata).filter(Metadata.sample_id == sample_id).first()
+    if meta:
+        organism = organism or meta.species
+        h = (meta.host or "").lower()
+        if "dog" in h or "개" in h or "canine" in h:
+            host = "dog"
+        elif "cat" in h or "고양이" in h or "feline" in h:
+            host = "cat"
+        elif any(k in h for k in ("cattle", "cow", "bovine", "pig", "swine", "porcine",
+                                  "chicken", "poultry", "duck", "소", "돼지", "닭", "오리")):
+            host = "livestock"
+    return organism, host
+
+
 @router.post("/samples/{sample_id}/ast", response_model=ASTResultRead, status_code=201)
 def add_ast_result(
     sample_id: uuid.UUID,
@@ -82,12 +106,29 @@ def add_ast_result(
 ):
     sample = require_sample_owner(sample_id, current_user, db)
 
+    sir = payload.sir
+    # auto-interpret from MIC + editable breakpoints when SIR wasn't supplied
+    if not sir and payload.mic:
+        from app.core.breakpoints import interpret_mic
+        organism = payload.organism
+        host = payload.host
+        if not organism:
+            organism, auto_host = _resolve_organism_host(sample_id, db)
+            host = host or auto_host
+        sir, _bp = interpret_mic(db, organism or "", payload.antibiotic, payload.mic, host)
+    if not sir:
+        raise HTTPException(
+            status_code=422,
+            detail="Could not determine S/I/R: provide 'sir' explicitly, or a MIC with a "
+                   "matching breakpoint for the sample's organism.",
+        )
+
     ast = ASTResult(
         sample_id=sample_id,
         antibiotic=payload.antibiotic,
         method=payload.method,
         mic=payload.mic,
-        sir=SIR(payload.sir),
+        sir=SIR(sir),
     )
     db.add(ast)
     db.commit()
@@ -101,6 +142,177 @@ def list_ast_results(sample_id: uuid.UUID, db: Session = Depends(get_db), curren
     if not sample:
         raise HTTPException(status_code=404, detail="Sample not found")
     return db.query(ASTResult).filter(ASTResult.sample_id == sample_id).all()
+
+
+@router.put("/samples/{sample_id}/ast/{ast_id}", response_model=ASTResultRead)
+def update_ast_result(
+    sample_id: uuid.UUID,
+    ast_id: uuid.UUID,
+    payload: ASTResultUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_sample_owner(sample_id, current_user, db)
+    ast = db.query(ASTResult).filter(ASTResult.id == ast_id, ASTResult.sample_id == sample_id).first()
+    if not ast:
+        raise HTTPException(status_code=404, detail="AST result not found")
+    if payload.antibiotic is not None:
+        ast.antibiotic = payload.antibiotic
+    if payload.method is not None:
+        ast.method = payload.method
+    if payload.mic is not None:
+        ast.mic = payload.mic
+    if payload.sir is not None:
+        ast.sir = SIR(payload.sir)
+    db.commit()
+    db.refresh(ast)
+    return ast
+
+
+@router.delete("/samples/{sample_id}/ast/{ast_id}", status_code=204)
+def delete_ast_result(
+    sample_id: uuid.UUID,
+    ast_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_sample_owner(sample_id, current_user, db)
+    ast = db.query(ASTResult).filter(ASTResult.id == ast_id, ASTResult.sample_id == sample_id).first()
+    if not ast:
+        raise HTTPException(status_code=404, detail="AST result not found")
+    db.delete(ast)
+    db.commit()
+
+
+def _parse_sir(value) -> str | None:
+    """Normalize a cell to S/I/R, accepting full words. Returns None if blank/invalid."""
+    import pandas as _pd
+    if value is None or (isinstance(value, float) and _pd.isna(value)):
+        return None
+    v = str(value).strip().upper()
+    if v in ("", "NA", "N/A", "-", "ND"):
+        return None
+    if v in ("S", "I", "R"):
+        return v
+    if v.startswith("SUSCEPT"):
+        return "S"
+    if v.startswith("INTERMED"):
+        return "I"
+    if v.startswith("RESIST"):
+        return "R"
+    return None  # unrecognized
+
+
+@router.post("/ast/upload", status_code=200)
+async def bulk_upload_ast(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Bulk-import AST (phenotype) results from CSV/TSV/Excel.
+
+    First column must be SAMPLE (matches sample name). Two layouts are accepted:
+      - LONG: columns SAMPLE, antibiotic, [method], [mic], sir
+      - WIDE: SAMPLE + one column per antibiotic, each cell = S/I/R
+    Existing (sample, antibiotic) entries are updated (upsert), not duplicated.
+    """
+    import pandas as pd
+    content = await file.read()
+    filename = file.filename or ""
+    try:
+        if filename.endswith((".xlsx", ".xls")):
+            df = pd.read_excel(io.BytesIO(content))
+        else:
+            df = pd.read_csv(io.BytesIO(content), sep="\t")
+            if len(df.columns) <= 1:
+                df = pd.read_csv(io.BytesIO(content))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not parse file: {str(e)}")
+
+    col_map = {c.lower().strip(): c for c in df.columns}
+    sample_col = col_map.get("sample") or col_map.get("sample_name") or col_map.get("sample_id")
+    if not sample_col:
+        raise HTTPException(status_code=400, detail=f"File must contain a 'SAMPLE' column. Found: {list(df.columns)}")
+
+    is_long = "antibiotic" in col_map
+    meta_cols = {sample_col.lower(), "sample", "sample_name", "sample_id", "antibiotic", "method", "mic", "sir"}
+
+    def upsert(sample, antibiotic, sir, method=None, mic=None):
+        antibiotic = str(antibiotic).strip()
+        existing = db.query(ASTResult).filter(
+            ASTResult.sample_id == sample.id, ASTResult.antibiotic.ilike(antibiotic)
+        ).first()
+        if existing:
+            existing.sir = SIR(sir)
+            if method is not None:
+                existing.method = method
+            if mic is not None:
+                existing.mic = mic
+        else:
+            db.add(ASTResult(sample_id=sample.id, antibiotic=antibiotic, method=method, mic=mic, sir=SIR(sir)))
+
+    imported, skipped, errors = 0, 0, []
+    samples_seen = set()
+    for _, row in df.iterrows():
+        sample_name = str(row[sample_col]).strip()
+        if not sample_name or sample_name.lower() == "nan":
+            continue
+        sample = db.query(Sample).filter(Sample.name == sample_name).first()
+        if not sample:
+            errors.append(f"Sample '{sample_name}' not found")
+            continue
+        samples_seen.add(sample_name)
+
+        if is_long:
+            sir = _parse_sir(row.get(col_map.get("sir", "sir")))
+            abx = row.get(col_map["antibiotic"])
+            if abx is None or str(abx).strip().lower() in ("", "nan"):
+                continue
+            if sir is None:
+                errors.append(f"{sample_name}/{abx}: invalid S/I/R")
+                skipped += 1
+                continue
+            method = row.get(col_map["method"]) if "method" in col_map else None
+            mic = row.get(col_map["mic"]) if "mic" in col_map else None
+            method = None if (method is None or pd.isna(method)) else str(method).strip()
+            mic = None if (mic is None or pd.isna(mic)) else str(mic).strip()
+            upsert(sample, abx, sir, method, mic)
+            imported += 1
+        else:
+            for col in df.columns:
+                if col.lower().strip() in meta_cols:
+                    continue
+                sir = _parse_sir(row[col])
+                if sir is None:
+                    continue  # blank cell = not tested
+                upsert(sample, col, sir)
+                imported += 1
+
+    db.commit()
+    return {"imported": imported, "skipped": skipped, "samples": len(samples_seen), "errors": errors[:50]}
+
+
+@router.get("/ast/all")
+def list_all_ast(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """All AST results across samples, with sample name (for the AST page)."""
+    rows = (
+        db.query(ASTResult, Sample.name)
+        .join(Sample, ASTResult.sample_id == Sample.id)
+        .order_by(Sample.name, ASTResult.antibiotic)
+        .all()
+    )
+    return [
+        {
+            "id": str(a.id),
+            "sample_id": str(a.sample_id),
+            "sample_name": name,
+            "antibiotic": a.antibiotic,
+            "method": a.method,
+            "mic": a.mic,
+            "sir": a.sir.value if hasattr(a.sir, "value") else a.sir,
+        }
+        for a, name in rows
+    ]
 
 
 @router.post("/projects/{project_id}/metadata/import", status_code=200)

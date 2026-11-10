@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 from typing import List
 
@@ -59,7 +60,10 @@ async def upload_files(
                        f"Allowed: {settings.ALLOWED_EXTENSIONS}",
             )
 
-        dest_path = os.path.join(upload_dir, upload_file.filename)
+        # Sanitize the stored name (tools like Flye reject paths with spaces);
+        # the original name is kept below as original_filename for display.
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", os.path.basename(upload_file.filename)).strip("_") or "file"
+        dest_path = os.path.join(upload_dir, safe_name)
         content = await upload_file.read()
 
         if len(content) > settings.MAX_UPLOAD_SIZE:

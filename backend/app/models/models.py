@@ -692,3 +692,29 @@ class MLPhenotypePrediction(Base):
     sample = relationship("Sample", back_populates="ml_predictions")
 
 
+class Breakpoint(Base):
+    """Editable AST interpretation breakpoint (MIC -> S/I/R) for an organism x antibiotic.
+
+    Seeded from the APQA monitoring panel, which supplies only a single resistant
+    cutoff (MIC >= resistant_min -> R). susceptible_max / intermediate_min are left
+    null until a user fills them in for full three-way S/I/R calls. host distinguishes
+    rows that share organism+antibiotic but differ by host (e.g. dog vs cat).
+    """
+    __tablename__ = "breakpoints"
+
+    id = Column(UUID, primary_key=True, default=uuid.uuid4)
+    organism = Column(String(255), nullable=False)           # e.g. "Escherichia coli"
+    host = Column(String(100), nullable=True)                # livestock | companion | dog | cat | ...
+    antibiotic = Column(String(255), nullable=False)
+    abbreviation = Column(String(50), nullable=True)
+    subclass = Column(String(255), nullable=True)
+    susceptible_max = Column(Float, nullable=True)           # MIC <= this -> S
+    intermediate_min = Column(Float, nullable=True)          # MIC >= this (and < resistant_min) -> I
+    resistant_min = Column(Float, nullable=True)             # MIC >= this -> R
+    unit = Column(String(20), nullable=True, default="µg/mL")
+    source = Column(String(255), nullable=True)              # e.g. "APQA 2024 panel"
+    notes = Column(Text, nullable=True)                      # qualifiers that don't fit a cutoff (ND, "disk re-test", ...)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+

@@ -117,8 +117,9 @@ export interface ASTResult {
   id: string;
   sample_id: string;
   antibiotic: string;
-  mic: string;
-  interpretation: 'S' | 'I' | 'R';
+  method?: string | null;
+  mic?: string | null;
+  sir: 'S' | 'I' | 'R';
 }
 
 export interface PhenotypeComparison {
@@ -436,12 +437,98 @@ export async function getAST(sampleId: string): Promise<ASTResult[]> {
 
 export async function addAST(
   sampleId: string,
-  data: { antibiotic: string; mic: string; interpretation: string }
+  data: { antibiotic: string; method?: string; mic?: string; sir?: string; organism?: string; host?: string }
 ): Promise<ASTResult> {
   return fetchAPI<ASTResult>(`/api/samples/${sampleId}/ast`, {
     method: 'POST',
     body: JSON.stringify(data),
   });
+}
+
+export async function deleteAST(sampleId: string, astId: string): Promise<void> {
+  await fetchAPI<void>(`/api/samples/${sampleId}/ast/${astId}`, {
+    method: 'DELETE',
+  });
+}
+
+// ── Breakpoints (editable MIC -> S/I/R cutoffs) ──────────────────────────────
+
+export interface Breakpoint {
+  id: string;
+  organism: string;
+  host?: string | null;
+  antibiotic: string;
+  abbreviation?: string | null;
+  subclass?: string | null;
+  susceptible_max?: number | null;
+  intermediate_min?: number | null;
+  resistant_min?: number | null;
+  unit?: string | null;
+  source?: string | null;
+  notes?: string | null;
+}
+
+export interface OrganismPanel {
+  organism: string;
+  hosts: string[];
+  antibiotics: { antibiotic: string; abbreviation?: string | null; subclass?: string | null }[];
+}
+
+export interface InterpretResult {
+  sir: 'S' | 'I' | 'R' | null;
+  breakpoint_id?: string | null;
+  resistant_min?: number | null;
+  matched_organism?: string | null;
+  matched_host?: string | null;
+}
+
+export async function getBreakpoints(params?: { organism?: string; host?: string; antibiotic?: string }): Promise<Breakpoint[]> {
+  const q = new URLSearchParams(Object.entries(params || {}).filter(([, v]) => v) as [string, string][]).toString();
+  return fetchAPI<Breakpoint[]>(`/api/breakpoints${q ? `?${q}` : ''}`);
+}
+
+export async function getBreakpointOrganisms(): Promise<OrganismPanel[]> {
+  return fetchAPI<OrganismPanel[]>('/api/breakpoints/organisms');
+}
+
+export async function createBreakpoint(data: Partial<Breakpoint>): Promise<Breakpoint> {
+  return fetchAPI<Breakpoint>('/api/breakpoints', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function updateBreakpoint(id: string, data: Partial<Breakpoint>): Promise<Breakpoint> {
+  return fetchAPI<Breakpoint>(`/api/breakpoints/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export async function deleteBreakpoint(id: string): Promise<void> {
+  await fetchAPI<void>(`/api/breakpoints/${id}`, { method: 'DELETE' });
+}
+
+export async function interpretMIC(data: { organism: string; antibiotic: string; mic: string; host?: string }): Promise<InterpretResult> {
+  return fetchAPI<InterpretResult>('/api/breakpoints/interpret', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function importAST(
+  file: File
+): Promise<{ imported: number; skipped: number; samples: number; errors: string[] }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch('/api/ast/upload', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: formData,
+  });
+  if (!res.ok) {
+    throw new APIError(await res.text().catch(() => 'Import failed'), res.status);
+  }
+  return res.json();
+}
+
+export interface ASTRow extends ASTResult {
+  sample_name: string;
+}
+
+export async function getAllAST(): Promise<ASTRow[]> {
+  return fetchAPI<ASTRow[]>('/api/ast/all');
 }
 
 // ML Phenotype Predictions

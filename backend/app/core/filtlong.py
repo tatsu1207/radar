@@ -1,5 +1,6 @@
 import logging
 import os
+import shlex
 import subprocess
 
 from app.config import settings
@@ -57,11 +58,12 @@ def run_filtlong(sample_id: str, input_files: list[str], db=None, threads: int =
 
     output_path = os.path.join(results_dir, "filtered_long.fastq.gz")
 
-    # chopper -i reads gzip natively; pipe output through gzip
+    # chopper -i reads gzip natively; pipe output through gzip.
+    # Paths are shell-quoted so spaces/metacharacters in filenames don't break the command.
     full_cmd = (
         f"set -o pipefail; "
-        f"conda run -n {CONDA_ENV} chopper -q 10 --minlength 1000 --threads {threads} -i {long_file} "
-        f"| gzip > {output_path}"
+        f"conda run -n {CONDA_ENV} chopper -q 10 --minlength 1000 --threads {threads} -i {shlex.quote(long_file)} "
+        f"| gzip > {shlex.quote(output_path)}"
     )
 
     logger.info(f"Chopper command: {full_cmd}")

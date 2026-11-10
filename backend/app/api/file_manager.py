@@ -1,6 +1,7 @@
 import gzip
 import os
 import re
+import subprocess
 import uuid
 import io
 from datetime import datetime
@@ -197,13 +198,62 @@ def _estimate_progress(log: str) -> int:
     return progress
 
 
+def _safe_filename(filename: str) -> str:
+    """Sanitize a filename for on-disk storage.
+
+    Bioinformatics tools (notably Flye) reject paths containing spaces, and
+    shell-interpolated commands break on other metacharacters. Replace any run
+    of non [A-Za-z0-9._-] characters with a single underscore. The original
+    name is preserved separately as SampleFile.original_filename for display.
+    """
+    base = os.path.basename(filename or "")
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", base).strip("_") or "file"
+    return safe
+
+
 def _strip_extensions(filename: str) -> str:
     """Remove known sequencing file extensions."""
     base = filename
-    for ext in [".fastq.gz", ".fq.gz", ".fastq", ".fq", ".fasta", ".fa", ".fna"]:
+    for ext in [".fastq.gz", ".fq.gz", ".fastq", ".fq", ".fasta", ".fa", ".fna", ".bam"]:
         if base.lower().endswith(ext):
             return base[: len(base) - len(ext)]
     return base
+
+
+def _detect_platform_from_bam(file_path: str) -> Optional[SequencingPlatform]:
+    """Read the BAM @RG header to determine the sequencing platform.
+
+    PacBio HiFi/CLR and ONT reads are commonly delivered as unaligned BAM.
+    The read-group PL: tag (and PM:/DS: for PacBio) identifies the platform.
+    """
+    try:
+        result = subprocess.run(
+            ["samtools", "view", "-H", file_path],
+            capture_output=True, text=True, timeout=120,
+        )
+        header = result.stdout or ""
+        for line in header.splitlines():
+            if not line.startswith("@RG"):
+                continue
+            fields = line.split("\t")
+            pl = ""
+            for f in fields:
+                if f.startswith("PL:"):
+                    pl = f[3:].upper()
+            if "PACBIO" in pl or pl == "PB":
+                return SequencingPlatform.pacbio
+            if "ONT" in pl or "NANOPORE" in pl:
+                return SequencingPlatform.ont
+        # Fallback: PacBio read names look like @m64011.../ccs or @m84...
+        rn = subprocess.run(
+            ["samtools", "view", file_path],
+            capture_output=True, text=True, timeout=120,
+        ).stdout[:200]
+        if re.match(r"^m\d+[_e]\d+", rn):
+            return SequencingPlatform.pacbio
+    except Exception:
+        pass
+    return None
 
 
 def _parse_filename(filename: str) -> Tuple[str, PairType, Optional[SequencingPlatform]]:
@@ -247,7 +297,13 @@ def _parse_filename(filename: str) -> Tuple[str, PairType, Optional[SequencingPl
     if m:
         return m.group(1), PairType.long_read, SequencingPlatform.pacbio
 
-    # No suffix -> long read (platform auto-detected from FASTQ headers)
+    # No suffix -> long read. BAM is used for PacBio HiFi; default an unlabeled
+    # .bam to PacBio (the pipeline re-confirms/corrects the platform from the
+    # BAM @RG header before assembly).
+    if lower.endswith(".bam"):
+        return base, PairType.long_read, SequencingPlatform.pacbio
+
+    # FASTQ with no suffix -> platform auto-detected from content
     return base, PairType.long_read, None
 
 
@@ -424,7 +480,7 @@ async def global_upload_files(
 
         upload_dir = os.path.join(settings.UPLOAD_DIR, str(sample.id))
         os.makedirs(upload_dir, exist_ok=True)
-        dest_path = os.path.join(upload_dir, upload_file.filename)
+        dest_path = os.path.join(upload_dir, _safe_filename(upload_file.filename))
 
         content = await upload_file.read()
         with open(dest_path, "wb") as f:
@@ -527,7 +583,7 @@ def global_register_server_paths(
 
         upload_dir = os.path.join(settings.UPLOAD_DIR, str(sample.id))
         os.makedirs(upload_dir, exist_ok=True)
-        dest_path = os.path.join(upload_dir, filename)
+        dest_path = os.path.join(upload_dir, _safe_filename(filename))
 
         if os.path.exists(dest_path):
             os.remove(dest_path)
@@ -780,7 +836,7 @@ async def upload_files(
         # Save file
         upload_dir = os.path.join(settings.UPLOAD_DIR, str(sample.id))
         os.makedirs(upload_dir, exist_ok=True)
-        dest_path = os.path.join(upload_dir, upload_file.filename)
+        dest_path = os.path.join(upload_dir, _safe_filename(upload_file.filename))
 
         content = await upload_file.read()
         with open(dest_path, "wb") as f:
@@ -924,7 +980,7 @@ def register_server_paths(
         # Link or copy file to upload directory
         upload_dir = os.path.join(settings.UPLOAD_DIR, str(sample.id))
         os.makedirs(upload_dir, exist_ok=True)
-        dest_path = os.path.join(upload_dir, filename)
+        dest_path = os.path.join(upload_dir, _safe_filename(filename))
 
         if os.path.exists(dest_path):
             os.remove(dest_path)

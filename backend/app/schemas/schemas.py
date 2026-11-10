@@ -114,7 +114,9 @@ class ASTResultCreate(BaseModel):
     antibiotic: str
     method: Optional[str] = None
     mic: Optional[str] = None
-    sir: str
+    sir: Optional[str] = None          # omit to auto-interpret from mic + breakpoints
+    organism: Optional[str] = None     # override the sample's organism for interpretation
+    host: Optional[str] = None         # dog/cat/livestock/... for host-specific breakpoints
 
 
 class ASTResultRead(BaseModel):
@@ -133,6 +135,60 @@ class ASTResultUpdate(BaseModel):
     method: Optional[str] = None
     mic: Optional[str] = None
     sir: Optional[str] = None
+
+
+# ── Breakpoint (editable MIC -> S/I/R cutoffs) ───────────────────────────────
+
+class BreakpointBase(BaseModel):
+    organism: str
+    host: Optional[str] = None
+    antibiotic: str
+    abbreviation: Optional[str] = None
+    subclass: Optional[str] = None
+    susceptible_max: Optional[float] = None
+    intermediate_min: Optional[float] = None
+    resistant_min: Optional[float] = None
+    unit: Optional[str] = "µg/mL"
+    source: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class BreakpointCreate(BreakpointBase):
+    pass
+
+
+class BreakpointUpdate(BaseModel):
+    organism: Optional[str] = None
+    host: Optional[str] = None
+    antibiotic: Optional[str] = None
+    abbreviation: Optional[str] = None
+    subclass: Optional[str] = None
+    susceptible_max: Optional[float] = None
+    intermediate_min: Optional[float] = None
+    resistant_min: Optional[float] = None
+    unit: Optional[str] = None
+    source: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class BreakpointRead(BreakpointBase):
+    id: uuid.UUID
+    model_config = {"from_attributes": True}
+
+
+class InterpretRequest(BaseModel):
+    organism: str
+    antibiotic: str
+    mic: str
+    host: Optional[str] = None
+
+
+class InterpretResponse(BaseModel):
+    sir: Optional[str] = None
+    breakpoint_id: Optional[uuid.UUID] = None
+    resistant_min: Optional[float] = None
+    matched_organism: Optional[str] = None
+    matched_host: Optional[str] = None
 
 
 # ── ARGResult ────────────────────────────────────────────────────────────────

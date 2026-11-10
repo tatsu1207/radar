@@ -18,6 +18,7 @@ class Settings(BaseSettings):
         ".fasta",
         ".fa",
         ".fna",
+        ".bam",
     ]
 
     JWT_SECRET_KEY: str = secrets.token_urlsafe(32)
