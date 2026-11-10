@@ -252,6 +252,19 @@ else
     echo "  SKIP  radar-plassembler (already exists)"
 fi
 
+# NanoPlot: long-read QC report (read length/quality plots + NanoStats.txt) for ONT/PacBio.
+if ! conda env list 2>/dev/null | grep -qE "^radar-nanoplot\s"; then
+    echo -n "  ...   radar-nanoplot"
+    if mamba create -n radar-nanoplot -y -c conda-forge -c bioconda "nanoplot=1.48.0" > /tmp/radar_install_radar-nanoplot.log 2>&1; then
+        echo -e "\r  OK    radar-nanoplot"
+    else
+        echo -e "\r  FAIL  radar-nanoplot (see /tmp/radar_install_radar-nanoplot.log)"
+        FAIL=1
+    fi
+else
+    echo "  SKIP  radar-nanoplot (already exists)"
+fi
+
 # Pypolca: short-read polishing after Polypolish (hybrid assembly). Needs freebayes,
 # bwa and samtools, so it gets its own env.
 if ! conda env list 2>/dev/null | grep -qE "^radar-pypolca\s"; then
@@ -344,7 +357,7 @@ echo "              defense-finder, integron_finder, chewbbaca, resfinder,"
 echo "              AMRFinderPlus, BPROM, backend requirements, nodejs)"
 echo "    Separate: radar-sistr, radar-quast, radar-mobsuite,"
 echo "              radar-mefinder, radar-medaka, radar-genomad, radar-busco,"
-echo "              radar-plassembler, radar-pypolca, radar-ostir"
+echo "              radar-plassembler, radar-pypolca, radar-nanoplot, radar-ostir"
 echo ""
 echo "  Next step: download databases"
 echo "    ./databases/download_dbs.sh"

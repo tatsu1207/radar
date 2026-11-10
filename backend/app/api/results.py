@@ -1916,6 +1916,17 @@ def export_results_csv(sample_id: uuid.UUID, db: Session = Depends(get_db), curr
 @router.get("/samples/{sample_id}/export-all")
 def export_sample_annotations_tsv(sample_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Export all annotation results for a single sample as one TSV file."""
+    filename, text = build_sample_annotations_tsv(sample_id, db)
+    return StreamingResponse(
+        iter([text]),
+        media_type="text/tab-separated-values",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+def build_sample_annotations_tsv(sample_id: uuid.UUID, db: Session) -> tuple:
+    """All annotation results for one sample as one TSV. Returns (filename, text).
+    Raises HTTPException(404) if the sample does not exist."""
     from app.models.models import (
         SpeciesResult, MLSTResult, PlasmidResult,
         ProphageResult, IntegronResult, CRISPRResult, DefenseFinderResult,
@@ -2024,12 +2035,7 @@ def export_sample_annotations_tsv(sample_id: uuid.UUID, db: Session = Depends(ge
             row[3] = ""
         w.writerow(row)
 
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/tab-separated-values",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
-    )
+    return filename, output.getvalue()
 
 
 # ── Gene sequence download ─────────────────────────────────────────────────

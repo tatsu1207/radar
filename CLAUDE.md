@@ -74,7 +74,7 @@ radar/
 
 Based on the research methodology. For FASTQ input all steps run. For FASTA input (including BV-BRC pre-assembled), steps 1-3 are skipped.
 
-1. **QC** - fastp: adapter trimming, quality filtering (Illumina); Chopper: ONT long-read quality filtering and trimming
+1. **QC** - fastp: adapter trimming, quality filtering (Illumina); Chopper: ONT long-read quality filtering and trimming; NanoPlot (`core/nanoplot.py`, `radar-nanoplot` env, non-critical): long-read QC report on the uploaded reads (ONT and PacBio) and, for ONT, on the Chopper-filtered reads → `qc/nanoplot_{raw,filtered}/NanoPlot-report.html` (self-contained; plotly from CDN) + `NanoStats.txt`. Also a single-step tool `nanoplot` (Analysis page) to make reports for existing samples
 2. **Assembly** - four supported input types:
    - Illumina-only: SPAdes
    - ONT-only: Flye (--nano-hq) → Plassembler → dnaapler → Medaka
@@ -98,7 +98,7 @@ Based on the research methodology. For FASTQ input all steps run. For FASTA inpu
 
 External tools are launched with `app.core.proc.run` (drop-in for `subprocess.run`), never `subprocess.run` directly: tools start via `conda run`/`bash -c`, so a plain `subprocess.run(timeout=...)` kills only the launcher and leaves the tool running orphaned. `proc.run` starts each command in its own process group and kills the whole group on timeout (SIGTERM, then SIGKILL after 10 s); for `Popen`, use `start_new_session=True` + `proc.kill_group()` (see `sra.py`).
 
-All tools run on CPU only (no GPU required). Installed via `install.sh` into 11 conda environments:
+All tools run on CPU only (no GPU required). Installed via `install.sh` into 12 conda environments:
 
 **Base environment (`radar`) — Python >=3.11,<3.13:**
 
@@ -135,6 +135,7 @@ All tools run on CPU only (no GPU required). Installed via `install.sh` into 11 
 | radar-genomad | geNomad | 3.10 | CPU-only TensorFlow |
 | radar-busco | BUSCO | 3.10 | Complex deps (hmmer, prodigal, bbmap + pip from gitlab) |
 | radar-pypolca | Pypolca 0.5.0 | — | Needs freebayes/bwa/samtools; short-read polishing after Polypolish |
+| radar-nanoplot | NanoPlot 1.48.0 | — | Long-read QC report (own plotting stack) |
 
 **Installed from binary (optional):**
 
@@ -191,6 +192,20 @@ Known columns map to Metadata model fields; extra columns go into `custom_json`.
 | `/api/projects/{id}/file-manager/bvbrc` | GET | List BV-BRC fetch jobs + status |
 | `/api/projects/{id}/file-manager/files/{file_id}` | DELETE | Remove a single file |
 | `/api/projects/{id}/file-manager/samples/{sample_id}` | DELETE | Remove sample + all files |
+
+## Sample Downloads & Read QC (`backend/app/api/downloads.py`)
+
+The sample page has a Read QC card (fastp and/or NanoPlot stats + reports) and a **Downloads** tab.
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/samples/{id}/files` | GET | Downloadable items grouped (reads, read QC, assembly/QUAST/BUSCO, annotation TSV, results ZIP) + NanoPlot stats (`read_qc`) |
+| `/api/samples/{id}/files/{key}/link` | POST | Short-lived (10 min) signed URL for one item; `{"inline": true}` opens an HTML report in the browser |
+| `/api/download/{token}` | GET | Streams the file (no Authorization header needed) |
+
+Downloads use signed links because a plain `<a href>` cannot send the Bearer header and fetching multi-GB FASTQs into a blob exhausts browser memory. The link token has `purpose: sample-download` and no `sub`, so it is rejected as a login token. Items come from a per-sample whitelist (`_catalog`); keys are never paths. The results ZIP excludes reads. Starlette 0.36 `FileResponse` ignores Range, so interrupted downloads restart.
+
+Sample lists: the Files and Annotation pages have sortable columns (`components/SortableHeader.tsx`, `lib/sort.ts`, natural sort, choice remembered in localStorage) and search; sample names link to `/samples/{id}`.
 
 ## Database Models
 

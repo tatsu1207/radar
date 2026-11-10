@@ -387,6 +387,39 @@ def run_annotation_only(self, sample_id: str, job_id: str, threads: int = 4):
         db.close()
 
 
+def _run_nanoplot_reports(sample_id: str, input_files, job, db, threads: int, force: bool = False):
+    """NanoPlot read-QC reports for long reads (non-critical): raw reads, plus the
+    Chopper-filtered reads for ONT. Skips a report that already exists unless force."""
+    import os
+    from app.core.nanoplot import run_nanoplot, report_path
+    from app.models.models import SequencingPlatform
+
+    long_files = [f for f in input_files if f.pair == PairType.long_read]
+    if not long_files:
+        job.log += "  NanoPlot — skipped (no long reads)\n"
+        db.commit()
+        return
+    stages = [("raw", long_files[0].file_path)]
+    if long_files[0].platform != SequencingPlatform.pacbio:
+        filtered = os.path.join(settings.RESULTS_DIR, str(sample_id), "qc", "filtered_long.fastq.gz")
+        stages.append(("filtered", filtered))
+    for stage, fastq in stages:
+        if not os.path.exists(fastq):
+            continue
+        if not force and os.path.exists(report_path(sample_id, stage)):
+            job.log += f"  NanoPlot ({stage} reads) — skipped (report exists)\n"
+            db.commit()
+            continue
+        job.log += f"  Running NanoPlot ({stage} long reads)...\n"
+        db.commit()
+        try:
+            run_nanoplot(sample_id, fastq, stage, threads=threads)
+            job.log += "    NanoPlot complete\n"
+        except Exception as e:
+            job.log += f"    NanoPlot failed (non-critical): {e}\n"
+        db.commit()
+
+
 def _run_assembly_phase(sample_id: str, job, db, threads: int) -> str:
     """Phase 1: QC + Assembly. Returns assembly path.
 
@@ -506,6 +539,10 @@ def _run_assembly_phase(sample_id: str, job, db, threads: int) -> str:
     elif has_long_read and long_read_platform == "pacbio":
         job.log += "  Chopper — skipped (PacBio HiFi reads)\n"
         db.commit()
+
+    # NanoPlot read-QC reports for long reads (raw, and after Chopper for ONT)
+    if has_long_read:
+        _run_nanoplot_reports(sample_id, input_files, job, db, threads)
 
     # Genome assembly
     if os.path.exists(existing_assembly):
@@ -900,7 +937,10 @@ def run_single_step(self, sample_id: str, job_id: str, tool: str, threads: int =
         input_files = db.query(SampleFile).filter(SampleFile.sample_id == sample_id).all()
         file_paths = [f.file_path for f in input_files]
 
-        if tool == "fastp":
+        if tool == "nanoplot":
+            _run_nanoplot_reports(sample_id, input_files, job, db, threads, force=True)
+
+        elif tool == "fastp":
             from app.core.qc import run_fastp
             run_fastp(sample_id, file_paths, db, threads=threads)
             job.log += "fastp QC complete\n"
