@@ -88,18 +88,36 @@ for _pattern, (_dc, _drugs) in PHENOTYPE_RULES.items():
             ANTIBIOTIC_TO_CLASS[_drug] = _dc
 
 
-def predict_phenotype(sample_id: str, db) -> Dict[str, str]:
+def run_phenotype_prediction(sample_id: str, db) -> Dict[str, str]:
+    """Run ML phenotype prediction, falling back to rules when no model applies.
+
+    Both paths replace any earlier predictions, so a sample whose first run
+    fell back to rules (e.g. species unresolved) gets ML predictions on re-run.
+    """
+    from app.core.ml_phenotype import run_ml_phenotype
+
+    try:
+        ml_preds = run_ml_phenotype(sample_id, db)
+    except Exception as e:
+        logger.warning(f"ML phenotype prediction failed for sample {sample_id}: {e}")
+        db.rollback()
+        ml_preds = []
+    return predict_phenotype(sample_id, db, save_fallback=not ml_preds)
+
+
+def predict_phenotype(sample_id: str, db, save_fallback: bool = False) -> Dict[str, str]:
     """Predict antibiotic resistance phenotype from detected ARGs.
 
     Uses gene name pattern matching against PHENOTYPE_RULES to predict
     which antibiotics the sample is likely resistant to.
 
-    If ML models have not produced predictions for this sample, saves
-    rule-based results to MLPhenotypePrediction table as fallback.
+    With save_fallback, replaces the sample's MLPhenotypePrediction rows
+    with the rule-based results (used when no ML model applies).
 
     Args:
         sample_id: UUID of the sample
         db: SQLAlchemy session
+        save_fallback: write the rule-based results to MLPhenotypePrediction
 
     Returns:
         Dict mapping antibiotic name to predicted SIR value ("R" or "S")
@@ -137,12 +155,11 @@ def predict_phenotype(sample_id: str, db) -> Dict[str, str]:
         f"{sum(1 for v in predictions.values() if v == 'S')} susceptible"
     )
 
-    # Save to MLPhenotypePrediction as fallback if ML models didn't run
-    existing_ml = db.query(MLPhenotypePrediction).filter(
-        MLPhenotypePrediction.sample_id == sample_id
-    ).first()
-    if not existing_ml:
-        logger.info(f"No ML predictions found, saving rule-based predictions to DB")
+    if save_fallback:
+        logger.info(f"No ML predictions, saving rule-based predictions to DB")
+        db.query(MLPhenotypePrediction).filter(
+            MLPhenotypePrediction.sample_id == sample_id
+        ).delete()
         for ab, sir in predictions.items():
             is_resistant = sir == "R"
             pred = MLPhenotypePrediction(

@@ -10,7 +10,6 @@ Klebsiella pneumoniae, Staphylococcus aureus, Acinetobacter baumannii.
 import json
 import logging
 import os
-from collections import defaultdict
 from typing import Dict, List, Optional
 
 import joblib
@@ -126,8 +125,11 @@ def _resolve_species(sample_id: str, db) -> Optional[str]:
     return None
 
 
-def _extract_features_for_antibiotic(sample_id: str, antibiotic: str, drug_class: str, all_args, db) -> dict:
+def _extract_features_for_antibiotic(sample_id: str, antibiotic: str, drug_class: str, all_args, db) -> tuple:
     """Extract ML features for a specific antibiotic.
+
+    Returns (features, target_args), target_args being the ARGs the target_*
+    features were computed from.
 
     Target features (target_*) are computed only from ARGs that confer resistance
     to this specific antibiotic (using substrate mapping for beta-lactams, etc.).
@@ -283,26 +285,16 @@ def _extract_features_for_antibiotic(sample_id: str, antibiotic: str, drug_class
     mlst = db.query(MLSTResult).filter(MLSTResult.sample_id == sample_id).first()
     features["mlst_st"] = mlst.sequence_type if mlst and mlst.sequence_type else "unknown"
 
-    return features
+    return features, target_args
 
 
-def _build_amr_results(args: List[ARGResult]) -> dict:
-    """Build AMR results dict for key gene/mutation identification."""
-    results = {"all_genes": [], "genes_by_class": defaultdict(list), "mutations": []}
+def _collect_mutations(args: List[ARGResult]) -> List[str]:
+    """Collect point mutations across all ARG records."""
+    mutations = []
     for a in args:
-        results["all_genes"].append({
-            "gene": a.gene,
-            "drug_class": a.drug_class or "",
-            "identity": a.identity or 0,
-            "coverage": a.coverage or 0,
-            "on_plasmid": a.on_plasmid or False,
-        })
-        dc = a.drug_class or ""
-        if a.gene not in results["genes_by_class"][dc]:
-            results["genes_by_class"][dc].append(a.gene)
         if a.point_mutations:
-            results["mutations"].extend(a.point_mutations.split("; "))
-    return results
+            mutations.extend(a.point_mutations.split("; "))
+    return mutations
 
 
 def run_ml_phenotype(sample_id: str, db) -> List[MLPhenotypePrediction]:
@@ -326,7 +318,7 @@ def run_ml_phenotype(sample_id: str, db) -> List[MLPhenotypePrediction]:
 
     # Load all ARGs once (reused per antibiotic)
     args = db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
-    amr_results = _build_amr_results(args)
+    mutations = _collect_mutations(args)
 
     mlst = db.query(MLSTResult).filter(MLSTResult.sample_id == sample_id).first()
     mlst_st = mlst.sequence_type if mlst and mlst.sequence_type else "unknown"
@@ -343,7 +335,7 @@ def run_ml_phenotype(sample_id: str, db) -> List[MLPhenotypePrediction]:
         drug_class = meta.get("drug_class", "Unknown")
 
         # Extract features specific to this antibiotic
-        feature_data = _extract_features_for_antibiotic(sample_id, abx, drug_class, args, db)
+        feature_data, target_args = _extract_features_for_antibiotic(sample_id, abx, drug_class, args, db)
 
         # Build feature vector
         X = np.array([feature_data.get(col, medians.get(col, 0.0)) for col in feature_cols])
@@ -364,28 +356,13 @@ def run_ml_phenotype(sample_id: str, db) -> List[MLPhenotypePrediction]:
         else:
             confidence = "Low"
 
-        # Key determinants
-        key_genes = []
+        # Key determinants: the ARGs behind the target_* features (feature
+        # columns are aggregates, not per-gene, so importances can't name genes)
+        key_genes = list(dict.fromkeys(a.gene for a in target_args if a.gene))
         key_mutations = []
-        importances = dict(zip(feature_cols, model.feature_importances_))
-        class_genes = amr_results["genes_by_class"].get(drug_class, [])
-
-        for gene in class_genes:
-            gene_lower = gene.lower()
-            relevant = any(
-                gene_lower in col.lower() and importances.get(col, 0) > 0.01
-                for col in feature_cols
-            )
-            if relevant:
-                key_genes.append(gene)
-            if len(key_genes) >= 3:
-                break
-
-        if not key_genes and is_resistant:
-            key_genes = class_genes[:3]
 
         if "QUINOLONE" in drug_class.upper():
-            key_mutations = [m for m in amr_results["mutations"]
+            key_mutations = [m for m in mutations
                             if "gyr" in m.lower() or "par" in m.lower()]
         else:
             key_mutations = []

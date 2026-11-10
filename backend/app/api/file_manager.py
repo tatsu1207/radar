@@ -1,7 +1,7 @@
 import gzip
 import os
 import re
-import subprocess
+import struct
 import uuid
 import io
 from datetime import datetime
@@ -198,17 +198,25 @@ def _estimate_progress(log: str) -> int:
     return progress
 
 
-def _safe_filename(filename: str) -> str:
-    """Sanitize a filename for on-disk storage.
+SEQUENCE_EXTENSIONS = (
+    ".fastq.gz", ".fq.gz", ".fastq", ".fq", ".bam",
+    ".fasta", ".fa", ".fna", ".fasta.gz", ".fa.gz", ".fna.gz",
+)
 
-    Bioinformatics tools (notably Flye) reject paths containing spaces, and
-    shell-interpolated commands break on other metacharacters. Replace any run
-    of non [A-Za-z0-9._-] characters with a single underscore. The original
-    name is preserved separately as SampleFile.original_filename for display.
-    """
-    base = os.path.basename(filename or "")
-    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", base).strip("_") or "file"
-    return safe
+
+def _is_sequence_file(filename: str) -> bool:
+    """True for reads/assemblies; skips sidecars such as PacBio .bam.pbi/.xml."""
+    return filename.lower().endswith(SEQUENCE_EXTENSIONS)
+
+
+def _reject_names_with_spaces(filenames: List[str]) -> None:
+    """Refuse file names containing whitespace (sample names and tool command lines break)."""
+    bad = [n for n in filenames if re.search(r"\s", n)]
+    if bad:
+        raise HTTPException(
+            status_code=400,
+            detail="File names must not contain spaces; rename and try again: " + ", ".join(bad),
+        )
 
 
 def _strip_extensions(filename: str) -> str:
@@ -264,7 +272,8 @@ def _parse_filename(filename: str) -> Tuple[str, PairType, Optional[SequencingPl
       SAMPLE_R2.fastq.gz / SAMPLE_2.fastq.gz -> Illumina R2
       SAMPLE_ONT.fastq.gz                    -> long read, ONT
       SAMPLE_PB.fastq.gz                     -> long read, PacBio
-      SAMPLE.fastq.gz                        -> long read (platform detected from content)
+      (also _NANOPORE for ONT and _PACBIO/_HIFI/_CCS for PacBio, any case)
+      SAMPLE.fastq.gz / SAMPLE.bam           -> long read (platform detected from content)
       SAMPLE.fasta/.fa/.fna                  -> pre-assembled FASTA
     """
     # Check for FASTA files first
@@ -274,6 +283,16 @@ def _parse_filename(filename: str) -> Tuple[str, PairType, Optional[SequencingPl
         return base, PairType.assembly, None
 
     base = _strip_extensions(filename)
+
+    # BAM is always long reads: skip the Illumina patterns (Kp_1.bam is not R1)
+    if lower.endswith(".bam"):
+        m = re.match(r"^(.+?)_(ONT|NANOPORE)$", base, re.IGNORECASE)
+        if m:
+            return m.group(1), PairType.long_read, SequencingPlatform.ont
+        m = re.match(r"^(.+?)_(PB|PACBIO|HIFI|CCS)$", base, re.IGNORECASE)
+        if m:
+            return m.group(1), PairType.long_read, SequencingPlatform.pacbio
+        return base, PairType.long_read, None
 
     # Illumina paired-end: _R1/_R2 or _1/_2
     m = re.match(r"^(.+?)_R1$", base, re.IGNORECASE)
@@ -290,21 +309,55 @@ def _parse_filename(filename: str) -> Tuple[str, PairType, Optional[SequencingPl
         return m.group(1), PairType.R2, SequencingPlatform.illumina
 
     # Explicit long-read platform tags
-    m = re.match(r"^(.+?)_ONT$", base, re.IGNORECASE)
+    m = re.match(r"^(.+?)_(ONT|NANOPORE)$", base, re.IGNORECASE)
     if m:
         return m.group(1), PairType.long_read, SequencingPlatform.ont
-    m = re.match(r"^(.+?)_PB$", base, re.IGNORECASE)
+    m = re.match(r"^(.+?)_(PB|PACBIO|HIFI|CCS)$", base, re.IGNORECASE)
     if m:
         return m.group(1), PairType.long_read, SequencingPlatform.pacbio
 
-    # No suffix -> long read. BAM is used for PacBio HiFi; default an unlabeled
-    # .bam to PacBio (the pipeline re-confirms/corrects the platform from the
-    # BAM @RG header before assembly).
-    if lower.endswith(".bam"):
-        return base, PairType.long_read, SequencingPlatform.pacbio
-
-    # FASTQ with no suffix -> platform auto-detected from content
+    # No suffix -> long read (platform auto-detected from FASTQ/BAM headers)
     return base, PairType.long_read, None
+
+
+def _detect_platform_from_bam(file_path: str) -> Optional[SequencingPlatform]:
+    """Detect the platform of an unaligned BAM from its SAM header text.
+
+    BAM is BGZF (gzip-compatible): magic 'BAM\\1', int32 l_text, then the header.
+    PacBio: @RG PL:PACBIO or a ccs/pbccs @PG line. ONT: @RG PL:ONT or dorado/guppy.
+    """
+    try:
+        with gzip.open(file_path, "rb") as fh:
+            if fh.read(4) != b"BAM\x01":
+                return None
+            l_text = struct.unpack("<i", fh.read(4))[0]
+            text = fh.read(min(l_text, 10_000_000)).decode("utf-8", errors="replace")
+    except Exception:
+        return None
+
+    pl = re.search(r"^@RG\t.*\tPL:(\w+)", text, re.MULTILINE)
+    if pl:
+        value = pl.group(1).upper()
+        if value == "PACBIO":
+            return SequencingPlatform.pacbio
+        if value in ("ONT", "NANOPORE", "OXFORD_NANOPORE"):
+            return SequencingPlatform.ont
+    if re.search(r"^@PG\t.*\b(ID|PN):(pb)?ccs\b|READTYPE=CCS", text, re.MULTILINE | re.IGNORECASE):
+        return SequencingPlatform.pacbio
+    if re.search(r"^@PG\t.*\b(ID|PN):(basecaller|dorado|guppy|minknow)", text, re.MULTILINE | re.IGNORECASE):
+        return SequencingPlatform.ont
+    return None
+
+
+def _detect_long_read_platform(file_path: str) -> Optional[SequencingPlatform]:
+    """Detect the platform of a long-read file (FASTQ or BAM) from its content."""
+    lower = file_path.lower()
+    if lower.endswith(".bam"):
+        return _detect_platform_from_bam(file_path)
+    if lower.endswith((".fastq.gz", ".fq.gz", ".fastq", ".fq")):
+        platform, _ = _detect_platform_from_fastq(file_path)
+        return platform
+    return None
 
 
 def _detect_platform_from_fastq(file_path: str) -> Tuple[Optional[SequencingPlatform], Optional[PairType]]:
@@ -381,8 +434,10 @@ def _detect_platform_from_fastq(file_path: str) -> Tuple[Optional[SequencingPlat
         # --- Check for PacBio ---
         # PacBio CCS: @m64011_190830_220126/12345/ccs
         # PacBio CLR: @m64011_190830_220126/12345/0_1234
-        pacbio_pattern = re.compile(r"^@m\d+[_e]\d+")
-        pacbio_count = sum(1 for h in headers if pacbio_pattern.match(h))
+        # Sequel IIe: @m64012e_210101_120000/..., Revio: @m84011_220902_175841_s1/...
+        # Searched anywhere: SRA-renamed reads keep the movie name after the new ID
+        pacbio_pattern = re.compile(r"\bm\d+[a-z]?_\d{6}_\d{6}(_s\d+)?/\d+|/ccs\b")
+        pacbio_count = sum(1 for h in headers if pacbio_pattern.search(h))
         if pacbio_count > len(headers) * 0.5:
             return SequencingPlatform.pacbio, PairType.long_read
 
@@ -448,6 +503,8 @@ async def global_upload_files(
     project_id = project.id
     created_samples = {}
 
+    _reject_names_with_spaces([f.filename for f in files if f.filename])
+
     for upload_file in files:
         if not upload_file.filename:
             continue
@@ -491,13 +548,7 @@ async def global_upload_files(
         pair = pair_from_name
         platform = platform_from_name
         if pair == PairType.long_read and platform is None:
-            is_fastq = upload_file.filename.lower().endswith(
-                (".fastq.gz", ".fq.gz", ".fastq", ".fq")
-            )
-            if is_fastq:
-                detected_platform, _ = _detect_platform_from_fastq(dest_path)
-                if detected_platform:
-                    platform = detected_platform
+            platform = _detect_long_read_platform(dest_path)
 
         ext = os.path.splitext(upload_file.filename)[1]
         if upload_file.filename.endswith(".gz"):
@@ -550,8 +601,11 @@ def global_register_server_paths(
 
     created_samples = {}
 
+    _reject_names_with_spaces([os.path.basename(p) for p in expanded_paths
+                               if os.path.isfile(p) and _is_sequence_file(p)])
+
     for src_path in expanded_paths:
-        if not os.path.isfile(src_path):
+        if not os.path.isfile(src_path) or not _is_sequence_file(src_path):
             continue
 
         filename = os.path.basename(src_path)
@@ -597,13 +651,7 @@ def global_register_server_paths(
         pair = pair_from_name
         platform = platform_from_name
         if pair == PairType.long_read and platform is None:
-            is_fastq = filename.lower().endswith(
-                (".fastq.gz", ".fq.gz", ".fastq", ".fq")
-            )
-            if is_fastq:
-                detected_platform, _ = _detect_platform_from_fastq(dest_path)
-                if detected_platform:
-                    platform = detected_platform
+            platform = _detect_long_read_platform(dest_path)
 
         ext = os.path.splitext(filename)[1]
         if filename.endswith(".gz"):
@@ -807,6 +855,8 @@ async def upload_files(
     require_project_owner(project_id, current_user, db)
     created_samples = {}  # name -> Sample
 
+    _reject_names_with_spaces([f.filename for f in files if f.filename])
+
     for upload_file in files:
         if not upload_file.filename:
             continue
@@ -844,17 +894,11 @@ async def upload_files(
 
         file_size = len(content)
 
-        # For long reads, auto-detect ONT vs PacBio from FASTQ headers
+        # For long reads, auto-detect ONT vs PacBio from FASTQ/BAM headers
         pair = pair_from_name
         platform = platform_from_name
         if pair == PairType.long_read and platform is None:
-            is_fastq = upload_file.filename.lower().endswith(
-                (".fastq.gz", ".fq.gz", ".fastq", ".fq")
-            )
-            if is_fastq:
-                detected_platform, _ = _detect_platform_from_fastq(dest_path)
-                if detected_platform:
-                    platform = detected_platform
+            platform = _detect_long_read_platform(dest_path)
 
         # Determine file_type extension
         ext = os.path.splitext(upload_file.filename)[1]
@@ -949,8 +993,11 @@ def register_server_paths(
     errors = []
     created_samples = {}
 
+    _reject_names_with_spaces([os.path.basename(p) for p in expanded_paths
+                               if os.path.isfile(p) and _is_sequence_file(p)])
+
     for src_path in expanded_paths:
-        if not os.path.isfile(src_path):
+        if not os.path.isfile(src_path) or not _is_sequence_file(src_path):
             errors.append(f"File not found: {src_path}")
             continue
 
@@ -997,13 +1044,7 @@ def register_server_paths(
         pair = pair_from_name
         platform = platform_from_name
         if pair == PairType.long_read and platform is None:
-            is_fastq = filename.lower().endswith(
-                (".fastq.gz", ".fq.gz", ".fastq", ".fq")
-            )
-            if is_fastq:
-                detected_platform, _ = _detect_platform_from_fastq(dest_path)
-                if detected_platform:
-                    platform = detected_platform
+            platform = _detect_long_read_platform(dest_path)
 
         # Determine file_type extension
         ext = os.path.splitext(filename)[1]
@@ -1270,6 +1311,32 @@ def delete_file(
     db.delete(sf)
     db.commit()
     return {"detail": "File deleted"}
+
+
+# ── Set long-read platform ──────────────────────────────────────────────────
+
+@router.patch("/projects/{project_id}/file-manager/files/{file_id}/platform")
+def set_file_platform(
+    project_id: uuid.UUID,
+    file_id: uuid.UUID,
+    platform: SequencingPlatform,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Override the detected platform of a long-read file (ONT <-> PacBio)."""
+    require_project_owner(project_id, current_user, db)
+    sf = db.query(SampleFile).filter(SampleFile.id == file_id).first()
+    if not sf:
+        raise HTTPException(status_code=404, detail="File not found")
+    sample = db.query(Sample).filter(Sample.id == sf.sample_id).first()
+    if not sample or sample.project_id != project_id:
+        raise HTTPException(status_code=404, detail="File not found in this project")
+    if sf.pair != PairType.long_read or platform == SequencingPlatform.illumina:
+        raise HTTPException(status_code=400, detail="Only long-read files can be set to ONT or PacBio")
+
+    sf.platform = platform
+    db.commit()
+    return {"detail": f"Platform set to {platform.value}"}
 
 
 # ── Delete sample ───────────────────────────────────────────────────────────

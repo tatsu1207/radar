@@ -8,9 +8,11 @@ set -euo pipefail
 #
 # Cases:
 #   i)   Illumina only:    -1 R1.fastq.gz -2 R2.fastq.gz
-#   ii)  Illumina + ONT:   -1 R1.fastq.gz -2 R2.fastq.gz -l ont.fastq.gz  (Flye -> Plassembler -> dnaapler -> Medaka -> Polypolish)
+#   ii)  Illumina + ONT:   -1 R1.fastq.gz -2 R2.fastq.gz -l ont.fastq.gz  (Flye -> Plassembler -> dnaapler -> Medaka -> Polypolish -> Pypolca)
 #   iii) ONT only:         -l ont.fastq.gz                     (Flye -> Plassembler -> dnaapler -> Medaka)
 #   iv)  PacBio HiFi only: -l hifi.fastq.gz -p pacbio  (Flye -> Plassembler -> dnaapler; Illumina reads, if given, are ignored)
+#   Long reads may also be an unaligned BAM (-l hifi.bam); it is converted to FASTQ, and
+#   without -p the platform is taken from the BAM header (@RG PL:PACBIO / PL:ONT).
 #
 # Usage:
 #   ./pipeline.sh -1 R1.fastq.gz -2 R2.fastq.gz -o outdir [-t threads] [-s sample_name]
@@ -21,7 +23,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DB_DIR="${SCRIPT_DIR}/databases"
 
-R1="" R2="" LONG="" PLATFORM="ont" OUTDIR="" THREADS=4 SAMPLE=""
+R1="" R2="" LONG="" PLATFORM="" OUTDIR="" THREADS=4 SAMPLE=""
 
 usage() {
     cat <<EOF
@@ -30,8 +32,9 @@ Usage: $0 [options]
 Input (at least one required):
   -1 FILE    Illumina R1 reads (.fastq.gz)
   -2 FILE    Illumina R2 reads (.fastq.gz)
-  -l FILE    Long reads - ONT or PacBio HiFi (.fastq.gz)
-  -p PLAT    Long-read platform: ont (default) or pacbio
+  -l FILE    Long reads - ONT or PacBio HiFi (.fastq.gz, or unaligned .bam)
+  -p PLAT    Long-read platform: ont (default) or pacbio; for a BAM without -p,
+             taken from the BAM header
 
 Options:
   -o DIR     Output directory (required)
@@ -80,6 +83,32 @@ if [ -n "$R1" ] && [ -z "$R2" ]; then
     echo "ERROR: R2 required when R1 is provided (-2)" >&2; exit 1
 fi
 
+# Flye: initial assembly from the longest reads up to 100x; later stages use all reads.
+# Speeds up deep runs (typically 180-390x) without subsampling the reads Plassembler/Medaka
+# get, which would drop the short reads of small plasmids. Genome size is a rough estimate.
+FLYE_GENOME_SIZE="5m"
+FLYE_ASM_COVERAGE=100
+
+# samtools: radar env, else the copy in radar-plassembler
+if conda run -n radar samtools --version >/dev/null 2>&1; then
+    SAMTOOLS=(conda run -n radar samtools)
+else
+    SAMTOOLS=(conda run -n radar-plassembler samtools)
+fi
+
+# Long-read BAM without -p: platform from the @RG PL tag / @PG lines
+if [ -n "$LONG" ] && [ -z "$PLATFORM" ] && [[ "${LONG,,}" == *.bam ]]; then
+    BAM_HEADER=$("${SAMTOOLS[@]}" view -H "$LONG" 2>/dev/null || true)
+    if grep -qiE '^@RG[[:space:]].*[[:space:]]PL:PACBIO|^@PG[[:space:]].*(ID|PN):(pb)?ccs([[:space:]]|$)|READTYPE=CCS' <<< "$BAM_HEADER"; then
+        PLATFORM="pacbio"
+    fi
+    echo "NOTE: platform from BAM header: ${PLATFORM:-ont}" >&2
+fi
+PLATFORM="${PLATFORM:-ont}"
+if [ "$PLATFORM" != "ont" ] && [ "$PLATFORM" != "pacbio" ]; then
+    echo "ERROR: -p must be ont or pacbio" >&2; exit 1
+fi
+
 # PacBio HiFi alone is sufficient — ignore Illumina reads if both are given
 if [ -n "$LONG" ] && [ "$PLATFORM" = "pacbio" ] && [ -n "$R1" ]; then
     echo "NOTE: PacBio HiFi reads provided — Illumina reads ignored (PacBio-only assembly)" >&2
@@ -100,7 +129,7 @@ if [ -z "$SAMPLE" ]; then
     if [ -n "$R1" ]; then
         SAMPLE=$(basename "$R1" | sed 's/_R1.*//; s/\.fastq.*//; s/\.fq.*//')
     else
-        SAMPLE=$(basename "$LONG" | sed 's/\.fastq.*//; s/\.fq.*//')
+        SAMPLE=$(basename "$LONG" | sed 's/\.fastq.*//; s/\.fq.*//; s/\.bam$//')
     fi
 fi
 
@@ -240,6 +269,16 @@ echo ""
 # ══════════════════════════════════════════════════════════════════════════
 log "═══ PHASE 1: QC & Assembly ═══"
 
+# --- Step 0: long-read BAM -> FASTQ (fastp/Chopper/Flye/Plassembler/Medaka need FASTQ) ---
+if [ -n "$LONG" ] && [[ "${LONG,,}" == *.bam ]]; then
+    BAM_FASTQ="${QC_DIR}/long_reads.fastq.gz"
+    if [ ! -s "$BAM_FASTQ" ]; then
+        run_step "BAM to FASTQ (samtools)" \
+            "${SAMTOOLS[@]}" fastq -@ "$THREADS" -c 6 -0 "$BAM_FASTQ" "$LONG"
+    fi
+    LONG="$BAM_FASTQ"
+fi
+
 TRIMMED_R1="${QC_DIR}/trimmed_R1.fastq.gz"
 TRIMMED_R2="${QC_DIR}/trimmed_R2.fastq.gz"
 FILTERED_LONG="${QC_DIR}/filtered_long.fastq.gz"
@@ -304,7 +343,7 @@ case "$CASE" in
         fi
         ;;
     hybrid)
-        # Flye -> Plassembler -> Medaka -> Polypolish
+        # Flye -> Plassembler -> dnaapler -> Medaka -> Polypolish -> Pypolca
         LONG_INPUT="$FILTERED_LONG"
         [ ! -f "$LONG_INPUT" ] && LONG_INPUT="$LONG"
 
@@ -313,6 +352,7 @@ case "$CASE" in
             conda run -n radar \
             flye \
                 --nano-hq "$LONG_INPUT" \
+                --genome-size "$FLYE_GENOME_SIZE" --asm-coverage "$FLYE_ASM_COVERAGE" \
                 --out-dir "${ASM_DIR}/flye_out" \
                 --threads "$THREADS"
         CURRENT_ASM="${ASM_DIR}/flye_out/assembly.fasta"
@@ -340,13 +380,39 @@ case "$CASE" in
         F1="${POLY_DIR}/f1.sam"; [ ! -f "$F1" ] && F1="${POLY_DIR}/r1.sam"
         F2="${POLY_DIR}/f2.sam"; [ ! -f "$F2" ] && F2="${POLY_DIR}/r2.sam"
 
+        # Short-read depth picks the recipe (Hybracter, Bouras et al. 2024):
+        #   <5x Polypolish --careful only; 5-25x Polypolish --careful -> Pypolca --careful;
+        #   >25x Polypolish -> Pypolca --careful. Unknown depth: >25x recipe.
+        SR_DEPTH=$(conda run -n radar python -c "
+import json, sys
+asm = sum(len(l.strip()) for l in open(sys.argv[1]) if not l.startswith('>'))
+bases = json.load(open(sys.argv[2]))['summary']['after_filtering']['total_bases']
+print(int(bases / asm))" "$CURRENT_ASM" "${QC_DIR}/fastp_report.json" 2>/dev/null || echo "")
+        POLY_CAREFUL=""; RUN_PYPOLCA=1
+        if [ -n "$SR_DEPTH" ]; then
+            [ "$SR_DEPTH" -le 25 ] && POLY_CAREFUL="--careful"
+            [ "$SR_DEPTH" -lt 5 ] && RUN_PYPOLCA=0
+        fi
+        echo "  Short-read depth: ${SR_DEPTH:-unknown}x" | tee -a "$LOG"
+
         if run_noncritical "Polypolish" \
-            bash -c "conda run -n radar polypolish polish '$CURRENT_ASM' '$F1' '$F2' > '${POLY_DIR}/polished.fasta'"; then
+            bash -c "conda run -n radar polypolish polish $POLY_CAREFUL '$CURRENT_ASM' '$F1' '$F2' > '${POLY_DIR}/polished.fasta'"; then
             [ -s "${POLY_DIR}/polished.fasta" ] && CURRENT_ASM="${POLY_DIR}/polished.fasta"
+        fi
+        rm -f "${POLY_DIR}"/*.sam  # clean up large SAM files
+
+        # Pypolca --careful (short-read polishing after Polypolish)
+        if [ "$RUN_PYPOLCA" = 1 ]; then
+            if run_noncritical "Pypolca" \
+                conda run -n radar-pypolca pypolca run -a "$CURRENT_ASM" -1 "$TRIMMED_R1" -2 "$TRIMMED_R2" \
+                    -t "$THREADS" -o "${ASM_DIR}/pypolca_out" --careful --force; then
+                [ -s "${ASM_DIR}/pypolca_out/pypolca_corrected.fasta" ] && \
+                    CURRENT_ASM="${ASM_DIR}/pypolca_out/pypolca_corrected.fasta"
+            fi
+            rm -f "${ASM_DIR}/pypolca_out"/*.bam "${ASM_DIR}/pypolca_out"/*.bai
         fi
 
         cp "$CURRENT_ASM" "$ASSEMBLY"
-        rm -f "${POLY_DIR}"/*.sam  # clean up large SAM files
         ;;
     longread)
         # Flye for PacBio HiFi or ONT-only
@@ -362,6 +428,7 @@ case "$CASE" in
             conda run -n radar \
             flye \
                 $FLYE_MODE "$LONG_INPUT" \
+                --genome-size "$FLYE_GENOME_SIZE" --asm-coverage "$FLYE_ASM_COVERAGE" \
                 --out-dir "${ASM_DIR}/flye_out" \
                 --threads "$THREADS"
         CURRENT_ASM="${ASM_DIR}/flye_out/assembly.fasta"

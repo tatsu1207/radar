@@ -2,7 +2,7 @@
 
 ## What is RADAR?
 
-**RADAR (Resistome Analysis, Detection, Assessment, and Risk)** is a web platform for bacterial whole-genome sequencing (WGS) antibiotic resistance analysis. It takes raw Illumina or long-read (ONT/PacBio) sequencing reads, or pre-assembled genomes, and runs them through a multi-step bioinformatics pipeline to detect resistance genes, characterize their regulatory context (promoters, RBS), identify mobile genetic elements, virulence factors, and plasmids, then assigns an isolate-level AMR hazard rank (R1–R12/NG).
+**RADAR (Resistome Analysis, Detection, Assessment & Research)** is a web platform for bacterial whole-genome sequencing (WGS) antibiotic resistance analysis. It takes raw Illumina or long-read (ONT/PacBio) sequencing reads, or pre-assembled genomes, and runs them through a multi-step bioinformatics pipeline to detect resistance genes, characterize their regulatory context (promoters, RBS), identify mobile genetic elements, virulence factors, and plasmids, then assigns an isolate-level AMR hazard rank (R1–R12/NG).
 
 ## Tech Stack
 
@@ -32,7 +32,7 @@ radar/
 │   │   ├── core/              # Bioinformatics pipeline modules
 │   │   │   ├── pipeline.py    # Main orchestrator
 │   │   │   ├── qc.py          # Read QC (fastp)
-│   │   │   ├── assembly.py    # Genome assembly (SPAdes/Flye/Plassembler/dnaapler/Medaka/Polypolish)
+│   │   │   ├── assembly.py    # Genome assembly (SPAdes/Flye/Plassembler/dnaapler/Medaka/Polypolish/Pypolca)
 │   │   │   ├── arg_detect.py  # ARG detection (AMRFinderPlus only)
 │   │   │   ├── promoter.py    # Promoter analysis (BPROM, UP element)
 │   │   │   ├── rbs.py         # Ribosome binding site analysis (OSTIR)
@@ -79,7 +79,9 @@ Based on the research methodology. For FASTQ input all steps run. For FASTA inpu
    - Illumina-only: SPAdes
    - ONT-only: Flye (--nano-hq) → Plassembler → dnaapler → Medaka
    - PacBio-only: Flye (--pacbio-hifi) → Plassembler → dnaapler, no polishing. If Illumina reads are also present they are ignored (HiFi alone is sufficient)
-   - Illumina + ONT hybrid: Flye (--nano-hq) → Plassembler → dnaapler → Medaka → Polypolish
+   - Illumina + ONT hybrid: Flye (--nano-hq) → Plassembler → dnaapler → Medaka → Polypolish → Pypolca
+   - Short-read polishing depends on short-read depth (fastp JSON after-filtering bases / assembly length), per Hybracter (Bouras et al. 2024): <5× Polypolish --careful only; 5–25× Polypolish --careful → Pypolca --careful; >25× (or depth unknown) Polypolish → Pypolca --careful. Pypolca (`radar-pypolca` env) is non-critical: on failure the Polypolish output is kept
+   - Flye always runs with `--genome-size 5m --asm-coverage 100` (`FLYE_DEPTH_ARGS` in assembly.py, `FLYE_GENOME_SIZE`/`FLYE_ASM_COVERAGE` in pipeline.sh): the initial disjointig assembly uses only the longest reads up to 100×, later stages use all reads. Long-read runs here are typically 180–390× after Chopper. Reads are deliberately not subsampled (Filtlong-style): length-biased subsampling drops the short reads of small plasmids, and Plassembler/Medaka need them
    - Medaka runs `medaka_consensus --bacteria`, falling back to automatic model selection when read headers lack basecaller model info
    - Plassembler (pipeline.sh and backend/app/core/assembly.py) (`radar-plassembler` env) runs after Flye on all long-read inputs (long mode; hybrid mode with Illumina) and adds plasmids Flye missed (circular → `plassembler_N`, linear → `plassembler_linear_N`) before polishing. dnaapler (`dnaapler all`, from the `radar-plassembler` env) then rotates circular contigs to start at dnaA/repA/terL, before polishing so the old contig ends get polished; linear contigs (Flye circ.=N, `plassembler_linear_*`) are passed via --ignore. The final assembly is then normalised (names only, longest contig first) because Polypolish/Plassembler header descriptions and small-contig-first order make MobileElementFinder fail. The web app also writes `assembly/circular.txt` (Flye circular contigs + circular Plassembler plasmids), which the QC report uses for circularity
 3. **Assembly QC** - QUAST + BUSCO: assembly quality metrics and genome completeness
@@ -94,14 +96,14 @@ Based on the research methodology. For FASTQ input all steps run. For FASTA inpu
 
 ## Bioinformatics Tools
 
-All tools run on CPU only (no GPU required). Installed via `install.sh` into 9 conda environments:
+All tools run on CPU only (no GPU required). Installed via `install.sh` into 11 conda environments:
 
 **Base environment (`radar`) — Python >=3.11,<3.13:**
 
 | Tool | Purpose |
 |------|---------|
 | fastp | Adapter trimming and quality filtering (Illumina) |
-| Chopper | ONT long-read quality filtering and trimming |
+| Chopper | ONT long-read quality filtering and trimming (`core/chopper.py`, `-q 10 --minlength 1000`; no depth subsampling) |
 | SPAdes | Short-read genome assembly |
 | Flye | Long-read genome assembly (ONT/PacBio) |
 | Polypolish + BWA | Short-read polishing for hybrid assembly |
@@ -130,6 +132,7 @@ All tools run on CPU only (no GPU required). Installed via `install.sh` into 9 c
 | radar-medaka | Medaka | 3.10 | CPU-only PyTorch, strict htslib constraints |
 | radar-genomad | geNomad | 3.10 | CPU-only TensorFlow |
 | radar-busco | BUSCO | 3.10 | Complex deps (hmmer, prodigal, bbmap + pip from gitlab) |
+| radar-pypolca | Pypolca 0.5.0 | — | Needs freebayes/bwa/samtools; short-read polishing after Polypolish |
 
 **Installed from binary (optional):**
 
@@ -160,6 +163,8 @@ Each row = one sample. Columns: Sample ID, Illumina R1, Illumina R2, Long Read (
 {sample_id}_ONT.fastq.gz  → pair=long_read, platform=ont
 {sample_id}_PB.fastq.gz   → pair=long_read, platform=pacbio
 ```
+
+Also `_NANOPORE` (ONT) and `_PACBIO`/`_HIFI`/`_CCS` (PacBio), any case. Without a tag the platform comes from the read headers (ONT runid/UUID; PacBio movie names incl. Sequel IIe `m64012e_` and Revio `_s1`, also inside SRA-renamed headers). Long reads may be an unaligned `.bam` (PacBio HiFi): the platform comes from `@RG PL:` / `@PG ccs`, and the pipeline converts it to FASTQ.gz (`samtools fastq`, `qc.convert_bam_long_reads`) before QC, removing RADAR's BAM copy. The Files page has a → PacBio / → ONT button to correct a wrong guess (`PATCH .../files/{file_id}/platform`). Server-path registration skips non-sequence sidecars (`.bam.pbi`, `.xml`). File names with whitespace are rejected (400; the Files page checks before uploading), and the Files page shows a collapsible naming guide.
 
 ### Metadata TSV Format
 

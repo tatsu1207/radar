@@ -72,6 +72,9 @@ def run_pipeline(self, sample_id: str, master_job_id: str = None, threads: int =
                 master_job.log = "Pipeline started\n"
                 db.commit()
 
+        # Long-read BAM (e.g. PacBio HiFi) -> FASTQ.gz before any read tool runs
+        from app.core.qc import convert_bam_long_reads
+        convert_bam_long_reads(sample_id, db, threads=threads)
         input_files = db.query(SampleFile).filter(SampleFile.sample_id == sample_id).all()
         file_paths = [f.file_path for f in input_files]
 
@@ -187,10 +190,10 @@ def run_pipeline(self, sample_id: str, master_job_id: str = None, threads: int =
         # ── Step 6: Phenotype prediction ──
         _append_master_log(db, master_job_id, "Step 6: Phenotype prediction & risk scoring...")
 
-        from app.core.phenotype import predict_phenotype
+        from app.core.phenotype import run_phenotype_prediction
         pheno_job = _create_job(db, sample_id, "phenotype_prediction", threads)
         try:
-            predict_phenotype(sample_id, db)
+            run_phenotype_prediction(sample_id, db)
             _complete_job(db, pheno_job, "Phenotype prediction complete")
             _append_master_log(db, master_job_id, "  Phenotype prediction complete")
         except Exception as e:
@@ -457,6 +460,11 @@ def _run_assembly_phase(sample_id: str, job, db, threads: int) -> str:
     import subprocess
 
     sample = db.query(Sample).filter(Sample.id == sample_id).first()
+    # Long-read BAM (e.g. PacBio HiFi) -> FASTQ.gz before any read tool runs
+    from app.core.qc import convert_bam_long_reads
+    for fq in convert_bam_long_reads(sample_id, db, threads=threads):
+        job.log += f"  Long-read BAM converted to FASTQ: {os.path.basename(fq)}\n"
+        db.commit()
     input_files = db.query(SampleFile).filter(SampleFile.sample_id == sample_id).all()
     file_paths = [f.file_path for f in input_files]
 
@@ -554,9 +562,9 @@ def _run_assembly_phase(sample_id: str, job, db, threads: int) -> str:
         job.log += "  Running Chopper (ONT filtering)...\n"
         db.commit()
 
-        from app.core.filtlong import run_filtlong
+        from app.core.chopper import run_chopper
         try:
-            run_filtlong(sample_id, file_paths, db, threads=threads)
+            run_chopper(sample_id, file_paths, db, threads=threads)
             job.log += "    Chopper complete\n"
             db.commit()
         except Exception as e:
@@ -734,7 +742,7 @@ def _run_annotation_phase(sample_id: str, assembly_path: str, job, db, threads: 
         SpeciesResult, MLSTResult, SerotypeResult, ARGResult,
         PlasmidResult, MobilityResult, IntegronResult, ProphageResult,
         CgMLSTResult, CRISPRResult, DefenseFinderResult, ICEResult,
-        BacMetResult, RiskScore, MLPhenotypePrediction,
+        BacMetResult, RiskScore,
     )
 
     _ensure_databases(job, db)
@@ -912,17 +920,9 @@ def _run_annotation_phase(sample_id: str, assembly_path: str, job, db, threads: 
     from app.core.colistin import detect_colistin_resistance
     _run_noncritical(db, job, "Colistin resistance", lambda: detect_colistin_resistance(sample_id, assembly_path, db))
 
-    # ML phenotype prediction
-    if not _has_results(db, MLPhenotypePrediction, sample_id):
-        from app.core.ml_phenotype import run_ml_phenotype
-        _run_noncritical(db, job, "ML phenotype prediction", lambda: run_ml_phenotype(sample_id, db))
-    else:
-        job.log += "  ML phenotype prediction — skipped\n"
-        db.commit()
-
-    # Phenotype prediction (rule-based) — always re-run (fast, depends on ARGs)
-    from app.core.phenotype import predict_phenotype
-    _run_noncritical(db, job, "Phenotype prediction", lambda: predict_phenotype(sample_id, db))
+    # Phenotype prediction (ML, rule-based fallback) — always re-run (fast, depends on ARGs/species)
+    from app.core.phenotype import run_phenotype_prediction
+    _run_noncritical(db, job, "Phenotype prediction", lambda: run_phenotype_prediction(sample_id, db))
 
     # Risk scoring — always re-run (fast, depends on ARGs/VFs/mobility)
     from app.core.risk import calculate_composite_risk
@@ -964,6 +964,9 @@ def run_single_step(self, sample_id: str, job_id: str, tool: str, threads: int =
         job.log = f"Running {tool}...\n"
         db.commit()
 
+        # Long-read BAM (e.g. PacBio HiFi) -> FASTQ.gz before any read tool runs
+        from app.core.qc import convert_bam_long_reads
+        convert_bam_long_reads(sample_id, db, threads=threads)
         input_files = db.query(SampleFile).filter(SampleFile.sample_id == sample_id).all()
         file_paths = [f.file_path for f in input_files]
 
@@ -1018,8 +1021,8 @@ def run_single_step(self, sample_id: str, job_id: str, tool: str, threads: int =
             job.log += "MobileElementFinder complete\n"
 
         elif tool == "phenotype_prediction":
-            from app.core.phenotype import predict_phenotype
-            predict_phenotype(sample_id, db)
+            from app.core.phenotype import run_phenotype_prediction
+            run_phenotype_prediction(sample_id, db)
             job.log += "Phenotype prediction complete\n"
 
         elif tool == "risk_scoring":

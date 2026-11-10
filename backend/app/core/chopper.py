@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 CONDA_ENV = "radar"
 
 
-def run_filtlong(sample_id: str, input_files: list[str], db=None, threads: int = 4) -> dict:
+def run_chopper(sample_id: str, input_files: list[str], db=None, threads: int = 4) -> dict:
     """Run Chopper for long-read quality filtering.
 
     Filters and trims reads by quality score and minimum length.

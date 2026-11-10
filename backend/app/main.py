@@ -17,7 +17,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="RADAR API",
-    description="Resistome Analysis, Detection, and Annotation Resource - "
+    description="Resistome Analysis, Detection, Assessment & Research - "
                 "A bioinformatics platform for antibiotic resistance analysis",
     version="1.0.0",
     lifespan=lifespan,

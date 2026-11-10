@@ -13,6 +13,7 @@ from app.config import settings
 from app.db import get_db
 from app.models.models import User
 from app.core.auth import get_current_user
+from app.core.risk import _is_amr_entry, calculate_composite_risk
 from app.models.models import (
     Sample,
     ARGResult,
@@ -27,6 +28,7 @@ from app.models.models import (
     SerotypeResult,
     BacMetResult,
     CgMLSTResult,
+    SampleStatus,
 )
 from app.schemas.schemas import (
     ARGResultRead,
@@ -64,7 +66,6 @@ def get_colistin_resistance(sample_id: uuid.UUID, db: Session = Depends(get_db),
 @router.get("/tools/samples")
 def list_tool_samples(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """List all completed samples with species, ST, and project info for tool UIs."""
-    from app.models.models import SampleStatus
     samples = (
         db.query(Sample)
         .filter(Sample.status == SampleStatus.complete)
@@ -157,7 +158,6 @@ def get_resistome_for_samples(
     if not sample_ids:
         raise HTTPException(status_code=400, detail="No sample_ids provided")
 
-    from app.models.models import SampleStatus
     from collections import defaultdict
 
     samples = []
@@ -667,8 +667,10 @@ def get_sample_summary(sample_id: uuid.UUID, db: Session = Depends(get_db), curr
     # Serotype
     sero_row = db.query(SerotypeResult).filter(SerotypeResult.sample_id == sample_id).first()
 
-    # ARGs
-    args = db.query(ARGResult).filter(ARGResult.sample_id == sample_id, ARGResult.element_type == "AMR").all()
+    # ARGs — antimicrobial resistance only; AMRFinderPlus STRESS/METAL/BIOCIDE/ACID
+    # hits are not ARGs (metal/biocide resistance is reported as MRG via BacMet)
+    args = [a for a in db.query(ARGResult).filter(ARGResult.sample_id == sample_id).all()
+            if _is_amr_entry(a)]
     arg_genes = [a.gene for a in args]
     drug_classes = sorted(set(dc.strip() for a in args if a.drug_class for dc in a.drug_class.split(";")))
 
@@ -859,8 +861,6 @@ def calculate_project_risk(project_id: uuid.UUID, db: Session = Depends(get_db),
 
     samples = db.query(Sample).filter(Sample.project_id == project_id).all()
     results = []
-    from app.core.risk import calculate_composite_risk
-    from app.models.models import SampleStatus
 
     for sample in samples:
         if sample.status != SampleStatus.complete:
