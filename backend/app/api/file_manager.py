@@ -228,42 +228,6 @@ def _strip_extensions(filename: str) -> str:
     return base
 
 
-def _detect_platform_from_bam(file_path: str) -> Optional[SequencingPlatform]:
-    """Read the BAM @RG header to determine the sequencing platform.
-
-    PacBio HiFi/CLR and ONT reads are commonly delivered as unaligned BAM.
-    The read-group PL: tag (and PM:/DS: for PacBio) identifies the platform.
-    """
-    try:
-        result = subprocess.run(
-            ["samtools", "view", "-H", file_path],
-            capture_output=True, text=True, timeout=120,
-        )
-        header = result.stdout or ""
-        for line in header.splitlines():
-            if not line.startswith("@RG"):
-                continue
-            fields = line.split("\t")
-            pl = ""
-            for f in fields:
-                if f.startswith("PL:"):
-                    pl = f[3:].upper()
-            if "PACBIO" in pl or pl == "PB":
-                return SequencingPlatform.pacbio
-            if "ONT" in pl or "NANOPORE" in pl:
-                return SequencingPlatform.ont
-        # Fallback: PacBio read names look like @m64011.../ccs or @m84...
-        rn = subprocess.run(
-            ["samtools", "view", file_path],
-            capture_output=True, text=True, timeout=120,
-        ).stdout[:200]
-        if re.match(r"^m\d+[_e]\d+", rn):
-            return SequencingPlatform.pacbio
-    except Exception:
-        pass
-    return None
-
-
 def _parse_filename(filename: str) -> Tuple[str, PairType, Optional[SequencingPlatform]]:
     """Parse sample name and pair type from filename.
 

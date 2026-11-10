@@ -387,70 +387,6 @@ def run_annotation_only(self, sample_id: str, job_id: str, threads: int = 4):
         db.close()
 
 
-def _convert_bam_longreads(input_files, job, db):
-    """Convert long-read .bam SampleFiles to fastq.gz in place (samtools fastq).
-
-    Sets platform from the BAM @RG PL: tag (PacBio/ONT); unlabeled BAMs default
-    to PacBio. Rewrites file_path/file_type to the converted .fastq.gz so the
-    rest of the pipeline is unchanged. Idempotent (skips if fastq.gz exists).
-    """
-    import os
-    import shlex
-    import subprocess
-    from app.models.models import PairType, SequencingPlatform
-
-    for f in input_files:
-        if f.pair != PairType.long_read or not f.file_path or not f.file_path.lower().endswith(".bam"):
-            continue
-        bam = f.file_path
-        if not os.path.exists(bam):
-            job.log += f"  BAM not found, skipping: {os.path.basename(bam)}\n"
-            db.commit()
-            continue
-
-        # Platform from @RG PL: tag
-        try:
-            hdr = subprocess.run(
-                ["samtools", "view", "-H", bam],
-                capture_output=True, text=True, timeout=120,
-            ).stdout or ""
-            for line in hdr.splitlines():
-                if line.startswith("@RG"):
-                    pl = ""
-                    for fld in line.split("\t"):
-                        if fld.startswith("PL:"):
-                            pl = fld[3:].upper()
-                    if "PACBIO" in pl or pl == "PB":
-                        f.platform = SequencingPlatform.pacbio
-                    elif "ONT" in pl or "NANOPORE" in pl:
-                        f.platform = SequencingPlatform.ont
-                    break
-        except Exception:
-            pass
-        if f.platform is None:
-            f.platform = SequencingPlatform.pacbio  # BAM defaults to PacBio
-
-        out = bam[:-4] + ".fastq.gz"
-        if not (os.path.exists(out) and os.path.getsize(out) > 0):
-            plat = f.platform.value if f.platform else "?"
-            job.log += f"  Converting BAM to FASTQ: {os.path.basename(bam)} (platform={plat})\n"
-            db.commit()
-            cmd = f"set -o pipefail; samtools fastq -@ 4 {shlex.quote(bam)} | gzip > {shlex.quote(out)}"
-            r = subprocess.run(
-                cmd, shell=True, executable="/bin/bash",
-                capture_output=True, text=True, timeout=14400,
-            )
-            if r.returncode != 0 or not (os.path.exists(out) and os.path.getsize(out) > 0):
-                raise RuntimeError(
-                    f"BAM->FASTQ conversion failed for {os.path.basename(bam)}: {r.stderr[-800:]}"
-                )
-        f.file_path = out
-        f.file_type = ".fastq.gz"
-        db.commit()
-        job.log += f"  BAM converted -> {os.path.basename(out)}\n"
-        db.commit()
-
-
 def _run_assembly_phase(sample_id: str, job, db, threads: int) -> str:
     """Phase 1: QC + Assembly. Returns assembly path.
 
@@ -465,13 +401,6 @@ def _run_assembly_phase(sample_id: str, job, db, threads: int) -> str:
     for fq in convert_bam_long_reads(sample_id, db, threads=threads):
         job.log += f"  Long-read BAM converted to FASTQ: {os.path.basename(fq)}\n"
         db.commit()
-    input_files = db.query(SampleFile).filter(SampleFile.sample_id == sample_id).all()
-    file_paths = [f.file_path for f in input_files]
-
-    # PacBio/ONT long reads are often delivered as unaligned BAM. Convert any
-    # long-read .bam inputs to .fastq.gz (and set platform from the @RG header)
-    # before QC/assembly so the rest of the pipeline sees normal FASTQ.
-    _convert_bam_longreads(input_files, job, db)
     input_files = db.query(SampleFile).filter(SampleFile.sample_id == sample_id).all()
     file_paths = [f.file_path for f in input_files]
 
