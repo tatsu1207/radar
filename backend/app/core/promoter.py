@@ -7,6 +7,7 @@ from Bio import SeqIO
 
 from app.config import settings
 from app.models.models import ARGResult, PromoterResult
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +76,7 @@ def run_bprom(sample_id: str, assembly_path: str, db, threads: int = 4):
             env = os.environ.copy()
             # Find BPROM binary: check PATH, then /opt/bprom/
             bprom_bin = "bprom"
-            bprom_check = subprocess.run(["which", "bprom"], capture_output=True, text=True).stdout.strip()
+            bprom_check = proc.run(["which", "bprom"], capture_output=True, text=True).stdout.strip()
             if not bprom_check and os.path.exists("/opt/bprom/bprom"):
                 bprom_bin = "/opt/bprom/bprom"
             # TSS_DATA must point to directory containing bs.list, five.mat, ldfb.tss
@@ -87,7 +88,7 @@ def run_bprom(sample_id: str, assembly_path: str, db, threads: int = 4):
                     if os.path.exists(os.path.join(bprom_dir, "ldfb.tss")):
                         env["TSS_DATA"] = bprom_dir
 
-            result = subprocess.run(
+            result = proc.run(
                 [bprom_bin, temp_fasta, temp_out],
                 capture_output=True, text=True, timeout=60, env=env
             )

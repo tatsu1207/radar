@@ -621,7 +621,8 @@ def _has_results(db, model_class, sample_id) -> bool:
 
 def _ensure_databases(job, db):
     """Download reference databases if missing (first run)."""
-    import subprocess, os
+    import os
+    from app.core import proc
     # backend/ is 3 dirs up from app/core/pipeline.py
     script = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -638,7 +639,7 @@ def _ensure_databases(job, db):
     # Ensure AMRFinderPlus symlink exists (lost on container recreate)
     amrfinder_db = os.path.join(db_dir, "amrfinderplus")
     amrfinder_link = os.path.join(
-        subprocess.run(["conda", "run", "-n", "radar", "bash", "-c", "echo $CONDA_PREFIX"],
+        proc.run(["conda", "run", "-n", "radar", "bash", "-c", "echo $CONDA_PREFIX"],
                        capture_output=True, text=True, timeout=30).stdout.strip(),
         "bin", "data", "latest",
     ) if os.path.isdir(amrfinder_db) else None
@@ -653,7 +654,7 @@ def _ensure_databases(job, db):
     job.log += "Downloading reference databases (first run)...\n"
     db.commit()
     logger.info(f"Downloading databases to {db_dir}")
-    result = subprocess.run(
+    result = proc.run(
         ["bash", script, db_dir],
         capture_output=True, text=True, timeout=7200,
     )

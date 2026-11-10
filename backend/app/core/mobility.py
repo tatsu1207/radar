@@ -1,11 +1,11 @@
 import csv
 import logging
 import os
-import subprocess
 from typing import Dict, List
 
 from app.config import settings
 from app.models.models import MobilityResult, ARGResult
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ def run_mefinder(sample_id: str, assembly_path: str, db) -> List[MobilityResult]
     ]
 
     logger.info(f"MobileElementFinder command: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=3600)
 
     if result.returncode != 0:
         raise RuntimeError(f"MobileElementFinder failed: {result.stderr[-2000:]}")

@@ -6,12 +6,12 @@ alignment blocks for rendering as a synteny diagram.
 
 import logging
 import os
-import subprocess
 import tempfile
 from typing import Dict, List, Optional, Tuple
 
 from app.config import settings
 from app.models.models import Sample, ARGResult, VirulenceResult, MobilityResult, BacMetResult
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ def _run_blastn_pair(query_fasta: str, subject_fasta: str, threads: int = 4) -> 
             "-num_threads", str(threads),
             "-out", output_file,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        result = proc.run(cmd, capture_output=True, text=True, timeout=300)
 
         if result.returncode != 0:
             logger.warning(f"BLASTn failed: {result.stderr[:300]}")
@@ -248,7 +248,7 @@ def _quick_similarity(fasta_a: str, fasta_b: str, threads: int = 4) -> int:
             "-num_threads", str(threads),
             "-out", output_file,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = proc.run(cmd, capture_output=True, text=True, timeout=120)
         if result.returncode != 0:
             return 0
         total = 0

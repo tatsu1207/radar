@@ -96,6 +96,8 @@ Based on the research methodology. For FASTQ input all steps run. For FASTA inpu
 
 ## Bioinformatics Tools
 
+External tools are launched with `app.core.proc.run` (drop-in for `subprocess.run`), never `subprocess.run` directly: tools start via `conda run`/`bash -c`, so a plain `subprocess.run(timeout=...)` kills only the launcher and leaves the tool running orphaned. `proc.run` starts each command in its own process group and kills the whole group on timeout (SIGTERM, then SIGKILL after 10 s); for `Popen`, use `start_new_session=True` + `proc.kill_group()` (see `sra.py`).
+
 All tools run on CPU only (no GPU required). Installed via `install.sh` into 11 conda environments:
 
 **Base environment (`radar`) — Python >=3.11,<3.13:**

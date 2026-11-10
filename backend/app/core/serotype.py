@@ -1,11 +1,11 @@
 import json
 import logging
 import os
-import subprocess
 from typing import Optional
 
 from app.config import settings
 from app.models.models import SerotypeResult, SpeciesResult
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ def _run_serotypefinder(
         "-x",
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=600)
     if result.returncode != 0:
         raise RuntimeError(f"SerotypeFinder failed: {result.stderr[-500:]}")
 
@@ -122,7 +122,7 @@ def _run_sistr(
         assembly_path,
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=600)
     if result.returncode != 0:
         raise RuntimeError(f"SISTR failed: {result.stderr[-500:]}")
 
@@ -168,7 +168,7 @@ def _run_kleborate(
         "-o", output_file,
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=600)
     if result.returncode != 0:
         raise RuntimeError(f"Kleborate failed: {result.stderr[-500:]}")
 

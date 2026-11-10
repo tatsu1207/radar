@@ -1,11 +1,11 @@
 import csv
 import logging
 import os
-import subprocess
 from typing import List
 
 from app.config import settings
 from app.models.models import PlasmidResult, ARGResult
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ def run_mob_recon(sample_id: str, assembly_path: str, db, threads: int = 4) -> L
     ]
 
     logger.info(f"MOB-recon command: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=3600)
 
     if result.returncode != 0:
         raise RuntimeError(f"MOB-recon failed: {result.stderr[-2000:]}")

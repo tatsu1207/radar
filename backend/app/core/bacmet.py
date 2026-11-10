@@ -10,11 +10,11 @@ Reference: Pal et al. (2014) Nucleic Acids Res. 42:D845-D849
 import csv
 import logging
 import os
-import subprocess
 from typing import List
 
 from app.config import settings
 from app.models.models import BacMetResult
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ def _ensure_bacmet_db() -> str:
         logger.info("Downloading BacMet2 EXP database...")
         url = "http://bacmet.biomedicine.gu.se/download/BacMet2_EXP_database.fasta"
         cmd = ["curl", "-sfL", "-o", fasta_path, url]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        result = proc.run(cmd, capture_output=True, text=True, timeout=300)
         if result.returncode != 0 or not os.path.exists(fasta_path):
             raise RuntimeError(f"Failed to download BacMet2 database: {result.stderr}")
 
@@ -82,7 +82,7 @@ def _ensure_bacmet_db() -> str:
         "-dbtype", "prot",
         "-out", blast_db,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
         raise RuntimeError(f"makeblastdb failed: {result.stderr}")
 
@@ -133,7 +133,7 @@ def run_bacmet(
     ]
 
     logger.info(f"BacMet2 blastp command: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=1800)
 
     if result.returncode != 0:
         raise RuntimeError(f"BacMet2 blastp failed: {result.stderr[-1000:]}")

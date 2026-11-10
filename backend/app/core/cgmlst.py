@@ -1,11 +1,11 @@
 import json
 import logging
 import os
-import subprocess
 from typing import Optional
 
 from app.config import settings
 from app.models.models import CgMLSTResult, SpeciesResult
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ def run_cgmlst(
         "--no-inferred",
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=1800)
     if result.returncode != 0:
         raise RuntimeError(f"chewBBACA failed: {result.stderr[-1000:]}")
 

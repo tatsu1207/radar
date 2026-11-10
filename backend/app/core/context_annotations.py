@@ -18,7 +18,6 @@ import logging
 import math
 import os
 import re
-import subprocess
 from collections import Counter, defaultdict
 from typing import List, Optional
 
@@ -27,6 +26,7 @@ from Bio.Seq import Seq
 
 from app.config import settings
 from app.models.models import ARGResult, MLSTResult, Sample
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ def run_prodigal(sample_id: str, assembly_path: str, threads: int = 4) -> dict:
         "-o", gff_path, "-f", "gff",
         "-d", fna_path, "-p", "meta",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=600)
     if result.returncode != 0:
         raise RuntimeError(f"Prodigal failed: {result.stderr[-500:]}")
     return {"gff": gff_path, "fna": fna_path}
@@ -122,7 +122,7 @@ def run_cmscan(sample_id: str, assembly_path: str, db, threads: int = 4) -> str:
         "--tblout", tblout, "--cpu", str(threads),
         rfam_cm, flanks_fa,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=3600)
     if result.returncode != 0:
         logger.warning(f"cmscan failed: {result.stderr[-500:]}")
 
@@ -145,7 +145,7 @@ def run_mlst(sample_id: str, assembly_path: str, db) -> Optional[MLSTResult]:
         "env", "-u", "PERL5LIB", "-u", "PERL_LOCAL_LIB_ROOT",
         "mlst", assembly_path,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
         logger.warning(f"MLST failed: {result.stderr[-500:]}")
         return None
@@ -204,7 +204,7 @@ def run_pointfinder(sample_id: str, assembly_path: str, species_hint: str = None
         "-s", pf_species,
         "--ignore_missing_species",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=600)
 
     # Parse results
     mutations = {}
@@ -241,7 +241,7 @@ def run_integron_finder(sample_id: str, assembly_path: str, db=None, threads: in
         "--outdir", outdir,
         assembly_path,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=1800)
 
     # Parse integron file — group by integron_id to get full integron regions
     integron_data = {}  # integron_id -> {contig, type, elements, min_start, max_end}
