@@ -6,6 +6,11 @@ import Link from 'next/link';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { getAllFileManager, getSampleSummary } from '@/lib/api';
 import type { FileManagerSample, SampleSummary } from '@/lib/api';
+import SortableHeader from '@/components/SortableHeader';
+import { sortRows, useSort } from '@/lib/sort';
+import type { SortValue } from '@/lib/sort';
+
+type ResultSortKey = 'name' | 'species' | 'arg' | 'mrg' | 'vf' | 'plasmids';
 
 export default function ResultsPage() {
   const [allSamples, setAllSamples] = useState<FileManagerSample[]>([]);
@@ -14,6 +19,7 @@ export default function ResultsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [showQC, setShowQC] = useState(false);
+  const { sortKey, sortDir, toggleSort } = useSort<ResultSortKey>('radar.results.sort', 'name');
 
   // Per-sample summary cache
   const [summaries, setSummaries] = useState<Record<string, SampleSummary>>({});
@@ -48,12 +54,23 @@ export default function ResultsPage() {
   }, [selected, allSamples, summaries]);
 
   const filtered = useMemo(() => {
-    return allSamples.filter((s) => {
+    const q = filter.trim().toLowerCase();
+    const rows = allSamples.filter((s) => {
       if (s.status !== 'complete') return false;
-      const matchesText = !filter || s.name.toLowerCase().includes(filter.toLowerCase());
-      return matchesText;
+      return !q || s.name.toLowerCase().includes(q)
+        || (summaries[s.sample_id]?.species ?? '').toLowerCase().includes(q);
     });
-  }, [allSamples, filter]);
+    // counts for the result columns; samples whose summary is not loaded sort last
+    const value: Record<ResultSortKey, (s: FileManagerSample) => SortValue> = {
+      name: (s) => s.name,
+      species: (s) => summaries[s.sample_id]?.species,
+      arg: (s) => summaries[s.sample_id]?.drug_resistance.length,
+      mrg: (s) => summaries[s.sample_id]?.bacmet?.length,
+      vf: (s) => summaries[s.sample_id]?.vf_genes.length,
+      plasmids: (s) => summaries[s.sample_id]?.plasmids.length,
+    };
+    return sortRows(rows, value[sortKey], sortDir);
+  }, [allSamples, filter, summaries, sortKey, sortDir]);
 
   const selectedCompleted = allSamples.filter(
     (s) => selected.has(s.sample_id) && s.status === 'complete'
@@ -195,7 +212,7 @@ export default function ResultsPage() {
               type="text"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder="Filter by sample name..."
+              placeholder="Filter by sample name or species..."
               className="input w-full pl-10"
             />
           </div>
@@ -216,12 +233,12 @@ export default function ResultsPage() {
                     {allFilteredSelected ? <CheckSquare className="w-4 h-4 text-blue-400" /> : <Square className="w-4 h-4" />}
                   </button>
                 </th>
-                <th className="table-header">Sample</th>
-                <th className="table-header">Species</th>
-                <th className="table-header">ARG</th>
-                <th className="table-header">MRG</th>
-                <th className="table-header">VFs</th>
-                <th className="table-header">Plasmids</th>
+                <SortableHeader label="Sample" column="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Species" column="species" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="ARG" column="arg" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="MRG" column="mrg" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="VFs" column="vf" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Plasmids" column="plasmids" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <th className="table-header text-center">Export</th>
               </tr>
             </thead>

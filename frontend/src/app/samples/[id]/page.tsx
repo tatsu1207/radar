@@ -18,6 +18,7 @@ import {
   getCRISPRResults,
   getDefenseSystems,
   getICEResults,
+  getSampleFiles,
 } from '@/lib/api';
 import type {
   Sample,
@@ -33,14 +34,16 @@ import type {
   CRISPRResultData,
   DefenseSystemResult,
   ICEResultData,
+  SampleFiles,
 } from '@/lib/api';
 import StatusBadge from '@/components/StatusBadge';
 import ARGTable from '@/components/ARGTable';
 import PlasmidMap from '@/components/PlasmidMap';
 import LinearGenomeMap from '@/components/LinearGenomeMap';
-import ASTPanel from '@/components/ASTPanel';
+import ReadQCCard from '@/components/ReadQCCard';
+import SampleDownloads from '@/components/SampleDownloads';
 
-const TABS = ['Summary', 'Resistance Genes', 'Plasmids', 'Mobile Elements', 'Defense Systems', 'Virulence', 'AST'] as const;
+const TABS = ['Summary', 'Resistance Genes', 'Plasmids', 'Mobile Elements', 'Defense Systems', 'Virulence', 'Downloads'] as const;
 
 function downloadTSV(filename: string, headers: string[], rows: (string | number | boolean | null | undefined)[][]) {
   const tsv = [headers.join('\t'), ...rows.map((r) => r.map((v) => v ?? '').join('\t'))].join('\n');
@@ -97,6 +100,7 @@ export default function SampleDetailPage() {
   const [defenseSystems, setDefenseSystems] = useState<DefenseSystemResult[]>([]);
   const [ices, setIces] = useState<ICEResultData[]>([]);
   const [summary, setSummary] = useState<SampleSummary | null>(null);
+  const [files, setFiles] = useState<SampleFiles | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -105,12 +109,14 @@ export default function SampleDetailPage() {
     try {
       const s = await getSample(sampleId);
       setSample(s);
-      const [jobList, sum] = await Promise.all([
+      const [jobList, sum, fileList] = await Promise.all([
         getJobs(sampleId).catch(() => []),
         getSampleSummary(sampleId).catch(() => null),
+        getSampleFiles(sampleId).catch(() => null),
       ]);
       setJobs(jobList);
       setSummary(sum);
+      setFiles(fileList);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load sample');
     } finally {
@@ -224,18 +230,8 @@ export default function SampleDetailPage() {
       {/* ── Summary tab ── */}
       {tab === 'Summary' && (
         <div className="space-y-6">
-          {/* Read QC */}
-          <div className="card">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-100">Read QC (fastp)</h2>
-              <button
-                onClick={() => authDownload(`/api/pipeline/qc/${sampleId}/fastp`, true)}
-                className="btn-secondary text-xs flex items-center gap-1.5"
-              >
-                View Report
-              </button>
-            </div>
-          </div>
+          {/* Read QC: fastp (Illumina) and NanoPlot (long reads) */}
+          <ReadQCCard sampleId={sampleId} files={files} />
 
           {/* Assembly QC */}
           <div className="card">
@@ -899,6 +895,9 @@ export default function SampleDetailPage() {
           </div>
         </div>
       )}
+
+      {/* ── Downloads tab ── */}
+      {tab === 'Downloads' && <SampleDownloads sampleId={sampleId} files={files} />}
     </div>
   );
 }

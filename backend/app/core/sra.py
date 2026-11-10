@@ -21,6 +21,7 @@ from app.models.models import (
     SequencingPlatform,
     FileSource,
 )
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +38,11 @@ def _map_progress(phase_pct: float, phase_range: tuple) -> float:
     return lo + (hi - lo) * phase_pct / 100.0
 
 
-def _stream_progress(proc, dl_id: str, phase_range: tuple, parse_fn):
+def _stream_progress(child, dl_id: str, phase_range: tuple, parse_fn):
     """Read stderr from a subprocess line-by-line, parse progress, update DB."""
     db = SessionLocal()
     try:
-        for line in proc.stderr:
+        for line in child.stderr:
             pct = parse_fn(line)
             if pct is not None:
                 overall = _map_progress(pct, phase_range)
@@ -76,7 +77,7 @@ def _parse_fasterq_progress(line: str):
 def _get_sra_platform(accession: str) -> SequencingPlatform | None:
     """Query SRA metadata for sequencing platform."""
     try:
-        result = subprocess.run(
+        result = proc.run(
             ["conda", "run", "-n", "radar", "vdb-dump", "--info", accession],
             capture_output=True, text=True, timeout=60,
         )
@@ -114,28 +115,33 @@ def download_sra(download_id: str):
 
         try:
             # Phase 1: Prefetch (0-45%)
-            proc = subprocess.Popen(
+            child = subprocess.Popen(
                 ["conda", "run", "-n", "radar", "prefetch", "--progress", accession],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                start_new_session=True,
             )
             monitor = threading.Thread(
                 target=_stream_progress,
-                args=(proc, download_id, PREFETCH_RANGE, _parse_prefetch_progress),
+                args=(child, download_id, PREFETCH_RANGE, _parse_prefetch_progress),
                 daemon=True,
             )
             monitor.start()
-            stdout, stderr = proc.communicate(timeout=3600)
+            try:
+                stdout, stderr = child.communicate(timeout=3600)
+            except subprocess.TimeoutExpired:
+                proc.kill_group(child)
+                raise
             monitor.join(timeout=5)
-            if proc.returncode != 0:
-                raise subprocess.CalledProcessError(proc.returncode, "prefetch", stderr)
+            if child.returncode != 0:
+                raise subprocess.CalledProcessError(child.returncode, "prefetch", stderr)
 
             dl.progress = PREFETCH_RANGE[1]
             db.commit()
 
             # Phase 2: Fasterq-dump (45-75%)
-            proc = subprocess.Popen(
+            child = subprocess.Popen(
                 [
                     "conda", "run", "-n", "radar",
                     "fasterq-dump", accession,
@@ -146,17 +152,22 @@ def download_sra(download_id: str):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                start_new_session=True,
             )
             monitor = threading.Thread(
                 target=_stream_progress,
-                args=(proc, download_id, FASTERQ_RANGE, _parse_fasterq_progress),
+                args=(child, download_id, FASTERQ_RANGE, _parse_fasterq_progress),
                 daemon=True,
             )
             monitor.start()
-            stdout, stderr = proc.communicate(timeout=7200)
+            try:
+                stdout, stderr = child.communicate(timeout=7200)
+            except subprocess.TimeoutExpired:
+                proc.kill_group(child)
+                raise
             monitor.join(timeout=5)
-            if proc.returncode != 0:
-                raise subprocess.CalledProcessError(proc.returncode, "fasterq-dump", stderr)
+            if child.returncode != 0:
+                raise subprocess.CalledProcessError(child.returncode, "fasterq-dump", stderr)
 
             dl.progress = FASTERQ_RANGE[1]
             db.commit()

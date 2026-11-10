@@ -10,6 +10,7 @@ import Modal from '@/components/Modal';
 
 const PIPELINE_STEPS = [
   { tool: 'fastp', label: 'QC (fastp)', description: 'Adapter trimming & quality filtering' },
+  { tool: 'nanoplot', label: 'Long-read QC (NanoPlot)', description: 'Read length & quality report for ONT/PacBio reads' },
   { tool: 'assembly', label: 'Assembly (SPAdes/Flye)', description: 'Genome assembly from reads' },
   { tool: 'quast', label: 'QUAST', description: 'Assembly quality metrics' },
   { tool: 'busco', label: 'BUSCO', description: 'Assembly completeness check' },

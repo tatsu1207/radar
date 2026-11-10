@@ -1,11 +1,11 @@
 import csv
 import logging
 import os
-import subprocess
 from typing import List
 
 from app.config import settings
 from app.models.models import ResFinderResult
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ def run_resfinder(
         "-acq",
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=600)
     if result.returncode != 0:
         raise RuntimeError(f"ResFinder failed: {result.stderr[-1000:]}")
 

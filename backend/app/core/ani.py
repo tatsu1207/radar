@@ -7,13 +7,13 @@ many-vs-many comparisons.
 
 import logging
 import os
-import subprocess
 import tempfile
 from typing import Dict, List, Optional, Tuple
 
 from app.config import settings
 from app.db import SessionLocal
 from app.models.models import Sample, SampleFile, SampleStatus
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ def _run_skani_triangle(sample_info: List[tuple], threads: int = 4) -> Dict:
             "-t", str(threads),
             "-o", output_file,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        result = proc.run(cmd, capture_output=True, text=True, timeout=300)
 
         if result.returncode != 0:
             logger.error(f"skani triangle failed: {result.stderr[:500]}")

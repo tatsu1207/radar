@@ -7,6 +7,7 @@ from Bio.Seq import Seq
 
 from app.config import settings
 from app.models.models import ARGResult, RBSResult
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +100,7 @@ def run_ostir(sample_id: str, assembly_path: str, db, threads: int = 4):
                 "-o", temp_csv,
             ]
 
-            result = subprocess.run(
+            result = proc.run(
                 cmd, capture_output=True, text=True, timeout=60
             )
 

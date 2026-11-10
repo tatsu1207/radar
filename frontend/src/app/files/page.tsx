@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { Check, AlertTriangle, Minus, Trash2, Upload, Download, X, Play, Square, CheckCircle, XCircle, Loader2, HardDrive, RotateCw } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import Link from 'next/link';
+import { Search, Check, AlertTriangle, Minus, Trash2, Upload, Download, X, Play, Square, CheckCircle, XCircle, Loader2, HardDrive, RotateCw } from 'lucide-react';
 import {
   getAllFileManager,
   deleteFileManagerSample,
@@ -16,6 +17,9 @@ import {
   cancelJob,
   updateMetadata,
 } from '@/lib/api';
+import SortableHeader from '@/components/SortableHeader';
+import { sortRows, useSort } from '@/lib/sort';
+import type { SortValue } from '@/lib/sort';
 import type { FileManagerSample, SRADownload } from '@/lib/api';
 import ServerPathDialog from '@/components/ServerPathDialog';
 
@@ -265,8 +269,31 @@ function LongReadCell({
   );
 }
 
+type FileSortKey = 'name' | 'type' | 'host' | 'location' | 'date' | 'pipeline' | 'completeness';
+
+const FILE_SORT_VALUE: Record<FileSortKey, (s: FileManagerSample) => SortValue> = {
+  name: (s) => s.name,
+  type: (s) => s.input_type,
+  host: (s) => s.host,
+  location: (s) => s.location,
+  date: (s) => s.collection_date,
+  pipeline: (s) => s.pipeline_status,
+  completeness: (s) => s.busco_complete,
+};
+
 export default function GlobalFilesPage() {
   const [samples, setSamples] = useState<FileManagerSample[]>([]);
+  const [sampleFilter, setSampleFilter] = useState('');
+  const { sortKey, sortDir, toggleSort } = useSort<FileSortKey>('radar.files.sort', 'name');
+  // Rows shown in the table: search across name/project/host/location, then sort
+  const visibleSamples = useMemo(() => {
+    const q = sampleFilter.trim().toLowerCase();
+    const matched = q
+      ? samples.filter((s) => [s.name, s.project_name, s.host, s.location]
+          .some((v) => v?.toLowerCase().includes(q)))
+      : samples;
+    return sortRows(matched, FILE_SORT_VALUE[sortKey], sortDir);
+  }, [samples, sampleFilter, sortKey, sortDir]);
   const [sraDownloads, setSraDownloads] = useState<SRADownload[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -276,6 +303,7 @@ export default function GlobalFilesPage() {
   const [showSRA, setShowSRA] = useState(false);
   const [showServerPath, setShowServerPath] = useState(false);
   const [selectedSamples, setSelectedSamples] = useState<Set<string>>(new Set());
+  const allVisibleSelected = visibleSamples.length > 0 && visibleSamples.every((s) => selectedSamples.has(s.sample_id));
   const [startingSelected, setStartingSelected] = useState(false);
 
   const [sraInput, setSraInput] = useState('');
@@ -457,9 +485,12 @@ export default function GlobalFilesPage() {
   }
 
   function toggleAllSamples() {
+    // acts on the rows currently shown (search filter applied)
     setSelectedSamples((prev) => {
-      if (prev.size === samples.length) return new Set();
-      return new Set(samples.map((s) => s.sample_id));
+      const next = new Set(prev);
+      if (allVisibleSelected) visibleSamples.forEach((s) => next.delete(s.sample_id));
+      else visibleSamples.forEach((s) => next.add(s.sample_id));
+      return next;
     });
   }
 
@@ -676,12 +707,27 @@ export default function GlobalFilesPage() {
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-4">
-        <span className="text-sm text-gray-400">
-          {selectedSamples.size > 0
-            ? `${selectedSamples.size} of ${samples.length} sample${samples.length !== 1 ? 's' : ''} selected`
-            : `${samples.length} sample${samples.length !== 1 ? 's' : ''}`}
-        </span>
+      <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
+        <div className="flex items-center gap-4 flex-wrap">
+          {samples.length > 0 && (
+            <div className="relative w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+              <input
+                type="text"
+                value={sampleFilter}
+                onChange={(e) => setSampleFilter(e.target.value)}
+                placeholder="Search sample, host, location..."
+                className="input w-full pl-9 text-sm"
+              />
+            </div>
+          )}
+          <span className="text-sm text-gray-400">
+            {sampleFilter && `${visibleSamples.length} shown · `}
+            {selectedSamples.size > 0
+              ? `${selectedSamples.size} of ${samples.length} sample${samples.length !== 1 ? 's' : ''} selected`
+              : `${samples.length} sample${samples.length !== 1 ? 's' : ''}`}
+          </span>
+        </div>
         {samples.length > 0 && (
           <button
             onClick={handleStartSelected}
@@ -710,30 +756,38 @@ export default function GlobalFilesPage() {
                     <button
                       onClick={toggleAllSamples}
                       className={`w-4 h-4 rounded border flex items-center justify-center ${
-                        samples.length > 0 && selectedSamples.size === samples.length
+                        allVisibleSelected
                           ? 'bg-blue-500 border-blue-500'
                           : 'border-gray-600 hover:border-gray-400'
                       }`}
+                      title={allVisibleSelected ? 'Deselect shown samples' : 'Select shown samples'}
                     >
-                      {samples.length > 0 && selectedSamples.size === samples.length && <Check className="w-3 h-3 text-white" />}
+                      {allVisibleSelected && <Check className="w-3 h-3 text-white" />}
                     </button>
                   </th>
-                  <th className="table-header">Sample</th>
-                  <th className="table-header">Type</th>
+                  <SortableHeader label="Sample" column="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                  <SortableHeader label="Type" column="type" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                   <th className="table-header">R1</th>
                   <th className="table-header">R2</th>
                   <th className="table-header">ONT</th>
                   <th className="table-header">PacBio</th>
-                  <th className="table-header">Host *</th>
-                  <th className="table-header">Location *</th>
-                  <th className="table-header">Date *</th>
-                  <th className="table-header">Pipeline</th>
-                  <th className="table-header">Completeness</th>
+                  <SortableHeader label="Host *" column="host" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                  <SortableHeader label="Location *" column="location" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                  <SortableHeader label="Date *" column="date" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                  <SortableHeader label="Pipeline" column="pipeline" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                  <SortableHeader label="Completeness" column="completeness" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                   <th className="table-header w-10"></th>
                 </tr>
               </thead>
               <tbody>
-                {samples.map((sample) => {
+                {visibleSamples.length === 0 && (
+                  <tr>
+                    <td colSpan={13} className="table-cell text-center text-gray-500 py-6">
+                      No samples match &ldquo;{sampleFilter}&rdquo;.
+                    </td>
+                  </tr>
+                )}
+                {visibleSamples.map((sample) => {
                   const hasR1 = sample.illumina_r1 !== null;
                   const hasR2 = sample.illumina_r2 !== null;
                   const r2MissingPair = hasR1 && !hasR2;
@@ -756,7 +810,10 @@ export default function GlobalFilesPage() {
                         </button>
                       </td>
                       <td className="table-cell">
-                        <span className="text-gray-100 font-medium">{sample.name}</span>
+                        <Link href={`/samples/${sample.sample_id}`}
+                          className="font-medium text-blue-400 hover:text-blue-300" title="Open sample results">
+                          {sample.name}
+                        </Link>
                       </td>
                       <td className="table-cell">
                         <span className={`px-2 py-0.5 rounded text-xs ${

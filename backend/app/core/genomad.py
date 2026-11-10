@@ -1,11 +1,11 @@
 import csv
 import logging
 import os
-import subprocess
 from typing import List
 
 from app.config import settings
 from app.models.models import ProphageResult, ARGResult
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ def run_genomad(sample_id: str, assembly_path: str, db, threads: int = 4) -> Lis
     ]
 
     logger.info(f"geNomad command: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=7200)
 
     if result.returncode != 0:
         raise RuntimeError(f"geNomad failed: {result.stderr[-2000:]}")

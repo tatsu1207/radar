@@ -2,11 +2,11 @@ import csv
 import json
 import logging
 import os
-import subprocess
 from typing import List
 
 from app.config import settings
 from app.models.models import RGIResult
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ def run_rgi(
 
     # RGI --local expects localDB/ in the current working directory
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=1200, cwd=project_root)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=1200, cwd=project_root)
     if result.returncode != 0:
         raise RuntimeError(f"RGI failed: {result.stderr[-1000:]}")
 

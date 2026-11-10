@@ -8,6 +8,7 @@ from typing import List, Optional
 
 from app.config import settings
 from app.models.models import SampleFile, PairType
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ def _run_spades(sample_id: str, r1: str, r2: str, threads: int) -> str:
     ]
 
     logger.info(f"SPAdes command: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=14400)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=14400)
 
     if result.returncode != 0:
         raise RuntimeError(f"SPAdes failed: {result.stderr[-2000:]}")
@@ -151,7 +152,7 @@ def _run_flye(sample_id: str, long_read: str, threads: int, platform: str = "ont
         cmd += ["--asm-coverage", "100", "--genome-size", "5m"]
 
     logger.info(f"Flye command: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=14400)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=14400)
 
     if result.returncode != 0:
         raise RuntimeError(f"Flye failed: {result.stderr[-2000:]}")
@@ -197,7 +198,7 @@ def _run_medaka(long_read: str, draft: str, results_dir: str, threads: int) -> s
             *extra,
         ]
         logger.info(f"Medaka command: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
+        result = proc.run(cmd, capture_output=True, text=True, timeout=7200)
         if result.returncode == 0 and os.path.exists(polished) and os.path.getsize(polished) > 0:
             return polished
 
@@ -238,7 +239,7 @@ def _run_hybrid_assembly(
         "--threads", str(threads),
     ]
 
-    result = subprocess.run(cmd_flye, capture_output=True, text=True, timeout=14400)
+    result = proc.run(cmd_flye, capture_output=True, text=True, timeout=14400)
     if result.returncode != 0:
         raise RuntimeError(f"Flye failed: {result.stderr[-2000:]}")
 
@@ -269,7 +270,7 @@ def _run_hybrid_assembly(
         "conda", "run", "-n", CONDA_POLYPOLISH,
         "bwa", "index", medaka_assembly,
     ]
-    subprocess.run(cmd_index, capture_output=True, text=True, timeout=600)
+    proc.run(cmd_index, capture_output=True, text=True, timeout=600)
 
     # Align R1
     cmd_bwa_r1 = [
@@ -277,7 +278,7 @@ def _run_hybrid_assembly(
         "bwa", "mem", "-t", str(threads), "-a", medaka_assembly, r1,
     ]
     with open(aligned_r1, "w") as f:
-        result = subprocess.run(cmd_bwa_r1, stdout=f, stderr=subprocess.PIPE, text=True, timeout=3600)
+        result = proc.run(cmd_bwa_r1, stdout=f, stderr=subprocess.PIPE, text=True, timeout=3600)
 
     # Align R2
     cmd_bwa_r2 = [
@@ -285,7 +286,7 @@ def _run_hybrid_assembly(
         "bwa", "mem", "-t", str(threads), "-a", medaka_assembly, r2,
     ]
     with open(aligned_r2, "w") as f:
-        result = subprocess.run(cmd_bwa_r2, stdout=f, stderr=subprocess.PIPE, text=True, timeout=3600)
+        result = proc.run(cmd_bwa_r2, stdout=f, stderr=subprocess.PIPE, text=True, timeout=3600)
 
     # Polypolish filter
     filtered_r1 = os.path.join(polypolish_dir, "filtered_R1.sam")
@@ -299,7 +300,7 @@ def _run_hybrid_assembly(
         "--out1", filtered_r1,
         "--out2", filtered_r2,
     ]
-    subprocess.run(cmd_filter, capture_output=True, text=True, timeout=1800)
+    proc.run(cmd_filter, capture_output=True, text=True, timeout=1800)
 
     # Polypolish polish
     polished = os.path.join(polypolish_dir, "polished.fasta")
@@ -326,7 +327,7 @@ def _run_hybrid_assembly(
         sam_r2,
     ]
 
-    result = subprocess.run(cmd_polish, capture_output=True, text=True, timeout=3600)
+    result = proc.run(cmd_polish, capture_output=True, text=True, timeout=3600)
 
     if result.returncode == 0 and result.stdout.strip():
         with open(polished, "w") as f:
@@ -396,7 +397,7 @@ def _run_pypolca(draft: str, r1: str, r2: str, results_dir: str, threads: int) -
     ]
     logger.info(f"Pypolca command: {' '.join(cmd)}")
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
+        result = proc.run(cmd, capture_output=True, text=True, timeout=7200)
     except (OSError, subprocess.TimeoutExpired) as e:
         logger.warning(f"Pypolca failed (keeping Polypolish output): {e}")
         return draft
@@ -442,7 +443,7 @@ def _add_plassembler_plasmids(
     ]
     logger.info(f"Plassembler command: {' '.join(cmd)}")
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
+        result = proc.run(cmd, capture_output=True, text=True, timeout=7200)
     except (subprocess.TimeoutExpired, OSError) as e:
         logger.warning(f"Plassembler failed (using the Flye assembly): {e}")
         return draft
@@ -461,7 +462,7 @@ def _add_plassembler_plasmids(
         "minimap2", "-x", "asm5", "-c", draft,
         os.path.join(out, "plassembler_plasmids.fasta"),
     ]
-    result = subprocess.run(cmd_map, capture_output=True, text=True, timeout=1800)
+    result = proc.run(cmd_map, capture_output=True, text=True, timeout=1800)
     if result.returncode != 0:
         logger.warning(f"minimap2 failed (using the Flye assembly): {result.stderr[-500:]}")
         return draft
@@ -523,7 +524,7 @@ def _rotate_contigs(draft: str, results_dir: str, threads: int) -> str:
     logger.info(f"dnaapler command: {' '.join(cmd)}")
     rotated = os.path.join(out, "dnaapler_reoriented.fasta")
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+        result = proc.run(cmd, capture_output=True, text=True, timeout=3600)
     except (subprocess.TimeoutExpired, OSError) as e:
         logger.warning(f"dnaapler failed (contigs not rotated): {e}")
         return draft
@@ -636,7 +637,7 @@ def run_quast(sample_id: str, assembly_path: str, threads: int = 4) -> dict:
         "-t", str(threads),
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=3600)
 
     if result.returncode != 0:
         logger.warning(f"QUAST failed (non-critical): {result.stderr[-1000:]}")
@@ -674,7 +675,7 @@ def run_busco(sample_id: str, assembly_path: str, threads: int = 4) -> dict:
         "-f",
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=3600)
 
     if result.returncode != 0:
         logger.warning(f"BUSCO failed (non-critical): {result.stderr[-1000:]}")

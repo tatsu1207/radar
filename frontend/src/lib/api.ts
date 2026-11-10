@@ -1111,3 +1111,73 @@ export async function uploadMetadataGlobal(file: File): Promise<{ created: numbe
   if (!res.ok) throw new APIError(await res.text().catch(() => 'Upload failed'), res.status);
   return res.json();
 }
+
+// ── Per-sample downloads & read QC ─────────────────────────────────────────
+
+export interface SampleFileItem {
+  key: string;
+  label: string;
+  filename: string;
+  size: number | null;
+  viewable: boolean;
+}
+
+export interface SampleFileGroup {
+  category: 'reads' | 'read_qc' | 'assembly' | 'annotation' | 'bundle';
+  title: string;
+  items: SampleFileItem[];
+}
+
+export type NanoStats = Record<string, string>;
+
+export interface SampleFiles {
+  sample_id: string;
+  sample_name: string;
+  groups: SampleFileGroup[];
+  read_qc: {
+    fastp: boolean;
+    nanoplot: { raw: NanoStats | null; filtered: NanoStats | null };
+  };
+}
+
+export async function getSampleFiles(sampleId: string): Promise<SampleFiles> {
+  return fetchAPI<SampleFiles>(`/api/samples/${sampleId}/files`);
+}
+
+/** Download a sample file (or open an HTML report in a new tab with `view`).
+ *  Gets a short-lived signed link first, so the browser streams large files
+ *  straight to disk instead of holding them in memory. */
+export async function openSampleFile(sampleId: string, key: string, view = false): Promise<void> {
+  // open the tab synchronously (popup blockers allow it only inside the click)
+  const tab = view ? window.open('', '_blank') : null;
+  try {
+    const { url } = await fetchAPI<{ url: string; filename: string }>(
+      `/api/samples/${sampleId}/files/${encodeURIComponent(key)}/link`,
+      // no `headers` here: fetchAPI's `...options` would replace its auth header
+      { method: 'POST', body: JSON.stringify({ inline: view }) },
+    );
+    if (tab) {
+      tab.location.href = url;
+    } else {
+      const a = document.createElement('a');
+      a.href = url;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+  } catch (e) {
+    tab?.close();
+    throw e;
+  }
+}
+
+export function formatBytes(n: number | null | undefined): string {
+  if (n == null) return '';
+  if (n < 1024) return `${n} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
+}

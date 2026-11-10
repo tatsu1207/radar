@@ -324,6 +324,19 @@ if [ -n "$LONG" ] && [ "$PLATFORM" = "ont" ]; then
         bash -c "conda run -n radar chopper -q 10 --minlength 1000 --threads $THREADS -i '$LONG' | gzip > '$FILTERED_LONG'"
 fi
 
+# --- Step 1d: NanoPlot (long-read QC report: raw reads, and after Chopper for ONT) ---
+if [ -n "$LONG" ]; then
+    NP_STAGES=("raw:$LONG")
+    [ "$PLATFORM" = "ont" ] && NP_STAGES+=("filtered:$FILTERED_LONG")
+    for np in "${NP_STAGES[@]}"; do
+        stage="${np%%:*}"; fq="${np#*:}"
+        [ -s "$fq" ] || continue
+        run_noncritical "NanoPlot (${stage} long reads)" \
+            conda run -n radar-nanoplot NanoPlot --fastq "$fq" --outdir "${QC_DIR}/nanoplot_${stage}" \
+                --threads "$THREADS" --N50 --loglength --plots dot kde --title "${stage} long reads"
+    done
+fi
+
 # --- Step 2: Assembly ---
 case "$CASE" in
     illumina)

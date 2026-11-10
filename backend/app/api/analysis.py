@@ -19,7 +19,7 @@ router = APIRouter(tags=["analysis"])
 
 # Canonical pipeline step order
 PIPELINE_STEPS = [
-    "fastp", "assembly", "quast", "busco",
+    "fastp", "nanoplot", "assembly", "quast", "busco",
     "amrfinderplus", "mob_recon", "mefinder",
     "phenotype_prediction", "risk_scoring",
 ]

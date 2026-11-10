@@ -14,7 +14,6 @@ mechanisms are relevant).
 
 import logging
 import os
-import subprocess
 import tempfile
 from typing import Dict, List, Optional
 
@@ -22,6 +21,7 @@ from app.config import settings
 from app.models.models import (
     Sample, SpeciesResult, MLSTResult, MobilityResult, ARGResult,
 )
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +123,7 @@ def _blast_seq_against_assembly(query_seq: str, assembly_path: str,
             "-evalue", "1e-5",
             "-out", output_file,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = proc.run(cmd, capture_output=True, text=True, timeout=120)
 
         hits = []
         if result.returncode == 0 and os.path.exists(output_file):

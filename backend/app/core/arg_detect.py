@@ -1,11 +1,11 @@
 import csv
 import logging
 import os
-import subprocess
 from typing import List
 
 from app.config import settings
 from app.models.models import ARGResult, VirulenceResult
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ def run_amrfinderplus(sample_id: str, assembly_path: str, db, threads: int = 4) 
     ]
 
     logger.info(f"AMRFinderPlus command: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=3600)
 
     if result.returncode != 0:
         raise RuntimeError(f"AMRFinderPlus failed: {result.stderr[-2000:]}")

@@ -6,6 +6,7 @@ from typing import List
 
 from app.config import settings
 from app.models.models import SampleFile, PairType, SequencingPlatform
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,7 @@ def run_fastp(sample_id: str, input_files: List[str], db=None, threads: int = 4)
         ]
 
         logger.info(f"fastp command: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
+        result = proc.run(cmd, capture_output=True, text=True, timeout=7200)
 
         if result.returncode != 0:
             raise RuntimeError(f"fastp failed: {result.stderr[-2000:]}")
@@ -113,7 +114,7 @@ def run_fastp(sample_id: str, input_files: List[str], db=None, threads: int = 4)
         ]
 
         logger.info(f"fastp command: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
+        result = proc.run(cmd, capture_output=True, text=True, timeout=7200)
 
         if result.returncode != 0:
             raise RuntimeError(f"fastp failed: {result.stderr[-2000:]}")
@@ -143,7 +144,7 @@ def _samtools_cmd() -> List[str]:
     import shutil
     if shutil.which("samtools"):
         try:
-            if subprocess.run(["samtools", "--version"], capture_output=True,
+            if proc.run(["samtools", "--version"], capture_output=True,
                               timeout=30).returncode == 0:
                 return ["samtools"]
         except (OSError, subprocess.TimeoutExpired):
@@ -177,7 +178,7 @@ def convert_bam_long_reads(sample_id: str, db, threads: int = 4) -> List[str]:
         logger.info(f"Converting long-read BAM to FASTQ: {bam} -> {fastq}")
         tmp = fastq + ".tmp.gz"
         cmd = _samtools_cmd() + ["fastq", "-@", str(threads), "-c", "6", "-0", tmp, bam]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
+        result = proc.run(cmd, capture_output=True, text=True, timeout=7200)
         if result.returncode != 0 or not os.path.exists(tmp) or os.path.getsize(tmp) == 0:
             if os.path.exists(tmp):
                 os.remove(tmp)

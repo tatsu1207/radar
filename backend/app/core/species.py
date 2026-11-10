@@ -1,11 +1,11 @@
 import csv
 import logging
 import os
-import subprocess
 from typing import Optional
 
 from app.config import settings
 from app.models.models import SpeciesResult
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ def _run_skani(sample_id, assembly_path, results_dir, db, threads) -> Optional[S
 
     logger.info(f"skani command: {' '.join(cmd)}")
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        result = proc.run(cmd, capture_output=True, text=True, timeout=300)
     except FileNotFoundError:
         logger.warning("skani not found")
         return None
@@ -159,7 +159,7 @@ def _run_gtdbtk(sample_id, assembly_path, results_dir, db, threads) -> Optional[
 
     logger.info(f"GTDB-Tk command: {' '.join(cmd)}")
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
+        result = proc.run(cmd, capture_output=True, text=True, timeout=7200)
     except FileNotFoundError:
         logger.warning("GTDB-Tk not found")
         return None
@@ -228,7 +228,7 @@ def _run_blast_16s(sample_id, assembly_path, results_dir, db, threads) -> Option
     ]
 
     logger.info(f"16S BLAST command: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    result = proc.run(cmd, capture_output=True, text=True, timeout=600)
 
     if result.returncode != 0:
         logger.warning(f"16S BLAST failed: {result.stderr[-500:]}")

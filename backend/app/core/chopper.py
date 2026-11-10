@@ -1,10 +1,9 @@
 import logging
 import os
-import shlex
-import subprocess
 
 from app.config import settings
 from app.models.models import SampleFile, PairType
+from app.core import proc
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +41,7 @@ def run_chopper(sample_id: str, input_files: list[str], db=None, threads: int = 
         plain_path = long_file[:-3]
         if os.path.exists(plain_path):
             logger.info(f"Found uncompressed {plain_path}, compressing to {long_file}")
-            subprocess.run(f"gzip -c '{plain_path}' > '{long_file}'",
+            proc.run(f"gzip -c '{plain_path}' > '{long_file}'",
                            shell=True, check=True, executable="/bin/bash")
 
     if long_file.endswith(".gz") and os.path.exists(long_file):
@@ -52,7 +51,7 @@ def run_chopper(sample_id: str, input_files: list[str], db=None, threads: int = 
             logger.info(f"File {long_file} has .gz extension but is plain text — compressing")
             tmp_path = long_file + ".tmp"
             os.rename(long_file, tmp_path)
-            subprocess.run(f"gzip -c '{tmp_path}' > '{long_file}'",
+            proc.run(f"gzip -c '{tmp_path}' > '{long_file}'",
                            shell=True, check=True, executable="/bin/bash")
             os.remove(tmp_path)
 
@@ -67,7 +66,7 @@ def run_chopper(sample_id: str, input_files: list[str], db=None, threads: int = 
     )
 
     logger.info(f"Chopper command: {full_cmd}")
-    result = subprocess.run(
+    result = proc.run(
         full_cmd, shell=True, capture_output=True, text=True, timeout=7200,
         executable="/bin/bash",
     )
@@ -78,7 +77,7 @@ def run_chopper(sample_id: str, input_files: list[str], db=None, threads: int = 
         raise RuntimeError(f"Chopper failed: {result.stderr[-2000:]}")
 
     # Verify the gzip file is valid
-    verify = subprocess.run(
+    verify = proc.run(
         ["gzip", "-t", output_path], capture_output=True, text=True
     )
     if verify.returncode != 0:
