@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import Base, engine
-from app.api import auth, projects, samples, upload, analysis, results, metadata, file_manager, downloads
+from app.api import auth, projects, samples, upload, analysis, results, metadata, file_manager, downloads, breakpoints
 
 
 @asynccontextmanager
@@ -42,6 +42,7 @@ app.include_router(results.router, prefix="/api")
 app.include_router(metadata.router, prefix="/api")
 app.include_router(file_manager.router, prefix="/api")
 app.include_router(downloads.router, prefix="/api")
+app.include_router(breakpoints.router, prefix="/api")
 
 
 @app.get("/")

@@ -42,8 +42,9 @@ import PlasmidMap from '@/components/PlasmidMap';
 import LinearGenomeMap from '@/components/LinearGenomeMap';
 import ReadQCCard from '@/components/ReadQCCard';
 import SampleDownloads from '@/components/SampleDownloads';
+import ASTPanel from '@/components/ASTPanel';
 
-const TABS = ['Summary', 'Resistance Genes', 'Plasmids', 'Mobile Elements', 'Defense Systems', 'Virulence', 'Downloads'] as const;
+const TABS = ['Summary', 'Resistance Genes', 'Plasmids', 'Mobile Elements', 'Defense Systems', 'Virulence', 'AST', 'Downloads'] as const;
 
 function downloadTSV(filename: string, headers: string[], rows: (string | number | boolean | null | undefined)[][]) {
   const tsv = [headers.join('\t'), ...rows.map((r) => r.map((v) => v ?? '').join('\t'))].join('\n');
