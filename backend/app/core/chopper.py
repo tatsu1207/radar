@@ -1,5 +1,6 @@
 import logging
 import os
+import shlex
 
 from app.config import settings
 from app.models.models import SampleFile, PairType

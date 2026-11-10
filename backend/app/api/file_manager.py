@@ -219,6 +219,18 @@ def _reject_names_with_spaces(filenames: List[str]) -> None:
         )
 
 
+def _safe_filename(filename: str) -> str:
+    """Sanitize a filename for on-disk storage.
+
+    Bioinformatics tools (notably Flye) reject paths containing spaces, and
+    shell-interpolated commands break on other metacharacters. Replace any run
+    of non [A-Za-z0-9._-] characters with a single underscore. The original
+    name is preserved separately as SampleFile.original_filename for display.
+    """
+    base = os.path.basename(filename or "")
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", base).strip("_") or "file"
+
+
 def _strip_extensions(filename: str) -> str:
     """Remove known sequencing file extensions."""
     base = filename

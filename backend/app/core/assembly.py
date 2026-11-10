@@ -144,12 +144,6 @@ def _run_flye(sample_id: str, long_read: str, threads: int, platform: str = "ont
         "--out-dir", outdir,
         "--threads", str(threads),
     ]
-    # PacBio HiFi from a full Revio well is often >300x coverage, which makes
-    # Flye's disjointig step fail ("Assembled 0 disjointigs"). --asm-coverage
-    # caps the coverage used for the initial disjointig assembly (requires
-    # --genome-size); bacterial genomes are ~2-7 Mb, 5m is a safe estimate.
-    if platform == "pacbio":
-        cmd += ["--asm-coverage", "100", "--genome-size", "5m"]
 
     logger.info(f"Flye command: {' '.join(cmd)}")
     result = proc.run(cmd, capture_output=True, text=True, timeout=14400)
