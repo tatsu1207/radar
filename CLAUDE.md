@@ -194,6 +194,10 @@ Known columns map to Metadata model fields; extra columns go into `custom_json`.
 | `/api/projects/{id}/file-manager/files/{file_id}` | DELETE | Remove a single file |
 | `/api/projects/{id}/file-manager/samples/{sample_id}` | DELETE | Remove sample + all files |
 
+## Force re-run
+
+The pipeline skips every step whose output exists (QC files, assembly, result rows), so re-starting a finished sample does nothing. `force: true` on `POST /api/pipeline/start/{id}` or `POST /api/samples/{id}/analyze` (Files page: **Re-run** button on complete/failed samples, with a confirm) first calls `app.core.reset.reset_sample_results`: deletes `data/results/<id>/` and the rows of every table keyed to the sample (plus promoter/RBS rows of its ARGs), keeping `sample_files`, `metadata`, `ast_results`, `sra_downloads`, `bvbrc_fetches` and `analysis_jobs`; status → pending. Refused (409) while a pipeline job for the sample is pending/running (Tools-page jobs are ignored). Use it after a pipeline change, e.g. ONT-only R9.4.1 samples polished with the wrong Medaka model before 17349fa.
+
 ## Sample Downloads & Read QC (`backend/app/api/downloads.py`)
 
 The sample page has a Read QC card (fastp and/or NanoPlot stats + reports) and a **Downloads** tab.

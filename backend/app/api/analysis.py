@@ -44,6 +44,9 @@ def start_analysis(
 
     threads = payload.threads if payload else 4
 
+    if payload and payload.force:
+        _force_reset(sample, db)
+
     # Create a master pipeline job
     job = AnalysisJob(
         sample_id=sample_id,
@@ -395,6 +398,27 @@ def get_quast_report(sample_id: uuid.UUID, db: Session = Depends(get_db), curren
 
 class PipelineStartRequest(BaseModel):
     threads: int = Field(default=12, ge=1, le=128)
+    # Re-run from scratch: delete the sample's results and result rows first (app.core.reset)
+    force: bool = False
+
+
+def _force_reset(sample, db):
+    """Wipe a sample's results so the pipeline re-runs every step. Refuses while a job
+    for the sample is pending/running (it would write into what is being deleted)."""
+    # only pipeline jobs touch the sample's results (Tools-page jobs such as tool_ani are
+    # also linked to a sample but write elsewhere)
+    active = (
+        db.query(AnalysisJob)
+        .filter(AnalysisJob.sample_id == sample.id,
+                AnalysisJob.tool.in_(["pipeline", "preprocessing", *PIPELINE_STEPS]),
+                AnalysisJob.status.in_([JobStatus.pending, JobStatus.running]))
+        .first()
+    )
+    if active:
+        raise HTTPException(status_code=409,
+                            detail="A job for this sample is still pending or running; stop it first")
+    from app.core.reset import reset_sample_results
+    reset_sample_results(db, sample)
 
 
 @router.post("/pipeline/start/{sample_id}")
@@ -433,6 +457,9 @@ def start_preprocessing(
             # Genuinely running (started within last 10 minutes)
             raise HTTPException(status_code=409, detail="Preprocessing already in progress")
     db.commit()
+
+    if payload and payload.force:
+        _force_reset(sample, db)
 
     job = AnalysisJob(
         sample_id=sample_id,

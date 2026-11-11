@@ -443,11 +443,17 @@ export default function GlobalFilesPage() {
     }
   }
 
-  async function handleStartPipeline(sampleId: string) {
+  async function handleStartPipeline(sampleId: string, force: boolean = false) {
+    if (force) {
+      const name = samples.find((s) => s.sample_id === sampleId)?.name ?? 'this sample';
+      if (!window.confirm(
+        `Re-run ${name} from scratch?\n\nAll its results (QC, assembly, annotation, hazard rank) are deleted and every ` +
+        `step runs again. Reads, metadata and AST data are kept.`)) return;
+    }
     setPipelineStarting(sampleId);
     setError(null);
     try {
-      await startPipeline(sampleId, 32);
+      await startPipeline(sampleId, 32, force);
       // Optimistically update UI to show running status
       setSamples((prev) =>
         prev.map((s) =>
@@ -857,6 +863,15 @@ export default function GlobalFilesPage() {
                             >
                               Re-start
                             </button>
+                            <button
+                              onClick={() => handleStartPipeline(sample.sample_id, true)}
+                              disabled={pipelineStarting === sample.sample_id}
+                              title="Delete this sample's results and run every step again (e.g. after a pipeline update)"
+                              className="flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors"
+                            >
+                              <RotateCw className="w-3 h-3" />
+                              Re-run
+                            </button>
                           </div>
                         ) : sample.pipeline_status === 'running' ? (
                           <div className="flex items-center gap-1.5">
@@ -881,6 +896,15 @@ export default function GlobalFilesPage() {
                               className="px-2 py-0.5 text-xs rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors"
                             >
                               Start
+                            </button>
+                            <button
+                              onClick={() => handleStartPipeline(sample.sample_id, true)}
+                              disabled={pipelineStarting === sample.sample_id}
+                              title="Delete this sample's results and run every step again (e.g. after a pipeline update)"
+                              className="flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors"
+                            >
+                              <RotateCw className="w-3 h-3" />
+                              Re-run
                             </button>
                           </div>
                         ) : !sample.host || !sample.location || !sample.collection_date ? (

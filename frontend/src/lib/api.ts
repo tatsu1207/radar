@@ -242,10 +242,10 @@ export async function uploadFiles(sampleId: string, files: File[]): Promise<{ up
 }
 
 // Analysis
-export async function startAnalysis(sampleId: string, threads: number = 4): Promise<AnalysisJob> {
+export async function startAnalysis(sampleId: string, threads: number = 4, force: boolean = false): Promise<AnalysisJob> {
   return fetchAPI<AnalysisJob>(`/api/samples/${sampleId}/analyze`, {
     method: 'POST',
-    body: JSON.stringify({ threads }),
+    body: JSON.stringify({ threads, force }),
   });
 }
 
@@ -1097,10 +1097,11 @@ export async function getPipelineStatus(): Promise<PipelineStatus[]> {
   return fetchAPI<PipelineStatus[]>('/api/pipeline/status');
 }
 
-export async function startPipeline(sampleId: string, threads: number = 12): Promise<{ job_id: string; status: string }> {
+// force: delete the sample's results first and re-run every step (otherwise finished steps are skipped)
+export async function startPipeline(sampleId: string, threads: number = 12, force: boolean = false): Promise<{ job_id: string; status: string }> {
   return fetchAPI<{ job_id: string; status: string }>(`/api/pipeline/start/${sampleId}`, {
     method: 'POST',
-    body: JSON.stringify({ threads }),
+    body: JSON.stringify({ threads, force }),
   });
 }
 

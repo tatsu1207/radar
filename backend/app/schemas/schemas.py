@@ -311,6 +311,8 @@ class FileUploadResponse(BaseModel):
 
 class AnalysisRequest(BaseModel):
     threads: int = Field(default=4, ge=1, le=128)
+    # Re-run from scratch: delete the sample's results and result rows first (app.core.reset)
+    force: bool = False
 
 
 # ── Risk Weights ─────────────────────────────────────────────────────────────
