@@ -216,7 +216,7 @@ Sample lists: the Files and Annotation pages have sortable columns (`components/
 - **SampleFile** - files with pair info (R1/R2/single/long_read/assembly), platform (illumina/ont/pacbio), source (upload/sra/bvbrc), original_filename
 - **Metadata** - sample metadata (source, date, location, species, custom_json)
 - **AnalysisJob** - pipeline execution tracking
-- **ARGResult** - detected resistance genes (gene, drug class, mechanism, identity%, coverage%, contig, database source, plasmid flag)
+- **ARGResult** - detected resistance genes (gene, drug class, mechanism, identity%, coverage%, contig, database source, plasmid flag); `element_type` = AMRFinderPlus Type (AMR/STRESS). Results endpoints show AMR only by default (`_AMR_ONLY` in results.py, NULL counted as AMR: rows from before the column existed); `backend/scripts/backfill_element_type.py` fills old rows from `amr/amrfinderplus.tsv`
 - **VirulenceResult** - virulence factors
 - **PlasmidResult** - plasmids (replicon type, mobility, transferability)
 - **RiskScore** - hazard rank, AWaRe tier, transmissibility level, worst-case ARG (gene, class, location), MDR flag, drug-class and VF-category counts; legacy composite_score/risk_category derived from the rank
