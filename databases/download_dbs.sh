@@ -54,7 +54,7 @@ FAIL=0
 # -------------------------------------------------------------------
 # 1. AMRFinderPlus database
 # -------------------------------------------------------------------
-echo -n "  [1/12] AMRFinderPlus database..."
+echo -n "  [1/13] AMRFinderPlus database..."
 AMRFINDER_DB_DIR="${DB_DIR}/amrfinderplus"
 if [ -d "${AMRFINDER_DB_DIR}" ] && [ -f "${AMRFINDER_DB_DIR}/AMRProt" ]; then
     echo " exists"
@@ -95,7 +95,7 @@ fi
 # -------------------------------------------------------------------
 # 2. geNomad database (~3.5 GB)
 # -------------------------------------------------------------------
-echo -n "  [2/12] geNomad database..."
+echo -n "  [2/13] geNomad database..."
 if [ -d "${DB_DIR}/genomad_db" ]; then
     echo " exists"
 else
@@ -110,7 +110,7 @@ fi
 # -------------------------------------------------------------------
 # 3. NCBI 16S rRNA BLAST database
 # -------------------------------------------------------------------
-echo -n "  [3/12] 16S rRNA BLAST database..."
+echo -n "  [3/13] 16S rRNA BLAST database..."
 if [ -f "${DB_DIR}/16S/16S_ribosomal_RNA.ndb" ]; then
     echo " exists"
 else
@@ -129,7 +129,7 @@ fi
 # -------------------------------------------------------------------
 # 4. MOB-suite database
 # -------------------------------------------------------------------
-echo -n "  [4/12] MOB-suite database..."
+echo -n "  [4/13] MOB-suite database..."
 if conda run -n radar-mobsuite mob_init > /tmp/radar_db_mobsuite.log 2>&1; then
     echo " done"
 else
@@ -139,7 +139,7 @@ fi
 # -------------------------------------------------------------------
 # 5. PointFinder database
 # -------------------------------------------------------------------
-echo -n "  [5/12] PointFinder database..."
+echo -n "  [5/13] PointFinder database..."
 if [ -d "${DB_DIR}/pointfinder_db" ]; then
     echo " exists"
 else
@@ -154,7 +154,7 @@ fi
 # -------------------------------------------------------------------
 # 6. ResFinder database
 # -------------------------------------------------------------------
-echo -n "  [6/12] ResFinder database..."
+echo -n "  [6/13] ResFinder database..."
 if [ -d "${DB_DIR}/resfinder_db" ]; then
     echo " exists"
 else
@@ -169,7 +169,7 @@ fi
 # -------------------------------------------------------------------
 # 7. Rfam CM database (for sRNA annotation via cmscan)
 # -------------------------------------------------------------------
-echo -n "  [7/12] Rfam database..."
+echo -n "  [7/13] Rfam database..."
 if [ -f "${DB_DIR}/Rfam.cm" ]; then
     echo " exists"
 else
@@ -186,7 +186,7 @@ fi
 # -------------------------------------------------------------------
 # 8. DefenseFinder models
 # -------------------------------------------------------------------
-echo -n "  [8/12] DefenseFinder models..."
+echo -n "  [8/13] DefenseFinder models..."
 if conda run -n radar defense-finder update > /tmp/radar_db_defense.log 2>&1; then
     echo " done"
 else
@@ -197,7 +197,7 @@ fi
 # -------------------------------------------------------------------
 # 9. cgMLST schemas (chewBBACA via Chewie-NS)
 # -------------------------------------------------------------------
-echo "  [9/12] cgMLST schemas (chewBBACA)..."
+echo "  [9/13] cgMLST schemas (chewBBACA)..."
 CGMLST_DIR="${DB_DIR}/cgmlst_schemas"
 mkdir -p "${CGMLST_DIR}"
 
@@ -313,7 +313,7 @@ fi
 # -------------------------------------------------------------------
 # 10. SerotypeFinder database
 # -------------------------------------------------------------------
-echo -n "  [10/12] SerotypeFinder database..."
+echo -n "  [10/13] SerotypeFinder database..."
 if [ -d "${DB_DIR}/serotypefinder_db" ] && [ -f "${DB_DIR}/serotypefinder_db/config" ]; then
     echo " exists"
 else
@@ -339,7 +339,7 @@ fi
 # -------------------------------------------------------------------
 # 11. Plassembler PLSDB database (~380 MB)
 # -------------------------------------------------------------------
-echo -n "  [11/12] Plassembler database..."
+echo -n "  [11/13] Plassembler database..."
 if [ -d "${DB_DIR}/plassembler_db" ] && [ -n "$(ls -A "${DB_DIR}/plassembler_db" 2>/dev/null)" ]; then
     echo " exists"
 else
@@ -352,9 +352,22 @@ else
 fi
 
 # -------------------------------------------------------------------
-# 12. skani GTDB sketch database (OPTIONAL — ~30 GB)
+# 12. Medaka models (~40 MB): the pip package bundles only a few R10.4.1 v5
+#     models and downloads others on first use, which hangs where
+#     raw.githubusercontent.com is unreachable. Fetch them all now.
 # -------------------------------------------------------------------
-echo "  [12/12] skani GTDB database... skipped (30 GB, optional)"
+echo -n "  [12/13] Medaka models..."
+if conda run -n radar-medaka python "${SCRIPT_DIR}/../backend/scripts/fetch_medaka_models.py" > /tmp/radar_db_medaka.log 2>&1; then
+    echo " done ($(tail -1 /tmp/radar_db_medaka.log | cut -d' ' -f1))"
+else
+    echo " FAILED (see /tmp/radar_db_medaka.log)"
+    FAIL=1
+fi
+
+# -------------------------------------------------------------------
+# 13. skani GTDB sketch database (OPTIONAL — ~30 GB)
+# -------------------------------------------------------------------
+echo "  [13/13] skani GTDB database... skipped (30 GB, optional)"
 echo "         To install manually:"
 echo "           mkdir -p ${DB_DIR}/skani"
 echo "           curl -L -o ${DB_DIR}/skani/skani_gtdb_r226-v0.3.tar.gz \\"
@@ -390,5 +403,6 @@ echo "    DefenseFinder  : (managed by defense-finder)"
 echo "    cgMLST schemas : ${DB_DIR}/cgmlst_schemas"
 echo "    SerotypeFinder : ${DB_DIR}/serotypefinder_db"
 echo "    Plassembler    : ${DB_DIR}/plassembler_db"
+echo "    Medaka models  : (in the radar-medaka env)"
 echo "    skani GTDB     : (optional, see above)"
 echo ""

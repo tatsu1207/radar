@@ -10,7 +10,8 @@ set -euo pipefail
 #   i)   Illumina only:    -1 R1.fastq.gz -2 R2.fastq.gz
 #   ii)  Illumina + ONT:   -1 R1.fastq.gz -2 R2.fastq.gz -l ont.fastq.gz  (Flye -> Plassembler -> dnaapler -> Medaka -> Polypolish -> Pypolca)
 #   iii) ONT only:         -l ont.fastq.gz                     (Flye -> Plassembler -> dnaapler -> Medaka)
-#   iv)  PacBio HiFi only: -l hifi.fastq.gz -p pacbio  (Flye -> Plassembler -> dnaapler; Illumina reads, if given, are ignored)
+#   iv)  PacBio HiFi only: -l hifi.fastq.gz -p pacbio  (Flye -> Plassembler -> dnaapler, no polishing)
+#   v)   Illumina + HiFi:  -1 R1.fastq.gz -2 R2.fastq.gz -l hifi.fastq.gz -p pacbio  (Flye -> Plassembler -> dnaapler -> Polypolish -> Pypolca)
 #   Long reads may also be an unaligned BAM (-l hifi.bam); it is converted to FASTQ, and
 #   without -p the platform is taken from the BAM header (@RG PL:PACBIO / PL:ONT).
 #
@@ -48,7 +49,7 @@ Cases:
   Illumina + ONT:     -1 R1.fq.gz -2 R2.fq.gz -l ont.fq.gz -o out/
   ONT only:           -l ont.fq.gz -o out/
   PacBio HiFi only:   -l hifi.fq.gz -p pacbio -o out/
-                      (Illumina reads, if also given, are ignored)
+  Illumina + HiFi:    -1 R1.fq.gz -2 R2.fq.gz -l hifi.fq.gz -p pacbio -o out/
 EOF
     exit 0
 }
@@ -107,12 +108,6 @@ fi
 PLATFORM="${PLATFORM:-ont}"
 if [ "$PLATFORM" != "ont" ] && [ "$PLATFORM" != "pacbio" ]; then
     echo "ERROR: -p must be ont or pacbio" >&2; exit 1
-fi
-
-# PacBio HiFi alone is sufficient — ignore Illumina reads if both are given
-if [ -n "$LONG" ] && [ "$PLATFORM" = "pacbio" ] && [ -n "$R1" ]; then
-    echo "NOTE: PacBio HiFi reads provided — Illumina reads ignored (PacBio-only assembly)" >&2
-    R1="" R2=""
 fi
 
 # Determine case
@@ -178,10 +173,57 @@ run_noncritical() {
 # Medaka polish; prints the polished FASTA path (or the draft if Medaka fails).
 # --bacteria needs basecaller model info in read headers (recent Dorado output);
 # older reads are rejected, so retry with automatic model selection.
+# Medaka model when the reads don't name their basecaller model (same rule as assembly.py):
+# median read Q >= MEDAKA_R10_MIN_Q -> R10.4.1 model, otherwise R9.4.1 model. A model for the
+# wrong chemistry makes the assembly worse. Models: backend/scripts/fetch_medaka_models.py.
+PLASSEMBLER_MIN_LINEAR=1000  # linear Plassembler contigs shorter than this are dropped (as in assembly.py)
+MEDAKA_R10_MIN_Q=16
+MEDAKA_R10_MODEL="r1041_e82_400bps_sup_v5.2.0"
+MEDAKA_R9_MODEL="r941_min_hac_g507"
+
+medaka_model_args() {  # prints the medaka options to try, one attempt per line; nothing = skip
+    local reads=$1
+    local hdr
+    hdr=$(zcat -f "$reads" 2>/dev/null | head -400 | awk 'NR%4==1' || true)  # || true: zcat SIGPIPE under pipefail
+    if grep -qE 'model_version_id=|RG:Z:' <<< "$hdr"; then
+        log "  Medaka model: from read headers" >&2
+        printf '%s\n' "--bacteria" ""
+        return 0
+    fi
+    local q model
+    q=$(conda run -n radar python -c "
+import gzip, sys, math, statistics
+qs = []
+with (gzip.open if sys.argv[1].endswith('.gz') else open)(sys.argv[1], 'rt') as f:
+    for i, l in enumerate(f):
+        if i % 4 == 3 and l.strip():
+            l = l.rstrip()
+            qs.append(-10 * math.log10(sum(10 ** (-(ord(c) - 33) / 10) for c in l) / len(l)))
+            if len(qs) >= 2000:
+                break
+print(round(statistics.median(qs), 1) if qs else '')" "$reads" 2>/dev/null || true)
+    if [ -z "$q" ]; then
+        log "  Medaka skipped: basecaller model unknown, read quality unreadable" >&2; return 0
+    fi
+    if awk -v q="$q" -v t="$MEDAKA_R10_MIN_Q" 'BEGIN{exit !(q >= t)}'; then model=$MEDAKA_R10_MODEL; else model=$MEDAKA_R9_MODEL; fi
+    if [ -z "$model" ]; then
+        log "  Medaka skipped: no basecaller model in headers, median read Q${q} (presumed R9.4.1)" >&2; return 0
+    fi
+    if ! conda run -n radar-medaka python -c "import medaka.options as o, os, sys; m = sys.argv[1] + '_model_pt.tar.gz'; sys.exit(0 if any(os.path.exists(os.path.join(str(s), m)) for s in o.model_stores) else 1)" "$model" 2>/dev/null; then
+        log "  Medaka skipped: model $model not installed (run backend/scripts/fetch_medaka_models.py)" >&2; return 0
+    fi
+    log "  Medaka model: no basecaller model in headers, median read Q${q} -> $model" >&2
+    printf '%s\n' "-m $model"
+}
+
 run_medaka() {
     local reads=$1 draft=$2 out="${ASM_DIR}/medaka_out"
-    local extra
-    for extra in "--bacteria" ""; do
+    local extra attempts
+    mapfile -t attempts < <(medaka_model_args "$reads")
+    if [ "${#attempts[@]}" -eq 0 ]; then
+        echo "$draft"; return 0
+    fi
+    for extra in "${attempts[@]}"; do
         rm -rf "$out"
         log "── Medaka polish ${extra} ──" >&2
         if conda run -n radar-medaka medaka_consensus \
@@ -223,9 +265,16 @@ add_plassembler_plasmids() {
         | awk '{c[$1]+=$4-$3; L[$1]=$2} END{for(k in c) if(c[k]>=0.9*L[k]) print k}' > "${out}/in_flye.txt"
     cp "$draft" "$merged"
     # circular contigs -> plassembler_N; linear ones (sometimes a chromosome piece Flye dropped) -> plassembler_linear_N.
+    # Linear contigs < PLASSEMBLER_MIN_LINEAR bp are dropped: hybrid mode can return many 130-200 bp SPAdes
+    # fragments that minimap2 cannot place on the Flye assembly. Circular ones are kept at any size.
     # Header descriptions are dropped (they break MOB-recon's report); copy numbers stay in plassembler_out/.
-    awk 'FILENAME==ARGV[1]{s[$1]; next} /^>/{id=substr($1,2); keep=!(id in s); if(keep) print (tolower($0) ~ /circular=true/ ? ">plassembler_" : ">plassembler_linear_") id; next} keep' \
-        "${out}/in_flye.txt" "$pf" >> "$merged"
+    awk -v minlin="$PLASSEMBLER_MIN_LINEAR" '
+        function flush() { if (id != "" && !(id in s) && (circ || length(seq) >= minlin)) {
+                               print (circ ? ">plassembler_" : ">plassembler_linear_") id; print seq } }
+        FILENAME==ARGV[1] {s[$1]; next}
+        /^>/ {flush(); id=substr($1,2); circ=(tolower($0) ~ /circular=true/); seq=""; next}
+        {seq = seq $0}
+        END {flush()}' "${out}/in_flye.txt" "$pf" >> "$merged"
     local n_new
     n_new=$(grep -c '^>plassembler_' "$merged" || true)
     log "  Plassembler: $(grep -c '^>' "$pf") contig(s), ${n_new} not in the Flye assembly added ($(grep -c '^>plassembler_linear_' "$merged" || true) linear)" >&2
@@ -356,15 +405,17 @@ case "$CASE" in
         fi
         ;;
     hybrid)
-        # Flye -> Plassembler -> dnaapler -> Medaka -> Polypolish -> Pypolca
+        # Flye -> Plassembler -> dnaapler -> Medaka (ONT only) -> Polypolish -> Pypolca
         LONG_INPUT="$FILTERED_LONG"
         [ ! -f "$LONG_INPUT" ] && LONG_INPUT="$LONG"
+        FLYE_MODE="--nano-hq"
+        [ "$PLATFORM" = "pacbio" ] && FLYE_MODE="--pacbio-hifi" && LONG_INPUT="$LONG"
 
         # Flye
         run_step "Flye assembly" \
             conda run -n radar \
             flye \
-                --nano-hq "$LONG_INPUT" \
+                $FLYE_MODE "$LONG_INPUT" \
                 --genome-size "$FLYE_GENOME_SIZE" --asm-coverage "$FLYE_ASM_COVERAGE" \
                 --out-dir "${ASM_DIR}/flye_out" \
                 --threads "$THREADS"
@@ -374,8 +425,10 @@ case "$CASE" in
         CURRENT_ASM=$(add_plassembler_plasmids "$CURRENT_ASM")
         CURRENT_ASM=$(rotate_contigs "$CURRENT_ASM")
 
-        # Medaka polish
-        CURRENT_ASM=$(run_medaka "$LONG_INPUT" "$CURRENT_ASM")
+        # Medaka polish (ONT only; HiFi needs no long-read polishing)
+        if [ "$PLATFORM" = "ont" ]; then
+            CURRENT_ASM=$(run_medaka "$LONG_INPUT" "$CURRENT_ASM")
+        fi
 
         # Polypolish (short-read polishing)
         POLY_DIR="${ASM_DIR}/polypolish_out"

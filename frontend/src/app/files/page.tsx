@@ -227,7 +227,7 @@ function NamingGuide() {
               <code>m84011_220902_175841_s1.hifi_reads.bc1001.bam</code> works, but becomes the sample name as is.
               Use <code>Kp_001_PB.bam</code> instead.
             </li>
-            <li>When PacBio HiFi reads are present, Illumina reads in the same sample are ignored (HiFi-only assembly).</li>
+            <li>PacBio HiFi reads with Illumina reads in the same sample give a hybrid assembly: the Illumina reads polish the HiFi assembly.</li>
             <li>
               File names <span className="text-gray-200">must not contain spaces</span>; files with spaces are rejected.
               Use letters, numbers, <code>-</code> and <code>_</code> (e.g. <code>Kp_001_R1.fastq.gz</code>).

@@ -67,6 +67,7 @@ Predictions for these antibiotics should be interpreted with caution, especially
 | Illumina paired-end | `SAMPLE_R1.fastq.gz` + `SAMPLE_R2.fastq.gz` | fastp -> SPAdes -> annotation |
 | Hybrid (Illumina + ONT) | R1 + R2 + `SAMPLE_ONT.fastq.gz` | fastp + Chopper -> Flye -> Plassembler -> dnaapler -> Medaka -> Polypolish -> Pypolca -> annotation |
 | PacBio HiFi | `SAMPLE_PB.fastq.gz` | Flye (--pacbio-hifi) -> Plassembler -> dnaapler -> annotation |
+| Hybrid (Illumina + PacBio HiFi) | R1 + R2 + `SAMPLE_PB.fastq.gz` | fastp -> Flye (--pacbio-hifi) -> Plassembler -> dnaapler -> Polypolish -> Pypolca -> annotation |
 | ONT only | `SAMPLE_ONT.fastq.gz` | Chopper -> Flye -> Plassembler -> dnaapler -> Medaka -> annotation |
 | Pre-assembled | `SAMPLE.fasta` | annotation only (skips QC + assembly) |
 
@@ -233,7 +234,7 @@ Creates the conda environments and installs the backend and frontend packages. A
 
 ### pipeline.sh — Standalone Analysis Pipeline
 
-Runs the full annotation pipeline from the command line. Supports Illumina, hybrid (Illumina + ONT), and PacBio HiFi input.
+Runs the full annotation pipeline from the command line. Supports Illumina, ONT, PacBio HiFi, and hybrid (Illumina + ONT or Illumina + HiFi) input.
 
 ```bash
 # Illumina paired-end
@@ -244,6 +245,9 @@ Runs the full annotation pipeline from the command line. Supports Illumina, hybr
 
 # PacBio HiFi only
 ./pipeline.sh -l hifi.fastq.gz -p pacbio -o results/
+
+# Illumina + PacBio HiFi hybrid
+./pipeline.sh -1 R1.fastq.gz -2 R2.fastq.gz -l hifi.fastq.gz -p pacbio -o results/
 ```
 
 **Options:**
@@ -259,7 +263,7 @@ Runs the full annotation pipeline from the command line. Supports Illumina, hybr
 
 **Pipeline flow:**
 1. **QC**: fastp (Illumina) / Chopper (ONT); NanoPlot read-QC report for long reads (ONT and PacBio)
-2. **Assembly**: SPAdes (Illumina) / Flye + Plassembler + Medaka + Polypolish + Pypolca (hybrid; Pypolca skipped and Polypolish run with --careful at low short-read depth) / Flye + Plassembler (+ Medaka for ONT) (long-read). Plassembler recovers small plasmids (< ~20 kb) that Flye misses; only plasmids not already in the Flye assembly are added, before polishing. dnaapler then rotates circular contigs to start at dnaA/repA/terL. Flye uses `--asm-coverage 100` (initial assembly from the longest reads up to 100×; all reads used afterwards)
+2. **Assembly**: SPAdes (Illumina) / Flye + Plassembler + Medaka + Polypolish + Pypolca (hybrid; Pypolca skipped and Polypolish run with --careful below 5x short-read depth; with HiFi, no Medaka) / Flye + Plassembler (+ Medaka for ONT) (long-read). Plassembler recovers small plasmids (< ~20 kb) that Flye misses; only plasmids not already in the Flye assembly are added, before polishing. dnaapler then rotates circular contigs to start at dnaA/repA/terL. Flye uses `--asm-coverage 100` (initial assembly from the longest reads up to 100×; all reads used afterwards)
 3. **Assembly QC**: QUAST + BUSCO
 4. **Annotation**: AMRFinderPlus, MOB-recon, MobileElementFinder, IntegronFinder, geNomad, species ID, MLST, serotyping, CRISPR, DefenseFinder, BacMet2, promoter/RBS analysis
 

@@ -29,6 +29,14 @@ CONDA_PYPOLCA = "radar-pypolca"
 FLYE_ASM_COVERAGE = 100
 FLYE_GENOME_SIZE = "5m"
 FLYE_DEPTH_ARGS = ["--genome-size", FLYE_GENOME_SIZE, "--asm-coverage", str(FLYE_ASM_COVERAGE)]
+# Medaka model when the reads don't name their basecaller model (see _medaka_model_args).
+# Median read Q (after Chopper) separates the chemistries: R10.4.1 SUP/HAC ~Q17-20,
+# R9.4.1 ~Q11-15. MEDAKA_R9_MODEL "" means: skip Medaka for presumed R9.4.1 reads.
+MEDAKA_R10_MIN_Q = 16.0
+MEDAKA_R10_MODEL = "r1041_e82_400bps_sup_v5.2.0"
+MEDAKA_R9_MODEL = "r941_min_hac_g507"
+# Linear Plassembler contigs shorter than this are dropped (circular ones are kept at any size)
+PLASSEMBLER_MIN_LINEAR = 1000
 PLASSEMBLER_DB = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))), "databases", "plassembler_db")
 
@@ -37,9 +45,10 @@ def run_assembly(sample_id: str, input_files: List[str], db=None, threads: int =
     """Run genome assembly using the appropriate strategy.
 
     - Short-read only (R1+R2): SPAdes
-    - PacBio HiFi: Flye --pacbio-hifi -> Plassembler -> dnaapler (always alone; Illumina reads are ignored)
     - Hybrid (Illumina + ONT): Flye -> Plassembler -> dnaapler -> Medaka -> Polypolish -> Pypolca
+    - Hybrid (Illumina + PacBio HiFi): Flye --pacbio-hifi -> Plassembler -> dnaapler -> Polypolish -> Pypolca
     - ONT only: Flye --nano-hq -> Plassembler -> dnaapler -> Medaka
+    - PacBio HiFi only: Flye --pacbio-hifi -> Plassembler -> dnaapler (no polishing)
 
     Plassembler recovers small plasmids that Flye often misses; the ones not
     already in the Flye assembly are added before polishing. dnaapler then rotates
@@ -66,10 +75,8 @@ def run_assembly(sample_id: str, input_files: List[str], db=None, threads: int =
                 platform = "pacbio"
                 break
 
-    if long_read and platform == "pacbio":
-        assembly = _run_flye(sample_id, long_read, threads, platform=platform)
-    elif r1 and r2 and long_read:
-        assembly = _run_hybrid_assembly(sample_id, r1, r2, long_read, threads)
+    if r1 and r2 and long_read:
+        assembly = _run_hybrid_assembly(sample_id, r1, r2, long_read, threads, platform=platform)
     elif r1 and r2:
         assembly = _run_spades(sample_id, r1, r2, threads)
     elif long_read:
@@ -170,16 +177,96 @@ def _run_flye(sample_id: str, long_read: str, threads: int, platform: str = "ont
     return final_assembly
 
 
+def _read_header_has_model(long_read: str, n: int = 100) -> bool:
+    """True if the first reads name their basecaller model the way medaka looks for it
+    (MinKNOW/Guppy/Dorado `basecall_model_version_id=`, or a Dorado `RG:Z:` read group)."""
+    try:
+        opener = gzip.open if long_read.endswith(".gz") else open
+        with opener(long_read, "rt") as f:
+            for i, line in enumerate(f):
+                if i >= 4 * n:
+                    break
+                if i % 4 == 0 and ("model_version_id=" in line or "RG:Z:" in line):
+                    return True
+    except OSError as e:
+        logger.warning(f"Could not read long-read headers: {e}")
+    return False
+
+
+def _median_read_quality(long_read: str, n: int = 2000) -> Optional[float]:
+    """Median per-read mean Phred quality (error-probability average) of the first n reads."""
+    import math
+    import statistics
+    quals = []
+    try:
+        opener = gzip.open if long_read.endswith(".gz") else open
+        with opener(long_read, "rt") as f:
+            for i, line in enumerate(f):
+                if i % 4 == 3:
+                    q = line.rstrip("\n")
+                    if q:
+                        p = sum(10 ** (-(ord(c) - 33) / 10) for c in q) / len(q)
+                        quals.append(-10 * math.log10(p))
+                    if len(quals) >= n:
+                        break
+    except OSError as e:
+        logger.warning(f"Could not read long-read qualities: {e}")
+    return statistics.median(quals) if quals else None
+
+
+def _medaka_has_model(model: str) -> bool:
+    """True if the medaka model is installed locally (medaka would otherwise try to
+    download it, which hangs on servers without access to raw.githubusercontent.com;
+    backend/scripts/fetch_medaka_models.py installs them)."""
+    check = ("import medaka.options as o, os, sys; m = sys.argv[1] + '_model_pt.tar.gz'; "
+             "sys.exit(0 if any(os.path.exists(os.path.join(str(s), m)) for s in o.model_stores) else 1)")
+    try:
+        r = proc.run(["conda", "run", "-n", CONDA_MEDAKA, "python", "-c", check, model],
+                     capture_output=True, text=True, timeout=120)
+        return r.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _medaka_model_args(long_read: str) -> tuple:
+    """Choose medaka model arguments. Returns (list of argument lists to try in order, reason);
+    an empty list means skip Medaka.
+
+    - Reads that name their basecaller model (current MinKNOW/Dorado output): medaka picks
+      the matching model itself; --bacteria (methylation-aware) first, then plain.
+    - No model in the headers (SRA/ENA downloads rename reads; older MinKNOW omits it):
+      guess the chemistry from read quality. A model for the wrong chemistry makes the
+      assembly worse (R10 model on R9.4.1 reads: ~11,000 extra errors in the 2026-11
+      K. pneumoniae MGH 78578 benchmark), so the guess decides the model explicitly.
+    """
+    if _read_header_has_model(long_read):
+        return [["--bacteria"], []], "basecaller model from read headers"
+    q = _median_read_quality(long_read)
+    if q is None:
+        return [], "basecaller model unknown and read quality unreadable"
+    model, chem = (MEDAKA_R10_MODEL, "R10.4.1") if q >= MEDAKA_R10_MIN_Q else (MEDAKA_R9_MODEL, "R9.4.1")
+    reason = f"no basecaller model in read headers; median read Q{q:.1f} -> assumed {chem}"
+    if not model:
+        return [], reason + ", no suitable model"
+    if not _medaka_has_model(model):
+        return [], reason + f", model {model} not installed (run backend/scripts/fetch_medaka_models.py)"
+    return [["-m", model]], reason + f", model {model}"
+
+
 def _run_medaka(long_read: str, draft: str, results_dir: str, threads: int) -> str:
     """Polish a draft assembly with Medaka. Returns the polished FASTA path,
-    or the draft path unchanged if Medaka fails (non-critical)."""
+    or the draft path unchanged if Medaka is skipped or fails (non-critical)."""
     medaka_dir = os.path.join(results_dir, "medaka_out")
 
-    # --bacteria picks the bacterial methylation-aware model, but only works when
-    # read headers carry basecaller model info (recent Dorado output). Older reads
-    # are rejected, so retry with medaka's automatic model selection.
+    attempts, reason = _medaka_model_args(long_read)
+    logger.info(f"Medaka model: {reason}")
+    if not attempts:
+        logger.warning(f"Medaka skipped ({reason}); using the unpolished draft")
+        return draft
+
     polished = os.path.join(medaka_dir, "consensus.fasta")
-    for extra in (["--bacteria"], []):
+    result = None
+    for extra in attempts:
         if os.path.exists(medaka_dir):
             shutil.rmtree(medaka_dir)
         cmd = [
@@ -196,24 +283,26 @@ def _run_medaka(long_read: str, draft: str, results_dir: str, threads: int) -> s
         if result.returncode == 0 and os.path.exists(polished) and os.path.getsize(polished) > 0:
             return polished
 
-    logger.warning(f"Medaka failed (using unpolished draft): {result.stderr[-500:]}")
+    logger.warning(f"Medaka failed (using unpolished draft): {result.stderr[-500:] if result else ''}")
     return draft
 
 
 def _run_hybrid_assembly(
-    sample_id: str, r1: str, r2: str, long_read: str, threads: int
+    sample_id: str, r1: str, r2: str, long_read: str, threads: int, platform: str = "ont"
 ) -> str:
-    """Run hybrid assembly: Flye -> Plassembler -> Medaka -> Polypolish.
+    """Run hybrid assembly: Flye -> Plassembler -> dnaapler -> [Medaka] -> Polypolish -> Pypolca.
 
-    1. Flye: long-read assembly (produces contiguous contigs)
+    1. Flye: long-read assembly (--nano-hq for ONT, --pacbio-hifi for PacBio HiFi)
     2. Plassembler: adds small plasmids missing from the Flye assembly, so they are
        polished too and their short reads are not pulled onto the chromosome;
        dnaapler then rotates circular contigs to start at dnaA/repA/terL
-    3. Medaka: long-read polishing (corrects systematic errors)
+    3. Medaka: long-read polishing, ONT only (HiFi needs no long-read polishing)
     4. Polypolish: short-read polishing (fixes remaining base errors, incl. in repeats)
     5. Pypolca --careful: short-read polishing (skipped below 5x short-read depth)
     """
-    logger.info(f"Running hybrid assembly (Flye+Plassembler+Medaka+Polypolish+Pypolca) for sample {sample_id}")
+    hifi = platform == "pacbio"
+    logger.info(f"Running hybrid assembly ({'PacBio HiFi' if hifi else 'ONT'} + Illumina: "
+                f"Flye+Plassembler+{'' if hifi else 'Medaka+'}Polypolish+Pypolca) for sample {sample_id}")
 
     results_dir = os.path.join(settings.RESULTS_DIR, str(sample_id), "assembly")
     os.makedirs(results_dir, exist_ok=True)
@@ -227,7 +316,7 @@ def _run_hybrid_assembly(
     cmd_flye = [
         "conda", "run", "-n", CONDA_FLYE,
         "flye",
-        "--nano-hq", long_read,
+        "--pacbio-hifi" if hifi else "--nano-hq", long_read,
         *FLYE_DEPTH_ARGS,
         "--out-dir", flye_dir,
         "--threads", str(threads),
@@ -243,12 +332,17 @@ def _run_hybrid_assembly(
 
     # ── Step 2: Plassembler (small plasmids Flye missed) ──
     logger.info("Hybrid step 2/5: Plassembler")
-    draft = _add_plassembler_plasmids(long_read, r1, r2, flye_assembly, results_dir, threads)
+    draft = _add_plassembler_plasmids(long_read, r1, r2, flye_assembly, results_dir, threads,
+                                      platform=platform)
     draft = _rotate_contigs(draft, results_dir, threads)
 
-    # ── Step 3: Medaka long-read polishing ──
-    logger.info("Hybrid step 3/5: Medaka")
-    medaka_assembly = _run_medaka(long_read, draft, results_dir, threads)
+    # ── Step 3: Medaka long-read polishing (ONT only) ──
+    if hifi:
+        logger.info("Hybrid step 3/5: Medaka - skipped (PacBio HiFi)")
+        lr_draft = draft
+    else:
+        logger.info("Hybrid step 3/5: Medaka")
+        lr_draft = _run_medaka(long_read, draft, results_dir, threads)
 
     # ── Step 4: Polypolish short-read polishing ──
     logger.info("Hybrid step 4/5: Polypolish")
@@ -262,14 +356,14 @@ def _run_hybrid_assembly(
     # Index
     cmd_index = [
         "conda", "run", "-n", CONDA_POLYPOLISH,
-        "bwa", "index", medaka_assembly,
+        "bwa", "index", lr_draft,
     ]
     proc.run(cmd_index, capture_output=True, text=True, timeout=600)
 
     # Align R1
     cmd_bwa_r1 = [
         "conda", "run", "-n", CONDA_POLYPOLISH,
-        "bwa", "mem", "-t", str(threads), "-a", medaka_assembly, r1,
+        "bwa", "mem", "-t", str(threads), "-a", lr_draft, r1,
     ]
     with open(aligned_r1, "w") as f:
         result = proc.run(cmd_bwa_r1, stdout=f, stderr=subprocess.PIPE, text=True, timeout=3600)
@@ -277,7 +371,7 @@ def _run_hybrid_assembly(
     # Align R2
     cmd_bwa_r2 = [
         "conda", "run", "-n", CONDA_POLYPOLISH,
-        "bwa", "mem", "-t", str(threads), "-a", medaka_assembly, r2,
+        "bwa", "mem", "-t", str(threads), "-a", lr_draft, r2,
     ]
     with open(aligned_r2, "w") as f:
         result = proc.run(cmd_bwa_r2, stdout=f, stderr=subprocess.PIPE, text=True, timeout=3600)
@@ -306,7 +400,7 @@ def _run_hybrid_assembly(
     #   >= 5x  Polypolish           -> Pypolca --careful
     # Hybracter also uses Polypolish --careful at 5-25x; our MGH 78578 benchmark (2026-11,
     # simulated and real R9/R10 reads) found plain Polypolish -> Pypolca better at 15x.
-    depth = _short_read_depth(r1, r2, medaka_assembly)
+    depth = _short_read_depth(r1, r2, lr_draft)
     careful_polypolish = depth is not None and depth < 5
     run_pypolca = depth is None or depth >= 5
     logger.info(f"Short-read depth ~{depth if depth is None else round(depth, 1)}x: "
@@ -317,7 +411,7 @@ def _run_hybrid_assembly(
         "conda", "run", "-n", CONDA_POLYPOLISH,
         "polypolish", "polish",
         *(["--careful"] if careful_polypolish else []),
-        medaka_assembly,
+        lr_draft,
         sam_r1,
         sam_r2,
     ]
@@ -329,8 +423,8 @@ def _run_hybrid_assembly(
             f.write(result.stdout)
         final_src = polished
     else:
-        logger.warning(f"Polypolish failed (using Medaka output): {result.stderr[-500:]}")
-        final_src = medaka_assembly
+        logger.warning(f"Polypolish failed (using the long-read draft): {result.stderr[-500:]}")
+        final_src = lr_draft
 
     # ── Step 5: Pypolca short-read polishing ──
     if run_pypolca:
@@ -469,14 +563,20 @@ def _add_plassembler_plasmids(
             lengths[f[0]] = int(f[1])
     in_flye = {k for k in aligned if aligned[k] >= 0.9 * lengths[k]}
 
-    added = []
+    added, short = [], 0
     for header, seq in plasmids:
         pid = header.split()[0]
         if pid in in_flye:
             continue
         circular = "circular=true" in header.lower()
+        # Hybrid mode can return many tiny linear SPAdes fragments (130-200 bp) that are too
+        # short for minimap2 to place on the Flye assembly; they are not plasmids.
+        if not circular and len(seq) < PLASSEMBLER_MIN_LINEAR:
+            short += 1
+            continue
         added.append(((f"plassembler_{pid}" if circular else f"plassembler_linear_{pid}"), seq))
-    logger.info(f"Plassembler: {len(plasmids)} contig(s), {len(added)} not in the Flye assembly added")
+    logger.info(f"Plassembler: {len(plasmids)} contig(s), {len(added)} not in the Flye assembly added"
+                + (f", {short} linear contig(s) < {PLASSEMBLER_MIN_LINEAR} bp dropped" if short else ""))
     if not added:
         return draft
 
