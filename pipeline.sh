@@ -393,9 +393,10 @@ case "$CASE" in
         F1="${POLY_DIR}/f1.sam"; [ ! -f "$F1" ] && F1="${POLY_DIR}/r1.sam"
         F2="${POLY_DIR}/f2.sam"; [ ! -f "$F2" ] && F2="${POLY_DIR}/r2.sam"
 
-        # Short-read depth picks the recipe (Hybracter, Bouras et al. 2024):
-        #   <5x Polypolish --careful only; 5-25x Polypolish --careful -> Pypolca --careful;
-        #   >25x Polypolish -> Pypolca --careful. Unknown depth: >25x recipe.
+        # Short-read depth picks the recipe (after Hybracter, Bouras et al. 2024):
+        #   <5x Polypolish --careful only; >=5x Polypolish -> Pypolca --careful.
+        #   Unknown depth: >=5x recipe. (Polypolish --careful at 5-25x was worse in
+        #   the 2026-11 MGH 78578 benchmark.)
         SR_DEPTH=$(conda run -n radar python -c "
 import json, sys
 asm = sum(len(l.strip()) for l in open(sys.argv[1]) if not l.startswith('>'))
@@ -403,8 +404,7 @@ bases = json.load(open(sys.argv[2]))['summary']['after_filtering']['total_bases'
 print(int(bases / asm))" "$CURRENT_ASM" "${QC_DIR}/fastp_report.json" 2>/dev/null || echo "")
         POLY_CAREFUL=""; RUN_PYPOLCA=1
         if [ -n "$SR_DEPTH" ]; then
-            [ "$SR_DEPTH" -le 25 ] && POLY_CAREFUL="--careful"
-            [ "$SR_DEPTH" -lt 5 ] && RUN_PYPOLCA=0
+            [ "$SR_DEPTH" -lt 5 ] && { POLY_CAREFUL="--careful"; RUN_PYPOLCA=0; }
         fi
         echo "  Short-read depth: ${SR_DEPTH:-unknown}x" | tee -a "$LOG"
 

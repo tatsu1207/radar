@@ -301,12 +301,13 @@ def _run_hybrid_assembly(
     sam_r1 = filtered_r1 if os.path.exists(filtered_r1) else aligned_r1
     sam_r2 = filtered_r2 if os.path.exists(filtered_r2) else aligned_r2
 
-    # Short-read depth decides the polishing recipe (Hybracter, Bouras et al. 2024):
+    # Short-read depth decides the polishing recipe (after Hybracter, Bouras et al. 2024):
     #   < 5x   Polypolish --careful only (Pypolca can introduce errors at low depth)
-    #   5-25x  Polypolish --careful -> Pypolca --careful
-    #   > 25x  Polypolish           -> Pypolca --careful
+    #   >= 5x  Polypolish           -> Pypolca --careful
+    # Hybracter also uses Polypolish --careful at 5-25x; our MGH 78578 benchmark (2026-11,
+    # simulated and real R9/R10 reads) found plain Polypolish -> Pypolca better at 15x.
     depth = _short_read_depth(r1, r2, medaka_assembly)
-    careful_polypolish = depth is not None and depth <= 25
+    careful_polypolish = depth is not None and depth < 5
     run_pypolca = depth is None or depth >= 5
     logger.info(f"Short-read depth ~{depth if depth is None else round(depth, 1)}x: "
                 f"Polypolish{' --careful' if careful_polypolish else ''}"
