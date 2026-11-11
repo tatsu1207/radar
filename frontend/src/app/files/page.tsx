@@ -263,7 +263,7 @@ function LongReadCell({
         className="text-[10px] px-1 py-0.5 rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-400"
         title={`Wrong platform? Treat these reads as ${other === 'pacbio' ? 'PacBio HiFi' : 'ONT'}`}
       >
-        → {other === 'pacbio' ? 'PacBio' : 'ONT'}
+        {other === 'pacbio' ? '→ PacBio' : 'ONT ←'}
       </button>
     </div>
   );

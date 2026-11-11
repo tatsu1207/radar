@@ -456,6 +456,7 @@ export async function deleteAST(sampleId: string, astId: string): Promise<void> 
 export interface Breakpoint {
   id: string;
   organism: string;
+  standard?: string | null;
   host?: string | null;
   antibiotic: string;
   abbreviation?: string | null;
@@ -474,21 +475,38 @@ export interface OrganismPanel {
   antibiotics: { antibiotic: string; abbreviation?: string | null; subclass?: string | null }[];
 }
 
+export interface BreakpointStandard {
+  standard: string;
+  count: number;
+}
+
 export interface InterpretResult {
   sir: 'S' | 'I' | 'R' | null;
   breakpoint_id?: string | null;
+  susceptible_max?: number | null;
   resistant_min?: number | null;
   matched_organism?: string | null;
   matched_host?: string | null;
+  matched_standard?: string | null;
 }
 
-export async function getBreakpoints(params?: { organism?: string; host?: string; antibiotic?: string }): Promise<Breakpoint[]> {
+export async function getBreakpoints(params?: { organism?: string; host?: string; antibiotic?: string; standard?: string }): Promise<Breakpoint[]> {
   const q = new URLSearchParams(Object.entries(params || {}).filter(([, v]) => v) as [string, string][]).toString();
   return fetchAPI<Breakpoint[]>(`/api/breakpoints${q ? `?${q}` : ''}`);
 }
 
-export async function getBreakpointOrganisms(): Promise<OrganismPanel[]> {
-  return fetchAPI<OrganismPanel[]>('/api/breakpoints/organisms');
+export async function getBreakpointStandards(): Promise<BreakpointStandard[]> {
+  return fetchAPI<BreakpointStandard[]>('/api/breakpoints/standards');
+}
+
+export async function getBreakpointOrganisms(standard?: string): Promise<OrganismPanel[]> {
+  const q = standard ? `?standard=${encodeURIComponent(standard)}` : '';
+  return fetchAPI<OrganismPanel[]>(`/api/breakpoints/organisms${q}`);
+}
+
+export async function resolveBreakpointOrganism(organism: string, standard?: string): Promise<{ organism: string | null }> {
+  const q = new URLSearchParams({ organism, ...(standard ? { standard } : {}) }).toString();
+  return fetchAPI<{ organism: string | null }>(`/api/breakpoints/resolve?${q}`);
 }
 
 export async function createBreakpoint(data: Partial<Breakpoint>): Promise<Breakpoint> {
@@ -503,15 +521,34 @@ export async function deleteBreakpoint(id: string): Promise<void> {
   await fetchAPI<void>(`/api/breakpoints/${id}`, { method: 'DELETE' });
 }
 
-export async function interpretMIC(data: { organism: string; antibiotic: string; mic: string; host?: string }): Promise<InterpretResult> {
+export interface BreakpointImportResult {
+  created: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+}
+
+export async function importBreakpoints(file: File): Promise<BreakpointImportResult> {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch('/api/breakpoints/import', { method: 'POST', headers: getAuthHeaders(), body: fd });
+  if (!res.ok) {
+    throw new APIError(await res.text().catch(() => 'Import failed'), res.status);
+  }
+  return res.json();
+}
+
+export async function interpretMIC(data: { organism: string; antibiotic: string; mic: string; host?: string; standard?: string }): Promise<InterpretResult> {
   return fetchAPI<InterpretResult>('/api/breakpoints/interpret', { method: 'POST', body: JSON.stringify(data) });
 }
 
 export async function importAST(
-  file: File
-): Promise<{ imported: number; skipped: number; samples: number; errors: string[] }> {
+  file: File,
+  standard?: string,
+): Promise<{ imported: number; skipped: number; samples: number; auto_interpreted?: number; standard?: string | null; errors: string[] }> {
   const formData = new FormData();
   formData.append('file', file);
+  if (standard) formData.append('standard', standard);
   const res = await fetch('/api/ast/upload', {
     method: 'POST',
     headers: getAuthHeaders(),

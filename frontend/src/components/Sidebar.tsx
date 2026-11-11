@@ -12,7 +12,6 @@ import {
   BarChart3,
   Wrench,
   FlaskConical,
-  SlidersHorizontal,
   Menu,
   X,
   Radar,
@@ -29,7 +28,6 @@ const navItems = [
   { href: '/metadata', label: 'Metadata', icon: Table2 },
   { href: '/results', label: 'Annotation', icon: BarChart3 },
   { href: '/ast', label: 'AST', icon: FlaskConical },
-  { href: '/breakpoints', label: 'Breakpoints', icon: SlidersHorizontal },
   { href: '/tools', label: 'Tools', icon: Wrench },
 ];
 

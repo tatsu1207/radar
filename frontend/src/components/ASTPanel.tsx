@@ -5,6 +5,7 @@ import { Plus, Trash2, Upload, Wand2 } from 'lucide-react';
 import {
   getAST, addAST, deleteAST, importAST, ASTResult,
   getBreakpointOrganisms, interpretMIC, OrganismPanel,
+  getBreakpointStandards, resolveBreakpointOrganism, BreakpointStandard,
 } from '@/lib/api';
 
 const SIR_STYLES: Record<string, string> = {
@@ -14,6 +15,8 @@ const SIR_STYLES: Record<string, string> = {
 };
 const SIR_LABEL: Record<string, string> = { R: 'Resistant', I: 'Intermediate', S: 'Susceptible' };
 const METHODS = ['Sensititre', 'Vitek AST', 'Broth microdilution', 'Etest', 'Disk diffusion'];
+const STANDARD_PREF = ['EUCAST', 'CLSI', 'APQA']; // preferred default order
+const STANDARD_KEY = 'ast_breakpoint_standard';
 
 // pick the panel whose organism matches the sample species (exact or prefix either way)
 function matchOrganism(panels: OrganismPanel[], species: string): string {
@@ -30,6 +33,8 @@ export default function ASTPanel({ sampleId, defaultOrganism = '' }: { sampleId:
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [standards, setStandards] = useState<BreakpointStandard[]>([]);
+  const [standard, setStandard] = useState('');
   const [panels, setPanels] = useState<OrganismPanel[]>([]);
   const [organism, setOrganism] = useState('');
   const [host, setHost] = useState('');
@@ -55,35 +60,69 @@ export default function ASTPanel({ sampleId, defaultOrganism = '' }: { sampleId:
 
   useEffect(() => { load(); }, [load]);
 
-  // load breakpoint panels once, then preselect the sample's organism
+  // load available guideline standards once; default to a remembered or preferred one
   useEffect(() => {
-    getBreakpointOrganisms().then((p) => {
-      setPanels(p);
-      setOrganism((cur) => cur || matchOrganism(p, defaultOrganism));
+    getBreakpointStandards().then((s) => {
+      setStandards(s);
+      const names = s.map((x) => x.standard);
+      const saved = typeof window !== 'undefined' ? localStorage.getItem(STANDARD_KEY) : null;
+      const pref = STANDARD_PREF.find((p) => names.includes(p));
+      setStandard((cur) => cur || (saved && names.includes(saved) ? saved : (pref || names[0] || '')));
     }).catch(() => {});
-  }, [defaultOrganism]);
+  }, []);
+
+  // (re)load the organism panels for the chosen standard, then preselect the sample's
+  // organism — resolving it up its lineage server-side (species -> genus -> ... -> order),
+  // since e.g. E. coli breakpoints may live under "Enterobacterales".
+  useEffect(() => {
+    if (!standard) return;
+    let cancelled = false;
+    setHost(''); // host options are standard-specific; clear any stale selection
+    getBreakpointOrganisms(standard).then(async (p) => {
+      if (cancelled) return;
+      setPanels(p);
+      const direct = matchOrganism(p, defaultOrganism);
+      if (direct) { setOrganism(direct); return; }
+      if (defaultOrganism) {
+        try {
+          const r = await resolveBreakpointOrganism(defaultOrganism, standard);
+          if (!cancelled && r.organism) setOrganism(r.organism);
+          else if (!cancelled) setOrganism('');
+        } catch { if (!cancelled) setOrganism(''); }
+      } else if (!cancelled) {
+        setOrganism('');
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [standard, defaultOrganism]);
 
   const panel = panels.find((p) => p.organism === organism);
   const abxOptions = panel?.antibiotics || [];
 
-  // auto-interpret MIC -> SIR whenever organism/antibiotic/mic/host change
+  // auto-interpret MIC -> SIR whenever standard/organism/antibiotic/mic/host change
   useEffect(() => {
     if (!organism || !antibiotic.trim() || !mic.trim()) { setAutoNote(null); return; }
     let cancelled = false;
     const t = setTimeout(async () => {
       try {
-        const r = await interpretMIC({ organism, antibiotic: antibiotic.trim(), mic: mic.trim(), host: host || undefined });
+        const r = await interpretMIC({ organism, antibiotic: antibiotic.trim(), mic: mic.trim(), host: host || undefined, standard: standard || undefined });
         if (cancelled) return;
         if (r.sir) {
           setSir(r.sir);
-          setAutoNote(`Auto: ${r.sir} (breakpoint R ≥ ${r.resistant_min ?? '?'}${r.matched_host ? `, ${r.matched_host}` : ''})`);
+          const parts = [
+            r.matched_standard,
+            r.susceptible_max != null ? `S ≤ ${r.susceptible_max}` : null,
+            r.resistant_min != null ? `R ${r.matched_standard === 'EUCAST' ? '>' : '≥'} ${r.resistant_min}` : null,
+            r.matched_organism, r.matched_host,
+          ].filter(Boolean);
+          setAutoNote(`Auto: ${r.sir} (${parts.join(' · ')})`);
         } else {
           setAutoNote('No matching breakpoint — set S/I/R manually.');
         }
       } catch { /* ignore */ }
     }, 350);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [organism, antibiotic, mic, host]);
+  }, [standard, organism, antibiotic, mic, host]);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -139,7 +178,7 @@ export default function ASTPanel({ sampleId, defaultOrganism = '' }: { sampleId:
         <div>
           <h2 className="text-lg font-semibold text-gray-100">Antibiotic Susceptibility (AST)</h2>
           <p className="text-sm text-gray-400 mt-0.5">
-            Enter an MIC and S/I/R is interpreted automatically from the editable breakpoint panel. Breakpoints are managed on the <a href="/breakpoints" className="text-blue-400 hover:underline">Breakpoints</a> page.
+            Enter an MIC and S/I/R is interpreted automatically against the chosen guideline standard (EUCAST / CLSI).
           </p>
         </div>
         <div className="shrink-0">
@@ -172,6 +211,26 @@ export default function ASTPanel({ sampleId, defaultOrganism = '' }: { sampleId:
 
       {/* Add form */}
       <form onSubmit={handleAdd} className="flex flex-wrap items-end gap-3 mb-5 p-3 bg-gray-800/40 border border-gray-700 rounded-lg">
+        {standards.length > 0 && (
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-400 mb-1">Standard</label>
+            <div className="inline-flex rounded-md border border-gray-700 overflow-hidden">
+              {standards.map((s) => (
+                <button
+                  key={s.standard}
+                  type="button"
+                  onClick={() => { setStandard(s.standard); try { localStorage.setItem(STANDARD_KEY, s.standard); } catch { /* ignore */ } }}
+                  title={`${s.count} breakpoints`}
+                  className={`px-2.5 py-1.5 text-sm border-r border-gray-700 last:border-r-0 transition-colors ${
+                    standard === s.standard ? 'bg-blue-600 text-white' : 'bg-gray-900 text-gray-300 hover:bg-gray-800'
+                  }`}
+                >
+                  {s.standard}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="flex flex-col">
           <label className="text-xs text-gray-400 mb-1">Organism</label>
           <select

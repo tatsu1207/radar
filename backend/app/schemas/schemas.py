@@ -141,6 +141,7 @@ class ASTResultUpdate(BaseModel):
 
 class BreakpointBase(BaseModel):
     organism: str
+    standard: Optional[str] = None
     host: Optional[str] = None
     antibiotic: str
     abbreviation: Optional[str] = None
@@ -159,6 +160,7 @@ class BreakpointCreate(BreakpointBase):
 
 class BreakpointUpdate(BaseModel):
     organism: Optional[str] = None
+    standard: Optional[str] = None
     host: Optional[str] = None
     antibiotic: Optional[str] = None
     abbreviation: Optional[str] = None
@@ -181,14 +183,17 @@ class InterpretRequest(BaseModel):
     antibiotic: str
     mic: str
     host: Optional[str] = None
+    standard: Optional[str] = None
 
 
 class InterpretResponse(BaseModel):
     sir: Optional[str] = None
     breakpoint_id: Optional[uuid.UUID] = None
+    susceptible_max: Optional[float] = None
     resistant_min: Optional[float] = None
     matched_organism: Optional[str] = None
     matched_host: Optional[str] = None
+    matched_standard: Optional[str] = None
 
 
 # ── ARGResult ────────────────────────────────────────────────────────────────

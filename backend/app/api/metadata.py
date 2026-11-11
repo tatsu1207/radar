@@ -1,8 +1,8 @@
 import io
 import uuid
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
@@ -206,17 +206,31 @@ def _parse_sir(value) -> str | None:
 @router.post("/ast/upload", status_code=200)
 async def bulk_upload_ast(
     file: UploadFile = File(...),
+    standard: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Bulk-import AST (phenotype) results from CSV/TSV/Excel.
 
     First column must be SAMPLE (matches sample name). Two layouts are accepted:
-      - LONG: columns SAMPLE, antibiotic, [method], [mic], sir
+      - LONG: columns SAMPLE, antibiotic, [method], [mic], [sir]
       - WIDE: SAMPLE + one column per antibiotic, each cell = S/I/R
-    Existing (sample, antibiotic) entries are updated (upsert), not duplicated.
-    """
+
+    `standard` controls how S/I/R is derived for LONG rows that carry a MIC:
+      - EUCAST / CLSI: interpret the MIC against that guideline's breakpoints for the
+        sample's species (auto-fill S/I/R; a value in the file's sir column is ignored).
+      - self-defined: use the file's sir if given, otherwise interpret the MIC against
+        the user's own 'custom' breakpoints.
+      - unset: use the file's sir as-is (no interpretation).
+    WIDE cells are always taken as-is. Existing (sample, antibiotic) rows upsert."""
     import pandas as pd
+    from app.core.breakpoints import interpret_mic
+
+    std = (standard or "").strip().lower()
+    guideline = {"eucast": "EUCAST", "clsi": "CLSI",
+                 "self": "custom", "self-defined": "custom", "self defined": "custom",
+                 "custom": "custom"}.get(std)
+
     content = await file.read()
     filename = file.filename or ""
     try:
@@ -237,6 +251,13 @@ async def bulk_upload_ast(
     is_long = "antibiotic" in col_map
     meta_cols = {sample_col.lower(), "sample", "sample_name", "sample_id", "antibiotic", "method", "mic", "sir"}
 
+    org_cache: dict = {}
+
+    def organism_host(sample):
+        if sample.id not in org_cache:
+            org_cache[sample.id] = _resolve_organism_host(sample.id, db)
+        return org_cache[sample.id]
+
     def upsert(sample, antibiotic, sir, method=None, mic=None):
         antibiotic = str(antibiotic).strip()
         existing = db.query(ASTResult).filter(
@@ -251,7 +272,7 @@ async def bulk_upload_ast(
         else:
             db.add(ASTResult(sample_id=sample.id, antibiotic=antibiotic, method=method, mic=mic, sir=SIR(sir)))
 
-    imported, skipped, errors = 0, 0, []
+    imported, skipped, auto_interpreted, errors = 0, 0, 0, []
     samples_seen = set()
     for _, row in df.iterrows():
         sample_name = str(row[sample_col]).strip()
@@ -264,18 +285,35 @@ async def bulk_upload_ast(
         samples_seen.add(sample_name)
 
         if is_long:
-            sir = _parse_sir(row.get(col_map.get("sir", "sir")))
+            file_sir = _parse_sir(row.get(col_map.get("sir", "sir")))
             abx = row.get(col_map["antibiotic"])
             if abx is None or str(abx).strip().lower() in ("", "nan"):
-                continue
-            if sir is None:
-                errors.append(f"{sample_name}/{abx}: invalid S/I/R")
-                skipped += 1
                 continue
             method = row.get(col_map["method"]) if "method" in col_map else None
             mic = row.get(col_map["mic"]) if "mic" in col_map else None
             method = None if (method is None or pd.isna(method)) else str(method).strip()
             mic = None if (mic is None or pd.isna(mic)) else str(mic).strip()
+
+            # derive S/I/R per the selected standard
+            computed = None
+            if guideline and mic:
+                organism, host = organism_host(sample)
+                if organism:
+                    computed, _bp = interpret_mic(db, organism, str(abx).strip(), mic, host, guideline)
+            if guideline in ("EUCAST", "CLSI"):
+                sir = computed or file_sir            # guideline wins; fall back to file
+            elif guideline == "custom":
+                sir = file_sir or computed            # user's own call wins; else custom cutoffs
+            else:
+                sir = file_sir
+            if computed and sir == computed:
+                auto_interpreted += 1
+
+            if sir is None:
+                reason = "no breakpoint for MIC" if (guideline and mic) else "no S/I/R"
+                errors.append(f"{sample_name}/{str(abx).strip()}: {reason}")
+                skipped += 1
+                continue
             upsert(sample, abx, sir, method, mic)
             imported += 1
         else:
@@ -289,7 +327,8 @@ async def bulk_upload_ast(
                 imported += 1
 
     db.commit()
-    return {"imported": imported, "skipped": skipped, "samples": len(samples_seen), "errors": errors[:50]}
+    return {"imported": imported, "skipped": skipped, "samples": len(samples_seen),
+            "auto_interpreted": auto_interpreted, "standard": guideline, "errors": errors[:50]}
 
 
 @router.get("/ast/all")

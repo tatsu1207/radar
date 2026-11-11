@@ -695,16 +695,26 @@ class MLPhenotypePrediction(Base):
 class Breakpoint(Base):
     """Editable AST interpretation breakpoint (MIC -> S/I/R) for an organism x antibiotic.
 
-    Seeded from the APQA monitoring panel, which supplies only a single resistant
-    cutoff (MIC >= resistant_min -> R). susceptible_max / intermediate_min are left
-    null until a user fills them in for full three-way S/I/R calls. host distinguishes
-    rows that share organism+antibiotic but differ by host (e.g. dog vs cat).
+    Rows come from one of several guidelines, tagged by `standard`:
+    - APQA: the monitoring panel, which supplies only a single resistant cutoff
+      (MIC >= resistant_min -> R); susceptible_max / intermediate_min left null.
+    - EUCAST / CLSI: seeded from the AMR R package (scripts/seed_amr_breakpoints.py)
+      with susceptible_max (= breakpoint_S) and resistant_min (= breakpoint_R). The
+      intermediate band is the gap between them (no separate intermediate_min stored).
+      The resistant boundary is interpreted per guideline: EUCAST is open (MIC > R -> R),
+      CLSI/APQA closed (MIC >= R -> R); see core/breakpoints.interpret().
+
+    `organism` may be a species ("Escherichia coli") or a higher taxon the guideline
+    keys the breakpoint to ("Enterobacterales"); select_breakpoint() resolves a sample
+    species up its lineage to find the most specific matching row. host distinguishes
+    rows that share organism+antibiotic but differ by host (e.g. human vs dog vs cat).
     """
     __tablename__ = "breakpoints"
 
     id = Column(UUID, primary_key=True, default=uuid.uuid4)
-    organism = Column(String(255), nullable=False)           # e.g. "Escherichia coli"
-    host = Column(String(100), nullable=True)                # livestock | companion | dog | cat | ...
+    organism = Column(String(255), nullable=False)           # e.g. "Escherichia coli" or a higher taxon ("Enterobacterales")
+    standard = Column(String(32), nullable=True)             # EUCAST | CLSI | APQA | custom — which guideline this row follows
+    host = Column(String(100), nullable=True)                # human | livestock | companion | dog | cat | ...
     antibiotic = Column(String(255), nullable=False)
     abbreviation = Column(String(50), nullable=True)
     subclass = Column(String(255), nullable=True)
