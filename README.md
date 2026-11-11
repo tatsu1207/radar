@@ -263,7 +263,7 @@ Runs the full annotation pipeline from the command line. Supports Illumina, ONT,
 
 **Pipeline flow:**
 1. **QC**: fastp (Illumina) / Chopper (ONT); NanoPlot read-QC report for long reads (ONT and PacBio)
-2. **Assembly**: SPAdes (Illumina) / Flye + Plassembler + Medaka + Polypolish + Pypolca (hybrid; Pypolca skipped and Polypolish run with --careful below 5x short-read depth; with HiFi, no Medaka) / Flye + Plassembler (+ Medaka for ONT) (long-read). Plassembler recovers small plasmids (< ~20 kb) that Flye misses; only plasmids not already in the Flye assembly are added, before polishing. dnaapler then rotates circular contigs to start at dnaA/repA/terL. Flye uses `--asm-coverage 100` (initial assembly from the longest reads up to 100×; all reads used afterwards)
+2. **Assembly**: SPAdes (Illumina) / Flye + Plassembler + Medaka + Polypolish + Pypolca (hybrid; Pypolca skipped and Polypolish run with --careful below 5x short-read depth; with HiFi, no Medaka) / Flye + Plassembler (+ Medaka for ONT) (long-read). Plassembler recovers small plasmids (< ~20 kb) that Flye misses; only plasmids not already in the Flye assembly are added, before polishing. dnaapler then rotates circular contigs to start at dnaA/repA/terL. Flye uses all reads with no coverage cap (a 100× cap on the initial assembly dropped a lower-coverage ARG-bearing plasmid)
 3. **Assembly QC**: QUAST + BUSCO
 4. **Annotation**: AMRFinderPlus, MOB-recon, MobileElementFinder, IntegronFinder, geNomad, species ID, MLST, serotyping, CRISPR, DefenseFinder, BacMet2, promoter/RBS analysis
 

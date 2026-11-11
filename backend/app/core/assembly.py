@@ -21,14 +21,12 @@ CONDA_BUSCO = "radar-busco"
 CONDA_PLASSEMBLER = "radar-plassembler"
 CONDA_PYPOLCA = "radar-pypolca"
 
-# Flye builds its initial (disjointig) assembly from the longest reads up to this depth;
-# later stages still use all reads. Long-read runs here are typically 180-390x after
-# Chopper, so this speeds Flye up without subsampling the reads that Plassembler and
-# Medaka get (subsampling by length would drop the short reads of small plasmids).
-# --asm-coverage requires --genome-size; a rough estimate is enough.
-FLYE_ASM_COVERAGE = 100
-FLYE_GENOME_SIZE = "5m"
-FLYE_DEPTH_ARGS = ["--genome-size", FLYE_GENOME_SIZE, "--asm-coverage", str(FLYE_ASM_COVERAGE)]
+# Flye runs on ALL reads with no coverage cap. A `--genome-size 5m --asm-coverage 100` cap
+# was removed: it restricts Flye's initial disjointig assembly to the longest reads up to
+# 100x, which on deep runs starved lower-coverage small replicons of their reads so Flye
+# never seeded them — a spot-check lost a circular 36 kb plasmid carrying
+# aadA1/aadA2/blaTEM-1/cmlA1/sul1 on an ONT isolate (Plassembler didn't recover it).
+FLYE_DEPTH_ARGS: list = []
 # Medaka model when the reads don't name their basecaller model (see _medaka_model_args).
 # Median read Q (after Chopper) separates the chemistries: R10.4.1 SUP/HAC ~Q17-20,
 # R9.4.1 ~Q11-15. MEDAKA_R9_MODEL "" means: skip Medaka for presumed R9.4.1 reads.

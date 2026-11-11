@@ -84,11 +84,10 @@ if [ -n "$R1" ] && [ -z "$R2" ]; then
     echo "ERROR: R2 required when R1 is provided (-2)" >&2; exit 1
 fi
 
-# Flye: initial assembly from the longest reads up to 100x; later stages use all reads.
-# Speeds up deep runs (typically 180-390x) without subsampling the reads Plassembler/Medaka
-# get, which would drop the short reads of small plasmids. Genome size is a rough estimate.
-FLYE_GENOME_SIZE="5m"
-FLYE_ASM_COVERAGE=100
+# Flye runs on all reads, no coverage cap. (A 100x coverage cap on the initial assembly was
+# removed: it limited the initial assembly to the longest reads up to 100x and, on deep runs,
+# dropped a lower-coverage 36 kb plasmid carrying ARGs.) Reads are not subsampled either:
+# length-biased subsampling drops the short reads of small plasmids.
 
 # samtools: radar env, else the copy in radar-plassembler
 if conda run -n radar samtools --version >/dev/null 2>&1; then
@@ -416,7 +415,6 @@ case "$CASE" in
             conda run -n radar \
             flye \
                 $FLYE_MODE "$LONG_INPUT" \
-                --genome-size "$FLYE_GENOME_SIZE" --asm-coverage "$FLYE_ASM_COVERAGE" \
                 --out-dir "${ASM_DIR}/flye_out" \
                 --threads "$THREADS"
         CURRENT_ASM="${ASM_DIR}/flye_out/assembly.fasta"
@@ -494,7 +492,6 @@ print(int(bases / asm))" "$CURRENT_ASM" "${QC_DIR}/fastp_report.json" 2>/dev/nul
             conda run -n radar \
             flye \
                 $FLYE_MODE "$LONG_INPUT" \
-                --genome-size "$FLYE_GENOME_SIZE" --asm-coverage "$FLYE_ASM_COVERAGE" \
                 --out-dir "${ASM_DIR}/flye_out" \
                 --threads "$THREADS"
         CURRENT_ASM="${ASM_DIR}/flye_out/assembly.fasta"
