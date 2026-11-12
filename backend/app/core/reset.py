@@ -48,8 +48,16 @@ def reset_sample_results(db, sample) -> dict:
     sample.status = SampleStatus.pending
     db.commit()
 
-    res = os.path.join(settings.RESULTS_DIR, str(sample.id))
-    if os.path.isdir(res):
-        shutil.rmtree(res, ignore_errors=True)
+    remove_sample_dirs(sample.id, uploads=False)
     logger.info(f"Force re-run: reset sample {sample.id} ({sample.name}): {deleted}")
     return deleted
+
+
+def remove_sample_dirs(sample_id, uploads: bool = True) -> None:
+    """Remove data/results/<id>/ and, unless uploads=False, data/uploads/<id>/.
+    Called when a sample (or its project) is deleted, so no orphaned results remain."""
+    bases = [settings.RESULTS_DIR] + ([settings.UPLOAD_DIR] if uploads else [])
+    for base in bases:
+        d = os.path.join(base, str(sample_id))
+        if os.path.isdir(d):
+            shutil.rmtree(d, ignore_errors=True)

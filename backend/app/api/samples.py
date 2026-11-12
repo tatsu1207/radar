@@ -1,11 +1,8 @@
-import os
-import shutil
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
-from app.config import settings
 from app.db import get_db
 from app.models.models import Project, Sample, InputType, User
 from app.core.auth import get_current_user
@@ -79,10 +76,9 @@ def delete_sample(
 ):
     sample = require_sample_owner(sample_id, current_user, db)
 
-    # Remove uploaded files from disk
-    upload_dir = os.path.join(settings.UPLOAD_DIR, str(sample_id))
-    if os.path.isdir(upload_dir):
-        shutil.rmtree(upload_dir)
+    # Remove uploaded files and results from disk
+    from app.core.reset import remove_sample_dirs
+    remove_sample_dirs(sample_id)
 
     db.delete(sample)
     db.commit()

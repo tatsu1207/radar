@@ -92,6 +92,10 @@ def delete_project(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     _check_project_owner(project, current_user)
+    sample_ids = [s.id for s in db.query(Sample.id).filter(Sample.project_id == project_id)]
     db.delete(project)
     db.commit()
+    from app.core.reset import remove_sample_dirs
+    for sid in sample_ids:
+        remove_sample_dirs(sid)
     return None

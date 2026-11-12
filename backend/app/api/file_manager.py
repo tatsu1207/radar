@@ -1336,11 +1336,9 @@ def delete_sample(
         if sf.file_path and os.path.exists(sf.file_path):
             os.remove(sf.file_path)
 
-    # Delete sample directory if it exists
-    sample_dir = os.path.join(settings.UPLOAD_DIR, str(sample_id))
-    if os.path.isdir(sample_dir):
-        import shutil
-        shutil.rmtree(sample_dir, ignore_errors=True)
+    # Delete the sample's upload and results directories
+    from app.core.reset import remove_sample_dirs
+    remove_sample_dirs(sample_id)
 
     db.delete(sample)
     db.commit()

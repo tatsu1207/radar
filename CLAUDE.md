@@ -6,7 +6,7 @@
 
 ## Tech Stack
 
-- **Backend**: Python 3.11, FastAPI, Celery, SQLAlchemy, PostgreSQL 16, Redis
+- **Backend**: Python 3.11, FastAPI, Celery, SQLAlchemy, PostgreSQL 18, Redis
 - **Frontend**: Next.js 14, React 18, TypeScript, Tailwind CSS, Recharts
 - **Package manager**: mamba (Miniforge)
 - **Deployment**: bare-metal via conda environment
@@ -51,7 +51,8 @@ radar/
 │   ├── src/
 │   │   ├── app/
 │   │   │   ├── page.tsx                        # Dashboard
-│   │   │   ├── projects/[id]/files/page.tsx    # File Manager page
+│   │   │   ├── files/page.tsx                  # Files page (sidebar "Files"; all projects, Re-run button)
+│   │   │   ├── projects/[id]/files/page.tsx    # Per-project File Manager (linked from project detail)
 │   │   │   ├── projects/[id]/page.tsx          # Project detail
 │   │   │   └── samples/[id]/page.tsx           # Sample detail (tabbed results)
 │   │   ├── components/
@@ -117,12 +118,10 @@ All tools run on CPU only (no GPU required). Installed via `install.sh` into 12 
 | Prodigal | Gene prediction (used by DefenseFinder, context annotations) |
 | BLAST + Infernal | Nucleotide searches (16S, ICEberg, sRNA/Rfam) |
 | sra-tools | Download FASTQ from SRA (prefetch + fasterq-dump) |
-| ViennaRNA | RNA structure (used by OSTIR; ≥2.6 in `radar-ostir`) |
 | DefenseFinder | Bacterial defense system detection (pip) |
 | IntegronFinder | Integron detection (pip) |
 | chewBBACA | Core-genome MLST (pip) |
 | ResFinder | PointFinder point mutations (pip) |
-| OSTIR | RBS translation initiation rate prediction (pip, `radar-ostir` env) |
 
 **Separate environments (dependency conflicts):**
 
@@ -137,6 +136,8 @@ All tools run on CPU only (no GPU required). Installed via `install.sh` into 12 
 | radar-busco | BUSCO | 3.10 | Complex deps (hmmer, prodigal, bbmap + pip from gitlab) |
 | radar-pypolca | Pypolca 0.5.0 | — | Needs freebayes/bwa/samtools; short-read polishing after Polypolish |
 | radar-nanoplot | NanoPlot 1.48.0 | — | Long-read QC report (own plotting stack) |
+| radar-plassembler | Plassembler + dnaapler | 3.12 | Plasmid recovery and contig rotation for long-read assemblies |
+| radar-ostir | OSTIR + ViennaRNA 2.7 | 3.11 | ViennaRNA's py3.11 bindings conflict with mlst's Perl in `radar` |
 
 **Installed from binary (optional):**
 
@@ -146,7 +147,7 @@ All tools run on CPU only (no GPU required). Installed via `install.sh` into 12 
 
 ## File Manager
 
-The File Manager is the primary data ingestion interface, accessed at `/projects/{id}/files`.
+The File Manager is the primary data ingestion interface, accessed at `/files` (sidebar; all projects) and `/projects/{id}/files` (one project).
 
 ### Data Sources
 
@@ -197,6 +198,8 @@ Known columns map to Metadata model fields; extra columns go into `custom_json`.
 ## Force re-run
 
 The pipeline skips every step whose output exists (QC files, assembly, result rows), so re-starting a finished sample does nothing. `force: true` on `POST /api/pipeline/start/{id}` or `POST /api/samples/{id}/analyze` (Files page: **Re-run** button on complete/failed samples, with a confirm) first calls `app.core.reset.reset_sample_results`: deletes `data/results/<id>/` and the rows of every table keyed to the sample (plus promoter/RBS rows of its ARGs), keeping `sample_files`, `metadata`, `ast_results`, `sra_downloads`, `bvbrc_fetches` and `analysis_jobs`; status → pending. Refused (409) while a pipeline job for the sample is pending/running (Tools-page jobs are ignored). Use it after a pipeline change, e.g. ONT-only R9.4.1 samples polished with the wrong Medaka model before 17349fa.
+
+Deleting a sample (`DELETE /api/samples/{id}`, `DELETE .../file-manager/samples/{id}`) or a project removes `data/uploads/<id>/` and `data/results/<id>/` (`reset.remove_sample_dirs`). Before 2026-11-12 the results folder was left behind; 12 orphaned folders (~21 GB) were removed then.
 
 ## Sample Downloads & Read QC (`backend/app/api/downloads.py`)
 
@@ -276,4 +279,4 @@ Ranks are stored when the pipeline runs; changing the tables does not update exi
 ./stop.sh                      # stop all services
 ```
 
-Ports are derived from UID for multi-user machines: frontend=7200+UID, backend=7210+UID, PostgreSQL=7220+UID, Redis=7230+UID.
+Ports live in `data/ports.env` (sourced by start.sh). On the first start it is created from the UID (frontend=7200+UID, backend=7210+UID, PostgreSQL=7220+UID, Redis=7230+UID); this server's copy was edited to frontend 3000, backend 8080, PostgreSQL 5433, Redis 6380. `start.sh` does not run migrations: apply new `backend/migrations/*.sql` by hand. Two Celery workers (pipeline queue and default queue), threads pool, concurrency 4 each. Before restarting on the shared server, check for running/pending `analysis_jobs`.

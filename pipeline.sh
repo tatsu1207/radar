@@ -84,10 +84,11 @@ if [ -n "$R1" ] && [ -z "$R2" ]; then
     echo "ERROR: R2 required when R1 is provided (-2)" >&2; exit 1
 fi
 
-# Flye runs on all reads, no coverage cap. (A 100x coverage cap on the initial assembly was
-# removed: it limited the initial assembly to the longest reads up to 100x and, on deep runs,
-# dropped a lower-coverage 36 kb plasmid carrying ARGs.) Reads are not subsampled either:
-# length-biased subsampling drops the short reads of small plasmids.
+# Flye on ONT reads runs on all reads, no coverage cap: a 100x cap limits the initial assembly
+# to the longest reads up to 100x and, on a deep run, dropped a lower-coverage 36 kb plasmid
+# carrying ARGs. PacBio HiFi keeps --genome-size 5m --asm-coverage 100: uncapped, Flye
+# --pacbio-hifi aborts with 0 disjointigs on deep (~450x+) data. Reads are not subsampled
+# either: length-biased subsampling drops the short reads of small plasmids.
 
 # samtools: radar env, else the copy in radar-plassembler
 if conda run -n radar samtools --version >/dev/null 2>&1; then
