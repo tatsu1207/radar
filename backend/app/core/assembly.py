@@ -21,12 +21,24 @@ CONDA_BUSCO = "radar-busco"
 CONDA_PLASSEMBLER = "radar-plassembler"
 CONDA_PYPOLCA = "radar-pypolca"
 
-# Flye runs on ALL reads with no coverage cap. A `--genome-size 5m --asm-coverage 100` cap
-# was removed: it restricts Flye's initial disjointig assembly to the longest reads up to
-# 100x, which on deep runs starved lower-coverage small replicons of their reads so Flye
-# never seeded them — a spot-check lost a circular 36 kb plasmid carrying
-# aadA1/aadA2/blaTEM-1/cmlA1/sul1 on an ONT isolate (Plassembler didn't recover it).
-FLYE_DEPTH_ARGS: list = []
+# Flye coverage handling is platform-specific:
+#  - ONT: no cap. `--asm-coverage 100` restricts the initial disjointig assembly to the
+#    longest reads up to 100x; on deep ONT runs that length-biased subset starved
+#    lower-coverage small replicons so Flye never seeded them — a spot-check lost a circular
+#    36 kb plasmid (aadA1/aadA2/blaTEM-1/cmlA1/sul1), which Plassembler didn't recover.
+#  - PacBio HiFi: KEEP the cap. HiFi reads are near-uniform length (~10-20 kb), so the
+#    longest-reads selection is not meaningfully length-biased, and the cap is *required*:
+#    uncapped, Flye --pacbio-hifi aborts on deep data ("Assembled 0 disjointigs" at >~450x,
+#    which is typical here — real HiFi runs reach 450-563x).
+FLYE_GENOME_SIZE = "5m"
+FLYE_ASM_COVERAGE = 100
+
+
+def _flye_depth_args(platform: str) -> list:
+    """Coverage-cap args for Flye: capped for PacBio HiFi (deep data needs it), none for ONT."""
+    if platform == "pacbio":
+        return ["--genome-size", FLYE_GENOME_SIZE, "--asm-coverage", str(FLYE_ASM_COVERAGE)]
+    return []
 # Medaka model when the reads don't name their basecaller model (see _medaka_model_args).
 # Median read Q (after Chopper) separates the chemistries: R10.4.1 SUP/HAC ~Q17-20,
 # R9.4.1 ~Q11-15. MEDAKA_R9_MODEL "" means: skip Medaka for presumed R9.4.1 reads.
@@ -145,7 +157,7 @@ def _run_flye(sample_id: str, long_read: str, threads: int, platform: str = "ont
         "conda", "run", "-n", CONDA_FLYE,
         "flye",
         flye_mode, long_read,
-        *FLYE_DEPTH_ARGS,
+        *_flye_depth_args(platform),
         "--out-dir", outdir,
         "--threads", str(threads),
     ]
@@ -315,7 +327,7 @@ def _run_hybrid_assembly(
         "conda", "run", "-n", CONDA_FLYE,
         "flye",
         "--pacbio-hifi" if hifi else "--nano-hq", long_read,
-        *FLYE_DEPTH_ARGS,
+        *_flye_depth_args(platform),
         "--out-dir", flye_dir,
         "--threads", str(threads),
     ]

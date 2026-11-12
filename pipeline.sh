@@ -408,13 +408,18 @@ case "$CASE" in
         LONG_INPUT="$FILTERED_LONG"
         [ ! -f "$LONG_INPUT" ] && LONG_INPUT="$LONG"
         FLYE_MODE="--nano-hq"
-        [ "$PLATFORM" = "pacbio" ] && FLYE_MODE="--pacbio-hifi" && LONG_INPUT="$LONG"
+        FLYE_DEPTH=()
+        [ "$PLATFORM" = "pacbio" ] && FLYE_MODE="--pacbio-hifi" && LONG_INPUT="$LONG" \
+            && FLYE_DEPTH=(--genome-size 5m --asm-coverage 100)
 
-        # Flye
+        # Flye (PacBio HiFi gets a 100x cap: deep HiFi aborts with 0 disjointigs uncapped,
+        # and HiFi's uniform read length means the cap doesn't drop small plasmids; ONT runs
+        # uncapped so low-coverage plasmids are not length-biased away)
         run_step "Flye assembly" \
             conda run -n radar \
             flye \
                 $FLYE_MODE "$LONG_INPUT" \
+                "${FLYE_DEPTH[@]}" \
                 --out-dir "${ASM_DIR}/flye_out" \
                 --threads "$THREADS"
         CURRENT_ASM="${ASM_DIR}/flye_out/assembly.fasta"
@@ -482,8 +487,10 @@ print(int(bases / asm))" "$CURRENT_ASM" "${QC_DIR}/fastp_report.json" 2>/dev/nul
         # Flye for PacBio HiFi or ONT-only
         LONG_INPUT="$LONG"
         FLYE_MODE="--nano-hq"
+        FLYE_DEPTH=()
         if [ "$PLATFORM" = "pacbio" ]; then
             FLYE_MODE="--pacbio-hifi"
+            FLYE_DEPTH=(--genome-size 5m --asm-coverage 100)  # see hybrid block: HiFi needs the cap
         elif [ -f "$FILTERED_LONG" ]; then
             LONG_INPUT="$FILTERED_LONG"
         fi
@@ -492,6 +499,7 @@ print(int(bases / asm))" "$CURRENT_ASM" "${QC_DIR}/fastp_report.json" 2>/dev/nul
             conda run -n radar \
             flye \
                 $FLYE_MODE "$LONG_INPUT" \
+                "${FLYE_DEPTH[@]}" \
                 --out-dir "${ASM_DIR}/flye_out" \
                 --threads "$THREADS"
         CURRENT_ASM="${ASM_DIR}/flye_out/assembly.fasta"
